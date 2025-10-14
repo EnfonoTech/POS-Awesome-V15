@@ -33,7 +33,7 @@
 								autofocus
 								variant="solo"
 								color="primary"
-								:label="frappe._('Search Items')"
+								:label="frappe._('Find Items')"
 								hint="Search by item code, serial number, batch no or barcode"
 								hide-details
 								v-model="debounce_search"
@@ -679,10 +679,10 @@ export default {
 		first_search: _.debounce(function (val, oldVal) {
 			const newLen = (val || "").trim().length;
 			const oldLen = (oldVal || "").trim().length;
-			if (newLen >= 3) {
+			if (newLen >= 2) {
 				// Call without arguments so search_onchange treats it like an Enter key
 				this.search_onchange();
-			} else if (oldLen >= 3 && newLen === 0) {
+			} else if (oldLen >= 2 && newLen === 0) {
 				// Reset items only when search is fully cleared
 				this.clearSearch();
 			}
@@ -760,7 +760,7 @@ export default {
 			}
 
 			// Filter by search term only if it exists and is long enough
-			if (searchTerm && searchTerm.trim() && searchTerm.trim().length >= 3) {
+			if (searchTerm && searchTerm.trim() && searchTerm.trim().length >= 2) {
 				const term = searchTerm.toLowerCase();
 				filtered = filtered.filter((item) => {
 					const barcodeMatch =
@@ -2557,7 +2557,7 @@ export default {
 			let filteredItems = [...this.items];
 
 			// Apply search filter only for queries with at least three characters
-			if (searchTerm.length >= 3) {
+			if (searchTerm.length >= 2) {
 				filteredItems = filteredItems.filter((item) => {
 					const barcodeList = [];
 					if (Array.isArray(item.item_barcode)) {
