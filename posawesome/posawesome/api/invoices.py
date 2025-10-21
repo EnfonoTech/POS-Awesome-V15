@@ -914,3 +914,111 @@ def get_price_list_currency(price_list: str) -> str:
     if not price_list:
         return None
     return frappe.db.get_value("Price List", price_list, "currency")
+
+
+@frappe.whitelist()
+def get_sales_invoice_list(page=1, items_per_page=25, filters=None):
+    """
+    Paginated sales invoice list with optional filters passed by `filters` (JSON/dict).
+    Each invoice includes a limited `items` list where qty, rate, amount are numeric.
+    """
+    # parse filters
+    if isinstance(filters, str):
+        try:
+            filters = json.loads(filters)
+        except Exception:
+            filters = {}
+    elif not filters:
+        filters = {}
+
+    page = int(page) if page else 1
+    items_per_page = int(items_per_page) if items_per_page else 25
+    start = (page - 1) * items_per_page
+
+    # build SQL conditions safely
+    conditions = "1=1"
+    values = {}
+
+    if filters.get("invoice_name"):
+        conditions += " AND si.name LIKE %(invoice_name)s"
+        values["invoice_name"] = f"%{filters.get('invoice_name')}%"
+
+    if filters.get("customer_name"):
+        conditions += " AND si.customer_name LIKE %(customer_name)s"
+        values["customer_name"] = f"%{filters.get('customer_name')}%"
+
+    if filters.get("from_date"):
+        conditions += " AND si.posting_date >= %(from_date)s"
+        values["from_date"] = filters.get("from_date")
+
+    if filters.get("to_date"):
+        conditions += " AND si.posting_date <= %(to_date)s"
+        values["to_date"] = filters.get("to_date")
+
+    # status filter uses the Sales Invoice.status field (Unpaid/Paid/Overdue/...)
+    if filters.get("status") not in (None, ""):
+        conditions += " AND si.status = %(status)s"
+        values["status"] = filters.get("status")
+
+    # total count with same conditions
+    total_row = frappe.db.sql(
+        f"SELECT COUNT(*) as total FROM `tabSales Invoice` si WHERE {conditions}",
+        values,
+        as_dict=True,
+    )
+    total_count = total_row[0].total if total_row else 0
+
+    # fetch invoices
+    invoices = frappe.db.sql(
+        f"""
+        SELECT
+            si.name,
+            si.customer,
+            si.customer_name,
+            si.posting_date,
+            si.grand_total,
+            si.net_total,
+            si.total_taxes_and_charges,
+            si.currency,
+            si.docstatus,
+            si.is_return,
+            si.status,
+            si.outstanding_amount,
+            si.paid_amount
+        FROM `tabSales Invoice` si
+        WHERE {conditions}
+        ORDER BY si.posting_date DESC, si.name DESC
+        LIMIT {items_per_page} OFFSET {start}
+        """,
+        values,
+        as_dict=True,
+    )
+
+    # attach limited items and coerce numeric fields
+    for inv in invoices:
+        items = frappe.get_list(
+            "Sales Invoice Item",
+            filters={"parent": inv.get("name")},
+            fields=["item_code", "item_name", "qty", "rate", "amount", "uom"],
+            limit_page_length=100,  # retrieving up to 100 to ensure details in dialog
+        )
+        # coerce numeric fields so frontend sees numbers, not strings or None
+        for it in items:
+            it["qty"] = flt(it.get("qty") or 0)
+            it["rate"] = flt(it.get("rate") or 0)
+            it["amount"] = flt(it.get("amount") or 0)
+        inv["items"] = items
+
+    has_more = (start + items_per_page) < total_count
+    total_pages = (total_count + items_per_page - 1) // items_per_page
+
+    return {
+        "invoices": invoices,
+        "pagination": {
+            "current_page": page,
+            "total_pages": total_pages,
+            "total_count": total_count,
+            "items_per_page": items_per_page,
+            "has_more": has_more,
+        },
+    }

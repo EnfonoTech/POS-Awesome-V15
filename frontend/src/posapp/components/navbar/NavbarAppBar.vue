@@ -13,8 +13,8 @@
 			<v-toolbar-title @click="$emit('go-desk')"
 				:class="['text-h6 font-weight-bold text-primary navbar-title', isRtl ? 'rtl-title' : 'ltr-title']"
 				style="cursor: pointer; text-decoration: none">
-				<span class="font-weight-light navbar-title-light">{{ __("POS") }}</span><span
-					class="navbar-title-bold">{{ __("Awesome") }}</span>
+				<span class="font-weight-light navbar-title-light">{{ __("FATEH") }}</span><span
+					class="navbar-title-bold">{{ __("POS") }}</span>
 			</v-toolbar-title>
 		</div>
 

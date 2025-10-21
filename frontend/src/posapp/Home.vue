@@ -42,6 +42,7 @@
 import Navbar from "./components/Navbar.vue";
 import POS from "./components/pos/Pos.vue";
 import Payments from "./components/payments/Pay.vue";
+import SalesInvoiceList from "./components/pos/SalesInvoiceList.vue";
 import {
 	loadingState,
 	initLoadingSources,
@@ -149,6 +150,7 @@ export default {
 		Navbar,
 		POS,
 		Payments,
+		InvoiceList: SalesInvoiceList,
 	},
 	mounted() {
 		this.remove_frappe_nav();
