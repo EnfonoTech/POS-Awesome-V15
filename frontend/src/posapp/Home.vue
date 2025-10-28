@@ -31,7 +31,7 @@
 				@update-after-delete="handleUpdateAfterDelete"
 			/>
 			<div class="page-content">
-				<component v-bind:is="page" class="mx-4 md-4"></component>
+				<component v-bind:is="page" :pos-profile="posProfile" class="mx-4 md-4"></component>
 			</div>
 		</v-main>
 	</v-app>

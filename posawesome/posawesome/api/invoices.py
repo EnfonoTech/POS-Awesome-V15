@@ -917,9 +917,10 @@ def get_price_list_currency(price_list: str) -> str:
 
 
 @frappe.whitelist()
-def get_sales_invoice_list(page=1, items_per_page=25, filters=None):
+def get_sales_invoice_list(page=1, items_per_page=25, filters=None, pos_profile=None):
     """
-    Paginated sales invoice list with optional filters passed by `filters` (JSON/dict).
+    Paginated invoice list with optional filters passed by `filters` (JSON/dict).
+    Checks both POS Invoice and Sales Invoice tables, prioritizing POS Invoice.
     Each invoice includes a limited `items` list where qty, rate, amount are numeric.
     """
     # parse filters
@@ -935,6 +936,33 @@ def get_sales_invoice_list(page=1, items_per_page=25, filters=None):
     items_per_page = int(items_per_page) if items_per_page else 25
     start = (page - 1) * items_per_page
 
+    # Determine which table to use based on POS profile setting
+    use_pos_invoice = False
+    if pos_profile:
+        use_pos_invoice = frappe.db.get_value("POS Profile", pos_profile, "create_pos_invoice_instead_of_sales_invoice")
+    
+    # Use POS Invoice table if configured, otherwise use Sales Invoice
+    table_name = "tabPOS Invoice" if use_pos_invoice else "tabSales Invoice"
+    item_table_name = "tabPOS Invoice Item" if use_pos_invoice else "tabSales Invoice Item"
+    doctype_name = "POS Invoice" if use_pos_invoice else "Sales Invoice"
+    
+    # Build basic conditions for fallback check
+    fallback_conditions = "1=1"
+    fallback_values = {}
+    if pos_profile:
+        fallback_conditions += " AND si.pos_profile = %(pos_profile)s"
+        fallback_values["pos_profile"] = pos_profile
+    
+    # If using POS Invoice but no records exist, fall back to Sales Invoice
+    if use_pos_invoice and pos_profile:
+        pos_invoice_count = frappe.db.sql(f"SELECT COUNT(*) as count FROM `{table_name}` si WHERE {fallback_conditions}", fallback_values, as_dict=True)
+        if pos_invoice_count[0].count == 0:
+            # Fall back to Sales Invoice table
+            table_name = "tabSales Invoice"
+            item_table_name = "tabSales Invoice Item"
+            doctype_name = "Sales Invoice"
+            use_pos_invoice = False
+    
     # build SQL conditions safely
     conditions = "1=1"
     values = {}
@@ -955,14 +983,24 @@ def get_sales_invoice_list(page=1, items_per_page=25, filters=None):
         conditions += " AND si.posting_date <= %(to_date)s"
         values["to_date"] = filters.get("to_date")
 
-    # status filter uses the Sales Invoice.status field (Unpaid/Paid/Overdue/...)
-    if filters.get("status") not in (None, ""):
+    # status filter - POS Invoice doesn't have status field, so skip for POS Invoice
+    if filters.get("status") not in (None, "") and not use_pos_invoice:
         conditions += " AND si.status = %(status)s"
         values["status"] = filters.get("status")
 
+    # is_pos filter to show only POS invoices (only for Sales Invoice table)
+    if filters.get("is_pos") is not None and not use_pos_invoice:
+        conditions += " AND si.is_pos = %(is_pos)s"
+        values["is_pos"] = filters.get("is_pos")
+
+    # pos_profile filter to show only invoices from specific POS profile
+    if pos_profile:
+        conditions += " AND si.pos_profile = %(pos_profile)s"
+        values["pos_profile"] = pos_profile
+
     # total count with same conditions
     total_row = frappe.db.sql(
-        f"SELECT COUNT(*) as total FROM `tabSales Invoice` si WHERE {conditions}",
+        f"SELECT COUNT(*) as total FROM `{table_name}` si WHERE {conditions}",
         values,
         as_dict=True,
     )
@@ -984,8 +1022,10 @@ def get_sales_invoice_list(page=1, items_per_page=25, filters=None):
             si.is_return,
             si.status,
             si.outstanding_amount,
-            si.paid_amount
-        FROM `tabSales Invoice` si
+            si.paid_amount,
+            si.pos_profile,
+            '{doctype_name}' as doctype
+        FROM `{table_name}` si
         WHERE {conditions}
         ORDER BY si.posting_date DESC, si.name DESC
         LIMIT {items_per_page} OFFSET {start}
@@ -996,17 +1036,23 @@ def get_sales_invoice_list(page=1, items_per_page=25, filters=None):
 
     # attach limited items and coerce numeric fields
     for inv in invoices:
-        items = frappe.get_list(
-            "Sales Invoice Item",
-            filters={"parent": inv.get("name")},
+        item_doctype = "POS Invoice Item" if use_pos_invoice else "Sales Invoice Item"
+        items = frappe.get_all(
+            item_doctype,
+            filters={
+                "parent": inv.get("name"),
+                "parenttype": doctype_name,
+                "parentfield": "items",
+            },
             fields=["item_code", "item_name", "qty", "rate", "amount", "uom"],
-            limit_page_length=100,  # retrieving up to 100 to ensure details in dialog
+            limit_page_length=100,
         )
-        # coerce numeric fields so frontend sees numbers, not strings or None
+
         for it in items:
             it["qty"] = flt(it.get("qty") or 0)
             it["rate"] = flt(it.get("rate") or 0)
             it["amount"] = flt(it.get("amount") or 0)
+
         inv["items"] = items
 
     has_more = (start + items_per_page) < total_count

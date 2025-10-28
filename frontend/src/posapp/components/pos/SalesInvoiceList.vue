@@ -4,7 +4,7 @@
 		<div class="list-header pa-4">
 			<v-row align="center" class="mb-4">
 				<v-col cols="12" md="6">
-					<h2 class="text-h5 font-weight-bold">{{ __("Sales Invoice List") }}</h2>
+					<h2 class="text-h5 font-weight-bold">{{ __("Invoice List") }}</h2>
 				</v-col>
 				<v-col cols="12" md="6" class="text-right">
 					<v-btn
@@ -353,6 +353,12 @@ import { printInvoice, downloadInvoicePDF, printPreview } from "../../utils/prin
 
 export default {
 	name: "SalesInvoiceList",
+	props: {
+		posProfile: {
+			type: Object,
+			default: () => ({})
+		}
+	},
 	data() {
 		return {
 			loading: false,
@@ -398,17 +404,39 @@ export default {
 	mounted() {
 		this.loadInvoices();
 	},
+	watch: {
+		posProfile: {
+			handler(newVal, oldVal) {
+				if (newVal && newVal.name && (!oldVal || oldVal.name !== newVal.name)) {
+					this.currentPage = 1; // Reset to first page
+					this.loadInvoices();
+				}
+			},
+			immediate: true
+		}
+	},
 	methods: {
 		async loadInvoices() {
+			// Don't load if posProfile is not available yet
+			if (!this.posProfile || !this.posProfile.name) {
+				return;
+			}
+			
 			this.loading = true;
 			try {
+				const args = {
+					page: this.currentPage,
+					items_per_page: this.itemsPerPage,
+					filters: {
+						...this.filters,
+						is_pos: 1, // Only show POS invoices
+					},
+					pos_profile: this.posProfile.name, // Filter by current POS profile
+				};
+				
 				const response = await frappe.call({
 					method: "posawesome.posawesome.api.invoices.get_sales_invoice_list",
-					args: {
-						page: this.currentPage,
-						items_per_page: this.itemsPerPage,
-						filters: this.filters,
-					},
+					args: args,
 				});
 
 				if (response.message) {
@@ -446,14 +474,33 @@ export default {
 
 		async viewInvoice(invoice) {
 			try {
-				// Always fetch the full document to ensure we have complete data
-				const resp = await frappe.call({
-					method: "frappe.client.get",
-					args: {
-						doctype: "Sales Invoice",
-						name: invoice.name,
-					},
-				});
+				// Determine doctype from the invoice data or use POS Invoice as default
+				let doctype = invoice.doctype || "POS Invoice";
+				
+				// Try to fetch the document with the determined doctype
+				let resp;
+				try {
+					resp = await frappe.call({
+						method: "frappe.client.get",
+						args: {
+							doctype: doctype,
+							name: invoice.name,
+						},
+					});
+				} catch (error) {
+					// If the first attempt fails, try the alternative doctype
+					console.log(`Failed to fetch ${invoice.name} as ${doctype}, trying alternative doctype`);
+					const alternativeDoctype = doctype === "POS Invoice" ? "Sales Invoice" : "POS Invoice";
+					resp = await frappe.call({
+						method: "frappe.client.get",
+						args: {
+							doctype: alternativeDoctype,
+							name: invoice.name,
+						},
+					});
+					doctype = alternativeDoctype; // Update doctype for consistency
+				}
+				
 				this.selectedInvoice = resp.message;
 				
 				// Ensure items have proper numeric values
@@ -478,8 +525,11 @@ export default {
 
 		async printInvoice(invoice) {
 			try {
+				const doctype = invoice.doctype || 'POS Invoice';
+				const defaultFormat = doctype === 'POS Invoice' ? 'POS Invoice Print' : 'Sales Invoice Print';
+				
 				const printOptions = {
-					format: this.posProfile?.print_format || "Sales Invoice Print",
+					format: this.posProfile?.print_format || defaultFormat,
 					letter_head: this.posProfile?.letter_head || null,
 					silent: this.posProfile?.posa_silent_print || false,
 					onSuccess: () => {
@@ -509,8 +559,11 @@ export default {
 
 		async downloadPDF(invoice) {
 			try {
+				const doctype = invoice.doctype || 'POS Invoice';
+				const defaultFormat = doctype === 'POS Invoice' ? 'POS Invoice Print' : 'Sales Invoice Print';
+				
 				const downloadOptions = {
-					format: this.posProfile?.print_format || "Sales Invoice Print",
+					format: this.posProfile?.print_format || defaultFormat,
 					letter_head: this.posProfile?.letter_head || null,
 				};
 
@@ -540,10 +593,13 @@ export default {
 
 		getPrintPreviewUrl(invoice) {
 			const baseUrl = frappe.urllib.get_base_url();
+			const doctype = invoice.doctype || 'POS Invoice';
+			const defaultFormat = doctype === 'POS Invoice' ? 'POS Invoice Print' : 'Sales Invoice Print';
+			
 			const params = new URLSearchParams({
-				doctype: invoice.doctype || 'Sales Invoice',
+				doctype: doctype,
 				name: invoice.name,
-				format: this.posProfile?.print_format || 'Sales Invoice Print',
+				format: this.posProfile?.print_format || defaultFormat,
 				no_letterhead: '0'
 			});
 
@@ -568,6 +624,8 @@ export default {
 			}
 
 			try {
+				const doctype = invoice.doctype || 'POS Invoice';
+				
 				await frappe.call({
 					method: "posawesome.posawesome.api.invoices.delete_invoice",
 					args: {
@@ -633,11 +691,6 @@ export default {
 			// Remove HTML tags and return plain text
 			return formatted.replace(/<[^>]*>/g, '');
 		}
-	},
-	computed: {
-		posProfile() {
-			return this.$parent.posProfile || {};
-		},
 	},
 };
 </script>

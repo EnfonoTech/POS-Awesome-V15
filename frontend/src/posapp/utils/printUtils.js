@@ -18,7 +18,7 @@
  */
 export function printInvoice(invoice, options = {}) {
 	const {
-		format = 'Sales Invoice Print',
+		format = 'POS Invoice Print',
 		silent = false,
 		no_letterhead = false,
 		letter_head = null,
@@ -28,7 +28,7 @@ export function printInvoice(invoice, options = {}) {
 
 	try {
 		// Determine doctype based on invoice properties
-		const doctype = invoice.doctype || 'Sales Invoice';
+		const doctype = invoice.doctype || 'POS Invoice';
 		
 		// Build print URL
 		const baseUrl = frappe.urllib.get_base_url();
@@ -85,13 +85,13 @@ export function printInvoice(invoice, options = {}) {
  */
 export function downloadInvoicePDF(invoice, options = {}) {
 	const {
-		format = 'Sales Invoice Print',
+		format = 'POS Invoice Print',
 		no_letterhead = false,
 		letter_head = null
 	} = options;
 
 	try {
-		const doctype = invoice.doctype || 'Sales Invoice';
+		const doctype = invoice.doctype || 'POS Invoice';
 		const baseUrl = frappe.urllib.get_base_url();
 		
 		const params = new URLSearchParams({
@@ -301,13 +301,13 @@ function silentPrint(url) {
  */
 export function printPreview(invoice, options = {}) {
 	const {
-		format = 'Sales Invoice Print',
+		format = 'POS Invoice Print',
 		no_letterhead = false,
 		letter_head = null
 	} = options;
 
 	try {
-		const doctype = invoice.doctype || 'Sales Invoice';
+		const doctype = invoice.doctype || 'POS Invoice';
 		const baseUrl = frappe.urllib.get_base_url();
 		
 		const params = new URLSearchParams({
