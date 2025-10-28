@@ -86,17 +86,16 @@
 
 		<!-- Invoice List -->
 		<v-card class="invoice-list-card">
-			<v-data-table
+						<v-data-table
 				:headers="headers"
 				:items="invoices"
 				:loading="loading"
 				:items-per-page="itemsPerPage"
-				:page="currentPage"
-				@update:page="handlePageChange"
 				class="elevation-1"
 				density="comfortable"
 				:no-data-text="__('No invoices found')"
 				:loading-text="__('Loading invoices...')"
+				hide-default-footer
 			>
 				<!-- Invoice Number Column -->
 				<template v-slot:item.name="{ item }">
@@ -188,8 +187,21 @@
 					</div>
 				</template>
 			</v-data-table>
+			<div class="d-flex justify-end align-center pa-2" style="gap: 8px;">
+				<label class="text-sm text-gray-600" style="font-size: 13px;">{{ __("Items per page") }}:</label>
+				<div style="width: 90px;">
+					<v-select
+					v-model="itemsPerPage"
+					:items="[10, 20, 25, 50, 100]"
+					variant="outlined"
+					density="compact"
+					hide-details
+					@update:model-value="changeItemsPerPage"
+					></v-select>
+				</div>
+			</div>
 		</v-card>
-
+		
 		<!-- Invoice Details Dialog -->
 		<v-dialog v-model="showInvoiceDialog" max-width="800px" scrollable>
 			<v-card v-if="selectedInvoice">
@@ -690,8 +702,13 @@ export default {
 			});
 			// Remove HTML tags and return plain text
 			return formatted.replace(/<[^>]*>/g, '');
+		},
+		changeItemsPerPage() {
+			this.currentPage = 1;
+			this.loadInvoices();
 		}
 	},
+	
 };
 </script>
 
