@@ -954,3 +954,171 @@ def get_price_list_currency(price_list: str) -> str:
     if not price_list:
         return None
     return frappe.db.get_value("Price List", price_list, "currency")
+
+@frappe.whitelist()
+def get_sales_invoice_list(page=1, items_per_page=25, filters=None, pos_profile=None):
+    """
+    Paginated invoice list with optional filters.
+    Supports both POS Invoice and Sales Invoice — automatically switches based on POS Profile.
+    Handles status filtering for both types and flexible pagination.
+    """
+    # Parse filters
+    if isinstance(filters, str):
+        try:
+            filters = json.loads(filters)
+        except Exception:
+            filters = {}
+    elif not filters:
+        filters = {}
+
+    # Pagination safety
+    try:
+        page = cint(page)
+        if page <= 0:
+            page = 1
+    except Exception:
+        page = 1
+
+    try:
+        items_per_page = cint(items_per_page)
+        if items_per_page <= 0:
+            items_per_page = 25
+    except Exception:
+        items_per_page = 25
+
+    start = (page - 1) * items_per_page
+
+    # Determine which doctype to use
+    use_pos_invoice = False
+    if pos_profile:
+        use_pos_invoice = frappe.db.get_value(
+            "POS Profile",
+            pos_profile,
+            "create_pos_invoice_instead_of_sales_invoice"
+        )
+
+    table_name = "tabPOS Invoice" if use_pos_invoice else "tabSales Invoice"
+    doctype_name = "POS Invoice" if use_pos_invoice else "Sales Invoice"
+
+    # Fallback logic if POS Invoice table empty
+    if use_pos_invoice and pos_profile:
+        pos_count = frappe.db.count("POS Invoice", filters={"pos_profile": pos_profile})
+        if not pos_count:
+            table_name = "tabSales Invoice"
+            doctype_name = "Sales Invoice"
+            use_pos_invoice = False
+
+    # Build SQL conditions
+    conditions = "1=1"
+    values = {}
+
+    if filters.get("invoice_name"):
+        conditions += " AND si.name LIKE %(invoice_name)s"
+        values["invoice_name"] = f"%{filters['invoice_name']}%"
+
+    if filters.get("customer_name"):
+        conditions += " AND si.customer_name LIKE %(customer_name)s"
+        values["customer_name"] = f"%{filters['customer_name']}%"
+
+    if filters.get("from_date"):
+        conditions += " AND si.posting_date >= %(from_date)s"
+        values["from_date"] = filters["from_date"]
+
+    if filters.get("to_date"):
+        conditions += " AND si.posting_date <= %(to_date)s"
+        values["to_date"] = filters["to_date"]
+
+    if pos_profile:
+        conditions += " AND si.pos_profile = %(pos_profile)s"
+        values["pos_profile"] = pos_profile
+
+    #  Unified Status Handling
+    if filters.get("status") not in (None, ""):
+        status = filters.get("status").lower()
+
+        if use_pos_invoice:
+            # Map textual statuses to docstatus or outstanding conditions
+            if status == "draft":
+                conditions += " AND si.docstatus = 0"
+            elif status in ("paid", "consolidated"):
+                conditions += " AND si.docstatus = 1"
+                # further refine if needed:
+                # conditions += " AND si.outstanding_amount = 0"
+            elif status == "cancelled":
+                conditions += " AND si.docstatus = 2"
+        else:
+            conditions += " AND si.status = %(status)s"
+            values["status"] = filters["status"]
+
+    # Total count
+    total_row = frappe.db.sql(
+        f"SELECT COUNT(*) AS total FROM `{table_name}` si WHERE {conditions}",
+        values,
+        as_dict=True,
+    )
+    total_count = total_row[0].total if total_row else 0
+
+    # Fetch invoices
+    invoices = frappe.db.sql(
+        f"""
+        SELECT
+            si.name,
+            si.customer,
+            si.customer_name,
+            si.posting_date,
+            si.grand_total,
+            si.net_total,
+            si.total_taxes_and_charges,
+            si.currency,
+            si.docstatus,
+            si.is_return,
+            si.status,
+            si.outstanding_amount,
+            si.paid_amount,
+            si.pos_profile,
+            '{doctype_name}' AS doctype
+        FROM `{table_name}` si
+        WHERE {conditions}
+        ORDER BY si.posting_date DESC, si.name DESC
+        LIMIT {items_per_page} OFFSET {start}
+        """,
+        values,
+        as_dict=True,
+    )
+
+    #  Attach items with numeric coercion
+    item_doctype = "POS Invoice Item" if use_pos_invoice else "Sales Invoice Item"
+
+    for inv in invoices:
+        items = frappe.get_all(
+            item_doctype,
+            filters={
+                "parent": inv.get("name"),
+                "parenttype": doctype_name,
+                "parentfield": "items",
+            },
+            fields=["item_code", "item_name", "qty", "rate", "amount", "uom"],
+            limit_page_length=100,
+        )
+
+        for it in items:
+            it["qty"] = flt(it.get("qty") or 0)
+            it["rate"] = flt(it.get("rate") or 0)
+            it["amount"] = flt(it.get("amount") or 0)
+
+        inv["items"] = items
+
+    # Pagination summary
+    has_more = (start + items_per_page) < total_count
+    total_pages = (total_count + items_per_page - 1) // items_per_page
+
+    return {
+        "invoices": invoices,
+        "pagination": {
+            "current_page": page,
+            "total_pages": total_pages,
+            "total_count": total_count,
+            "items_per_page": items_per_page,
+            "has_more": has_more,
+        },
+    }

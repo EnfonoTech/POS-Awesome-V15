@@ -516,6 +516,7 @@ export default {
 				this.selected_columns = this.available_columns
 					.filter((col) => {
 						if (col.required) return true;
+						if (col.key === "uom") return true; // Always show UOM column for inline editing
 						if (col.key === "price_list_rate") return true;
 						if (col.key === "discount_value" && this.pos_profile.posa_display_discount_percentage)
 							return true;

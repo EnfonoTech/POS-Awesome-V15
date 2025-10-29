@@ -202,8 +202,9 @@ export default {
 			items: [
 				{ text: "POS", icon: "mdi-network-pos" },
 				{ text: "Payments", icon: "mdi-credit-card" },
+				{ text: "InvoiceList", icon: "mdi-file-document-multiple" },
 			],
-			company: "POS Awesome",
+			company: "FATEH POS",
 			companyImg: posLogo,
 			showAboutDialog: false,
 			showOfflineInvoices: false,

@@ -849,17 +849,17 @@ export default {
 
 			// When limit search is enabled, wait for an explicit Enter key press
 			if (this.usesLimitSearch) {
-				if (oldLen >= 3 && newLen === 0) {
+				if (oldLen >= 2 && newLen === 0) {
 					// Reset items only when search is fully cleared
 					this.clearSearch();
 				}
 				return;
 			}
 
-			if (newLen >= 3) {
+			if (newLen >= 2) {
 				// Call without arguments so search_onchange treats it like an Enter key
 				this.search_onchange();
-			} else if (oldLen >= 3 && newLen === 0) {
+			} else if (oldLen >= 2 && newLen === 0) {
 				// Reset items only when search is fully cleared
 				this.clearSearch();
 			}
@@ -942,7 +942,7 @@ export default {
 			}
 
 			// Filter by search term only if it exists and is long enough
-			if (searchTerm && searchTerm.trim() && searchTerm.trim().length >= 3) {
+			if (searchTerm && searchTerm.trim() && searchTerm.trim().length >= 2) {
 				const term = searchTerm.toLowerCase();
 				filtered = filtered.filter((item) => {
 					if (!searchWords.length) {
@@ -3701,7 +3701,7 @@ export default {
 			let filteredItems = baseItems;
 
 			// Apply search filter only for queries with at least three characters
-			if (searchTerm.length >= 3) {
+			if (searchTerm.length >= 2) {
 				const searchTerms = Array.from(new Set(searchTerm.split(/\s+/).filter(Boolean)));
 
 				filteredItems = filteredItems.filter((item) => {

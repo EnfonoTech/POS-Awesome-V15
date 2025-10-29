@@ -97,6 +97,34 @@
 				</div>
 			</template>
 
+			<!-- UOM column -->
+			<template v-slot:item.uom="{ item }">
+				<div class="uom-display" @click.stop>
+					<v-select
+						density="compact"
+						variant="outlined"
+						class="inline-uom-select pos-themed-input"
+						v-model="item.uom"
+						:items="getUniqueUoms(item.item_uoms)"
+						item-title="uom"
+						item-value="uom"
+						hide-details
+						@update:model-value="calcUom(item, $event)"
+						@click.stop
+						@mousedown.stop
+						:disabled="
+							!!item.posa_is_replace ||
+							(isReturnInvoice && invoice_doc.return_against)
+						"
+						:menu-props="{ 
+							contentClass: 'uom-dropdown-menu',
+							maxHeight: '200px'
+						}"
+					>
+					</v-select>
+				</div>
+			</template>
+
 			<!-- Rate column -->
 			<template v-slot:item.rate="{ item }">
 				<div class="currency-display right-aligned">
@@ -960,6 +988,23 @@ export default {
 			}
 
 			return terms.every((term) => haystacks.some((text) => text.includes(term)));
+		},
+
+		// Get unique UOMs to prevent duplicates in dropdown
+		getUniqueUoms(uoms) {
+			if (!uoms || !Array.isArray(uoms)) return [];
+			
+			const uniqueUoms = [];
+			const seenUoms = new Set();
+			
+			for (const uom of uoms) {
+				if (uom && uom.uom && !seenUoms.has(uom.uom)) {
+					seenUoms.add(uom.uom);
+					uniqueUoms.push(uom);
+				}
+			}
+			
+			return uniqueUoms;
 		},
 
 		// Container awareness methods
@@ -3242,5 +3287,124 @@ body[dir="rtl"] .number-field-rtl {
 
 .delete-action-btn:hover .v-icon {
 	animation: pulse 0.6s ease-in-out;
+}
+
+/* =================================================================
+   INLINE UOM SELECT STYLES
+   ================================================================= */
+
+.uom-display {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	width: 100%;
+	height: 100%;
+	padding: 0;
+	margin: 0;
+}
+
+.inline-uom-select {
+	min-width: 100px;
+	max-width: 150px;
+	width: auto;
+	flex: 1;
+}
+
+.inline-uom-select :deep(.v-field) {
+	border-radius: 6px !important;
+	background: var(--pos-input-bg) !important;
+	border: 1px solid var(--pos-border-light) !important;
+	transition: all 0.3s ease !important;
+	font-size: 0.8rem !important;
+	min-height: 32px !important;
+}
+
+.inline-uom-select :deep(.v-field__input) {
+	padding: 4px 8px !important;
+	font-size: 0.8rem !important;
+	min-height: auto !important;
+	text-align: center !important;
+}
+
+.inline-uom-select :deep(.v-field__append-inner) {
+	padding-left: 4px !important;
+}
+
+.inline-uom-select :deep(.v-field:hover) {
+	border-color: var(--pos-primary-variant) !important;
+	box-shadow: 0 2px 8px var(--pos-shadow) !important;
+}
+
+.inline-uom-select :deep(.v-field--focused) {
+	border-color: var(--pos-primary) !important;
+	box-shadow: 0 0 0 2px var(--pos-primary-container) !important;
+}
+
+.uom-dropdown-menu {
+	border-radius: 8px !important;
+	box-shadow: 0 4px 16px var(--pos-shadow) !important;
+	border: 1px solid var(--pos-border) !important;
+	background: var(--pos-card-bg) !important;
+}
+
+.uom-dropdown-menu :deep(.v-list-item) {
+	min-height: 40px !important;
+	padding: 8px 16px !important;
+}
+
+.uom-dropdown-menu :deep(.v-list-item-title) {
+	font-size: 0.85rem !important;
+	font-weight: 500 !important;
+	color: var(--pos-text-primary) !important;
+}
+
+.uom-dropdown-menu :deep(.v-list-item-subtitle) {
+	font-size: 0.75rem !important;
+	color: var(--pos-text-secondary) !important;
+	margin-top: 2px !important;
+}
+
+.uom-dropdown-menu :deep(.v-list-item:hover) {
+	background: var(--pos-hover-bg) !important;
+}
+
+.uom-dropdown-menu :deep(.v-list-item--active) {
+	background: var(--pos-primary-container) !important;
+	color: var(--pos-primary) !important;
+}
+
+/* Responsive UOM column adjustments */
+@media (max-width: 768px) {
+	.inline-uom-select {
+		min-width: 80px;
+		max-width: 120px;
+	}
+	
+	.inline-uom-select :deep(.v-field) {
+		font-size: 0.75rem !important;
+		min-height: 28px !important;
+	}
+	
+	.inline-uom-select :deep(.v-field__input) {
+		padding: 2px 6px !important;
+		font-size: 0.75rem !important;
+	}
+}
+
+@media (max-width: 600px) {
+	.inline-uom-select {
+		min-width: 70px;
+		max-width: 100px;
+	}
+	
+	.inline-uom-select :deep(.v-field) {
+		font-size: 0.7rem !important;
+		min-height: 26px !important;
+	}
+	
+	.inline-uom-select :deep(.v-field__input) {
+		padding: 1px 4px !important;
+		font-size: 0.7rem !important;
+	}
 }
 </style>
