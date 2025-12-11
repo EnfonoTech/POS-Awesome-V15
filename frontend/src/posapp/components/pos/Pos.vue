@@ -43,16 +43,7 @@
 				class="pos dynamic-col"
 				:class="{ 'fullscreen-right': hideLeftPanel }"
 			>
-				<!-- VERSION: 2.0.3 - Scanner moved to search position -->
-				<!-- Version Indicator -->
-				<v-chip 
-					color="primary" 
-					size="small" 
-					class="version-indicator-chip"
-					style="position: fixed; top: 60px; right: 10px; z-index: 9999; font-weight: bold; font-size: 12px; padding: 4px 8px;"
-				>
-					v2.0.3
-				</v-chip>
+				
 				<div class="invoice-wrapper">
 				<Invoice></Invoice>
 				</div>

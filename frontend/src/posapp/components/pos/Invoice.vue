@@ -4,31 +4,7 @@
 		<!-- Cancel Sale Confirmation Dialog -->
 		<CancelSaleDialog v-model="cancel_dialog" @confirm="cancel_invoice" />
 
-		<!-- Scan Error Dialog -->
-		<v-dialog v-model="scanErrorDialog" persistent max-width="420" content-class="scan-error-dialog">
-			<v-card>
-				<v-card-title class="d-flex align-center text-error text-h6">
-					<v-icon color="error" class="mr-2">mdi-alert-octagon</v-icon>
-					{{ __("Scan Error") }}
-				</v-card-title>
-				<v-divider></v-divider>
-				<v-card-text>
-					<p class="scan-error-message">{{ scanErrorMessage }}</p>
-					<p v-if="scanErrorCode" class="scan-error-code mt-2 mb-0">
-						<strong>{{ __("Scanned Code:") }}</strong>
-						<span>{{ scanErrorCode }}</span>
-					</p>
-					<p v-if="scanErrorDetails" class="scan-error-details mt-4 mb-0">
-						{{ scanErrorDetails }}
-					</p>
-				</v-card-text>
-				<v-card-actions class="justify-end">
-					<v-btn color="primary" variant="tonal" autofocus @click="acknowledgeScanError">
-						{{ __("OK") }}
-					</v-btn>
-				</v-card-actions>
-			</v-card>
-		</v-dialog>
+		<!-- Scan Error Dialog - VERSION 2.0.3: Removed, ItemsSelector handles error notifications -->
 
 		<!-- Main Invoice Card (contains all invoice content) -->
 		<v-card
@@ -544,37 +520,20 @@ export default {
                 },
 
                 submitManualScan() {
-                        // VERSION 2.0.1 - Enhanced Scanner
+                        // VERSION 2.0.3 - Scanner submission (ItemsSelector handles locking)
                         const code = (this.manualScanValue ?? "").toString().trim();
                         if (!code) {
                                 return;
                         }
-                        if (this.scannerLocked) {
-                                this.onBarcodeScanned(code);
-                                this.queueManualScanFocus();
-                                return;
-                        }
+                        // Removed scanner lock check - ItemsSelector handles all scanner locking logic
                         this.manualScanValue = "";
                         this.onBarcodeScanned(code);
                         this.queueManualScanFocus();
                 },
 
                 onBarcodeScanned(scannedCode) {
-                        // VERSION 2.0.1 - Enhanced Scanner with Full Validation
-                        if (this.scannerLocked) {
-                                console.log("[Invoice Scanner v2.0.1] Scanner is locked");
-                                this.playScanTone("error");
-                                if (frappe?.show_alert) {
-                                        frappe.show_alert(
-                                                {
-                                                        message: this.__("Acknowledge the error to resume scanning."),
-                                                        indicator: "red",
-                                                },
-                                                3,
-                                        );
-                                }
-                                return;
-                        }
+                        // VERSION 2.0.3 - Scanner validation (ItemsSelector handles locking/unlocking)
+                        // Removed scanner lock check - ItemsSelector handles all scanner locking logic
 
                         const runScanPipeline = async (code) => {
                                 try {
@@ -583,25 +542,8 @@ export default {
                                         // mark this search as coming from a scanner
                                         this.search_from_scanner = true;
 
-                                        // Show scanning feedback
-                                        if (this.eventBus?.emit) {
-                                                this.eventBus.emit("show_message", {
-                                                        title: this.__("Scanning for: {0}", [code]),
-                                                        summary: this.__("Scanning items"),
-                                                        detail: code,
-                                                        color: "info",
-                                                        timeout: 2000,
-                                                        groupId: "scanner-progress",
-                                                });
-                                        } else if (frappe?.show_alert) {
-                                                frappe.show_alert(
-                                                        {
-                                                                message: `Scanning for: ${code}`,
-                                                                indicator: "blue",
-                                                        },
-                                                        2,
-                                                );
-                                        }
+                                        // VERSION 2.0.4 - Removed scanning feedback (ItemsSelector already shows it)
+                                        // Don't show scanning message - ItemsSelector handles it to avoid duplicate "(2)" notifications
 
                                         // Emit to ItemsSelector to handle the scanning with all validations
                                         this.eventBus.emit("scan_barcode", code);
@@ -643,7 +585,8 @@ export default {
                 },
 
                 showScanError({ message, code = "", details = "" } = {}) {
-                        // VERSION 2.0.1 - Enhanced Error Handling
+                        // VERSION 2.0.3 - Error handling (ItemsSelector already shows notifications and handles locking)
+                        // Don't show error dialog or lock scanner - ItemsSelector handles it
                         this.scanErrorMessage = message || this.__("Unable to add scanned item.");
                         this.scanErrorCode = code;
                         this.scanErrorDetails = details;
@@ -652,18 +595,11 @@ export default {
                         }
                         this.awaitingScanResult = false;
                         this.search_from_scanner = false;
-                        this.scanErrorDialog = true;
-                        this.scannerLocked = true;
-                        this.playScanTone("error");
-                        if (frappe?.show_alert) {
-                                frappe.show_alert(
-                                        {
-                                                message: this.scanErrorMessage,
-                                                indicator: "red",
-                                        },
-                                        5,
-                                );
-                        }
+                        // Don't show dialog or lock scanner - ItemsSelector handles error notifications and locking
+                        // this.scanErrorDialog = true;
+                        // this.scannerLocked = true;
+                        // Don't play tone - ItemsSelector already plays error tone
+                        // this.playScanTone("error");
                 },
 
                 acknowledgeScanError() {
@@ -746,23 +682,39 @@ export default {
                 },
 
                 handleScanErrorFromItemsSelector(data) {
-                        // Handle scan errors from ItemsSelector
+                        // VERSION 2.0.3 - ItemsSelector already shows error notification and handles locking
+                        // Don't lock Invoice scanner - ItemsSelector handles scanner lock/unlock
                         if (data && typeof data === "object") {
-                                this.showScanError({
-                                        message: data.message || this.__("Unable to add scanned item."),
-                                        code: data.code || "",
-                                        details: data.details || "",
-                                });
+                                // Don't show error dialog - ItemsSelector already shows frappe.show_alert
+                                // Don't lock scanner - ItemsSelector handles it
+                                // Just update internal state
+                                this.awaitingScanResult = false;
+                                this.search_from_scanner = false;
+                                // Store error details but don't show dialog or lock scanner
+                                this.scanErrorMessage = data.message || this.__("Unable to add scanned item.");
+                                this.scanErrorCode = data.code || "";
+                                this.scanErrorDetails = data.details || "";
                         }
                 },
 
                 handleScanSuccess(data) {
-                        // VERSION 2.0.1 - Enhanced Success Handling
+                        // VERSION 2.0.3 - Success handling (ItemsSelector already shows success notification)
                         this.scannerLocked = false;
                         this.search_from_scanner = false;
                         this.pendingScanCode = "";
                         this.awaitingScanResult = false;
-                        this.playScanTone("success");
+                        // Removed playScanTone - ItemsSelector already plays success tone
+                        this.queueManualScanFocus();
+                },
+                // VERSION 2.0.3 - Handle scan error acknowledgment from ItemsSelector
+                handleScanErrorAcknowledged() {
+                        this.scannerLocked = false;
+                        this.awaitingScanResult = false;
+                        this.search_from_scanner = false;
+                        this.scanErrorMessage = "";
+                        this.scanErrorCode = "";
+                        this.scanErrorDetails = "";
+                        this.pendingScanCode = "";
                         this.queueManualScanFocus();
                 },
 
@@ -1835,6 +1787,7 @@ export default {
                         show_payment: this.handleShowPayment,
                         "scan-error": this.handleScanErrorFromItemsSelector,
                         "scan-success": this.handleScanSuccess,
+                        "scan-error-acknowledged": this.handleScanErrorAcknowledged, // VERSION 2.0.3 - Unlock scanner when ItemsSelector acknowledges error
                 };
 
                 Object.entries(this._busHandlers).forEach(([eventName, handler]) => {

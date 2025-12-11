@@ -2908,7 +2908,8 @@ export default {
 				this.$refs.cameraScanner.pauseForExternalLock();
 			}
 			this.playScanTone("error");
-			// Emit scan error event for other components (like Invoice.vue)
+			// VERSION 2.0.3 - Emit scan error event for other components (like Invoice.vue)
+			// Invoice.vue no longer shows error dialog, so only show one notification here
 			if (this.eventBus?.emit) {
 				this.eventBus.emit("scan-error", {
 					message: this.scanErrorMessage,
@@ -2916,6 +2917,7 @@ export default {
 					details: details,
 				});
 			}
+			// Show error alert - only one notification (Invoice dialog is disabled)
 			if (frappe?.show_alert) {
 				frappe.show_alert(
 					{
@@ -2949,6 +2951,10 @@ export default {
 			this.awaitingScanResult = false;
 			if (this.$refs.cameraScanner?.resumeFromExternalLock) {
 				this.$refs.cameraScanner.resumeFromExternalLock();
+			}
+			// VERSION 2.0.3 - Emit event to unlock Invoice.vue scanner
+			if (this.eventBus?.emit) {
+				this.eventBus.emit("scan-error-acknowledged");
 			}
 			this.focusItemSearch();
 		},
@@ -3357,31 +3363,33 @@ export default {
 				this.search_from_scanner = false;
 				this.pendingScanCode = "";
 
-				// Show success message
-				const itemName = newItem.item_name || newItem.item_code || scannedCode || this.__("Item");
-				const rawPrecision = Number(this.float_precision);
-				const precision = Number.isInteger(rawPrecision) ? Math.min(Math.max(rawPrecision, 0), 6) : 2;
-				const displayQty = Number.isInteger(requestedQty)
-					? requestedQty
-					: Number(requestedQty.toFixed(precision));
+			// VERSION 2.0.3 - Show success message (only one notification)
+			const itemName = newItem.item_name || newItem.item_code || scannedCode || this.__("Item");
+			const rawPrecision = Number(this.float_precision);
+			const precision = Number.isInteger(rawPrecision) ? Math.min(Math.max(rawPrecision, 0), 6) : 2;
+			const displayQty = Number.isInteger(requestedQty)
+				? requestedQty
+				: Number(requestedQty.toFixed(precision));
 
-				if (this.eventBus?.emit) {
-					this.eventBus.emit("show_message", {
-						title: this.__("Item {0} added to invoice", [itemName]),
-						summary: this.__("Items added to invoice"),
-						detail: this.__("{0} (Qty: {1})", [itemName, displayQty]),
-						color: "success",
-						groupId: "invoice-item-added",
-					});
-				} else if (frappe?.show_alert) {
-					frappe.show_alert(
-						{
-							message: `Added: ${itemName}`,
-							indicator: "green",
-						},
-						3,
-					);
-				}
+			// Use eventBus if available, otherwise fallback to frappe.show_alert
+			// Don't show both to avoid duplicate notifications
+			if (this.eventBus?.emit) {
+				this.eventBus.emit("show_message", {
+					title: this.__("Item {0} added to invoice", [itemName]),
+					summary: this.__("Items added to invoice"),
+					detail: this.__("{0} (Qty: {1})", [itemName, displayQty]),
+					color: "success",
+					groupId: "invoice-item-added",
+				});
+			} else if (frappe?.show_alert) {
+				frappe.show_alert(
+					{
+						message: `Added: ${itemName}`,
+						indicator: "green",
+					},
+					3,
+				);
+			}
 
 				// Clear search after successful addition and refocus input
 				this.clearSearch();
