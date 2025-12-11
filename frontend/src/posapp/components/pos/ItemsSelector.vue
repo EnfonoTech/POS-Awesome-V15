@@ -2908,6 +2908,14 @@ export default {
 				this.$refs.cameraScanner.pauseForExternalLock();
 			}
 			this.playScanTone("error");
+			// Emit scan error event for other components (like Invoice.vue)
+			if (this.eventBus?.emit) {
+				this.eventBus.emit("scan-error", {
+					message: this.scanErrorMessage,
+					code: code,
+					details: details,
+				});
+			}
 			if (frappe?.show_alert) {
 				frappe.show_alert(
 					{
@@ -3378,6 +3386,14 @@ export default {
 				// Clear search after successful addition and refocus input
 				this.clearSearch();
 				this.focusItemSearch();
+				// Emit scan success event for other components (like Invoice.vue)
+				if (this.eventBus?.emit) {
+					this.eventBus.emit("scan-success", {
+						item: newItem,
+						code: scannedCode,
+						qty: requestedQty,
+					});
+				}
 			} finally {
 				this.awaitingScanResult = false;
 			}
@@ -3897,6 +3913,20 @@ export default {
 		this.eventBus.on("focus_item_search", () => {
 			this.focusItemSearch();
 		});
+		this.eventBus.on("scan_barcode", (code) => {
+			// VERSION 2.0.1 - Enhanced Scanner Integration from Invoice.vue
+			if (code && typeof code === "string") {
+				const trimmedCode = code.trim();
+				if (trimmedCode) {
+					// Call onBarcodeScanned which handles the full scan pipeline including item addition
+					this.onBarcodeScanned(trimmedCode);
+				} else {
+					console.warn("[ItemsSelector v2.0.1] Empty code received, ignoring");
+				}
+			} else {
+				console.warn("[ItemsSelector v2.0.1] Invalid code received:", code);
+			}
+		});
 
 		// Manually trigger a full item reload when requested
 		this.eventBus.on("force_reload_items", async () => {
@@ -4085,6 +4115,7 @@ export default {
                 this.eventBus.off("update_customer_price_list");
 		this.eventBus.off("force_reload_items");
 		this.eventBus.off("focus_item_search");
+		this.eventBus.off("scan_barcode");
 		window.removeEventListener("resize", this.checkItemContainerOverflow);
 		if (this.metricsRaf) {
 			cancelAnimationFrame(this.metricsRaf);

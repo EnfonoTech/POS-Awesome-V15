@@ -14,7 +14,7 @@
 		<OpeningDialog v-if="dialog" :dialog="dialog"></OpeningDialog>
 		<v-row v-show="!dialog" dense class="ma-0 dynamic-main-row">
 			<v-col
-				v-show="!payment && !showOffers && !coupons"
+				v-show="!payment && !showOffers && !coupons && !hideLeftPanel"
 				xl="5"
 				lg="5"
 				md="5"
@@ -24,18 +24,38 @@
 			>
 				<ItemsSelector></ItemsSelector>
 			</v-col>
-			<v-col v-show="showOffers" xl="5" lg="5" md="5" sm="5" cols="12" class="pos dynamic-col">
+			<v-col v-show="showOffers && !hideLeftPanel" xl="5" lg="5" md="5" sm="5" cols="12" class="pos dynamic-col">
 				<PosOffers></PosOffers>
 			</v-col>
-			<v-col v-show="coupons" xl="5" lg="5" md="5" sm="5" cols="12" class="pos dynamic-col">
+			<v-col v-show="coupons && !hideLeftPanel" xl="5" lg="5" md="5" sm="5" cols="12" class="pos dynamic-col">
 				<PosCoupons></PosCoupons>
 			</v-col>
-			<v-col v-show="payment" xl="5" lg="5" md="5" sm="5" cols="12" class="pos dynamic-col">
+			<v-col v-show="payment && !hideLeftPanel" xl="5" lg="5" md="5" sm="5" cols="12" class="pos dynamic-col">
 				<Payments></Payments>
 			</v-col>
 
-			<v-col xl="7" lg="7" md="7" sm="7" cols="12" class="pos dynamic-col">
+			<v-col 
+				:xl="hideLeftPanel ? 12 : 7" 
+				:lg="hideLeftPanel ? 12 : 7" 
+				:md="hideLeftPanel ? 12 : 7" 
+				:sm="hideLeftPanel ? 12 : 7" 
+				cols="12" 
+				class="pos dynamic-col"
+				:class="{ 'fullscreen-right': hideLeftPanel }"
+			>
+				<!-- VERSION: 2.0.3 - Scanner moved to search position -->
+				<!-- Version Indicator -->
+				<v-chip 
+					color="primary" 
+					size="small" 
+					class="version-indicator-chip"
+					style="position: fixed; top: 60px; right: 10px; z-index: 9999; font-weight: bold; font-size: 12px; padding: 4px 8px;"
+				>
+					v2.0.3
+				</v-chip>
+				<div class="invoice-wrapper">
 				<Invoice></Invoice>
+				</div>
 			</v-col>
 		</v-row>
 	</div>
@@ -95,6 +115,7 @@ export default {
 			coupons: false,
 			itemsLoaded: false,
 			customersLoaded: false,
+			hideLeftPanel: true, // VERSION 2.0.1 - Default hide left panel
 		};
 	},
 
@@ -129,6 +150,9 @@ export default {
 				console.info("Loading completed");
 			}
 		},
+		toggleLeftPanel() {
+			this.hideLeftPanel = !this.hideLeftPanel;
+		},
 	},
 
 	mounted: function () {
@@ -152,11 +176,6 @@ export default {
 					this.get_offers(data.pos_profile.name, data.pos_profile);
 				}
 			});
-			this.eventBus.on("show_payment", (data) => {
-				this.payment = data === "true";
-				this.showOffers = false;
-				this.coupons = false;
-			});
 			this.eventBus.on("show_offers", (data) => {
 				this.showOffers = data === "true";
 				this.payment = false;
@@ -178,6 +197,60 @@ export default {
 				this.itemsLoaded = true;
 				this.checkLoadingComplete();
 			});
+			// VERSION 2.0.1 - Listen for toggle item panel event from menu
+			this.eventBus.on("toggle-item-panel", () => {
+				this.toggleLeftPanel();
+			});
+			// VERSION 2.0.2 - Listen for pay event to unhide left panel, hide when closed
+			this.eventBus.on("show_payment", (data) => {
+				const wasPaymentOpen = this.payment;
+				this.payment = data === "true";
+				this.showOffers = false;
+				this.coupons = false;
+				// VERSION 2.0.2 - Unhide left panel when pay is clicked
+				if (this.payment && this.hideLeftPanel) {
+					this.hideLeftPanel = false;
+				}
+				// VERSION 2.0.2 - Hide left panel when payment is closed/cancelled
+				if (wasPaymentOpen && !this.payment) {
+					this.hideLeftPanel = true;
+					this.$nextTick(() => {
+						this.$forceUpdate();
+					});
+				}
+			});
+			// VERSION 2.0.2 - Also listen for close_payments event
+			this.eventBus.on("close_payments", () => {
+				if (this.payment) {
+					this.payment = false;
+					this.hideLeftPanel = true;
+					this.$nextTick(() => {
+						this.$forceUpdate();
+					});
+				} else {
+					// Even if payment wasn't open, ensure panel is hidden
+					if (!this.hideLeftPanel) {
+						this.hideLeftPanel = true;
+						this.$nextTick(() => {
+							this.$forceUpdate();
+						});
+					}
+				}
+			});
+			// VERSION 2.0.2 - Listen for hide item panel event (after submit/submit & print/save & clear)
+			this.hidePanelHandler = () => {
+				// Hide the left panel
+				this.hideLeftPanel = true;
+				// Also close payment screen if it's open
+				if (this.payment) {
+					this.payment = false;
+				}
+				// Force Vue reactivity update
+				this.$nextTick(() => {
+					this.$forceUpdate();
+				});
+			};
+			this.eventBus.on("hide-item-panel", this.hidePanelHandler);
 		});
 	},
 	beforeUnmount() {
@@ -190,6 +263,11 @@ export default {
 		this.eventBus.off("open_closing_dialog");
 		this.eventBus.off("submit_closing_pos");
 		this.eventBus.off("items_loaded");
+		this.eventBus.off("toggle-item-panel");
+		this.eventBus.off("close_payments");
+		if (this.hidePanelHandler) {
+			this.eventBus.off("hide-item-panel", this.hidePanelHandler);
+		}
 	},
 	// In the created() or mounted() lifecycle hook
 	created() {
@@ -241,5 +319,9 @@ export default {
 		padding: var(--dynamic-xs);
 		margin-top: var(--dynamic-xs);
 	}
+}
+
+.invoice-wrapper {
+	position: relative;
 }
 </style>

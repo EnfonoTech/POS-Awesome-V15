@@ -4,6 +4,32 @@
 		<!-- Cancel Sale Confirmation Dialog -->
 		<CancelSaleDialog v-model="cancel_dialog" @confirm="cancel_invoice" />
 
+		<!-- Scan Error Dialog -->
+		<v-dialog v-model="scanErrorDialog" persistent max-width="420" content-class="scan-error-dialog">
+			<v-card>
+				<v-card-title class="d-flex align-center text-error text-h6">
+					<v-icon color="error" class="mr-2">mdi-alert-octagon</v-icon>
+					{{ __("Scan Error") }}
+				</v-card-title>
+				<v-divider></v-divider>
+				<v-card-text>
+					<p class="scan-error-message">{{ scanErrorMessage }}</p>
+					<p v-if="scanErrorCode" class="scan-error-code mt-2 mb-0">
+						<strong>{{ __("Scanned Code:") }}</strong>
+						<span>{{ scanErrorCode }}</span>
+					</p>
+					<p v-if="scanErrorDetails" class="scan-error-details mt-4 mb-0">
+						{{ scanErrorDetails }}
+					</p>
+				</v-card-text>
+				<v-card-actions class="justify-end">
+					<v-btn color="primary" variant="tonal" autofocus @click="acknowledgeScanError">
+						{{ __("OK") }}
+					</v-btn>
+				</v-card-actions>
+			</v-card>
+		</v-dialog>
+
 		<!-- Main Invoice Card (contains all invoice content) -->
 		<v-card
 			ref="invoiceCard"
@@ -48,6 +74,7 @@
 						></v-select>
 					</v-col>
 				</v-row>
+
 
 				<!-- Delivery Charges Section (Only if enabled in POS profile) -->
 				<DeliveryCharges
@@ -120,19 +147,33 @@
 				<div class="items-table-wrapper">
 					<!-- Column selector button moved outside the table -->
 					<div class="column-selector-container">
-                                                <v-text-field
-                                                        ref="itemSearchField"
-                                                        v-model="itemSearch"
-                                                        density="compact"
+						<!-- VERSION 2.0.2 - Scanner input replaces search field -->
+						<v-text-field
+							ref="manualScanInput"
+							v-model="manualScanValue"
+							density="compact"
 							variant="solo"
 							color="primary"
 							class="item-search-field pos-themed-input"
-							:label="__('Search items or barcode')"
-							prepend-inner-icon="mdi-magnify"
+							:label="__('Search barcode')"
+							prepend-inner-icon="mdi-barcode-scan"
 							hide-details
 							clearable
 							autocomplete="off"
-						></v-text-field>
+							@keydown.enter.prevent="submitManualScan"
+							@click:clear="manualScanValue = ''"
+						>
+							<template #append-inner>
+								<v-btn
+									icon="mdi-check"
+									variant="tonal"
+									color="primary"
+									size="small"
+									@click="submitManualScan"
+									:title="__('Submit Code')"
+								></v-btn>
+							</template>
+						</v-text-field>
 						<v-btn
 							density="compact"
 							variant="text"
@@ -315,7 +356,7 @@
 			@update:additional_discount="(val) => (additional_discount = val)"
 			@update:additional_discount_percentage="(val) => (additional_discount_percentage = val)"
 			@update_discount_umount="update_discount_umount"
-			@save-and-clear="save_and_clear_invoice"
+			@save-and-clear="handleSaveAndClear"
 			@load-drafts="get_draft_invoices"
 			@select-order="get_draft_orders"
 			@cancel-sale="cancel_dialog = true"
@@ -401,6 +442,18 @@ export default {
 			posting_date: frappe.datetime.nowdate(), // Invoice posting date
 			posting_date_display: "", // Display value for date picker
 			items_headers: [],
+			manualScanValue: "", // Manual scanner input value
+			// Scanner-related properties (matching ItemsSelector)
+			scanErrorDialog: false,
+			scanErrorMessage: "",
+			scanErrorDetails: "",
+			scanErrorCode: "",
+			scannerLocked: false,
+			pendingScanCode: "",
+			awaitingScanResult: false,
+			scanDebounceId: null,
+			scanQueuedCode: "",
+			search_from_scanner: false,
 			packedItemsHeaders: [
 				{ title: __("No."), key: "index" },
 				{ title: __("Parent Item"), key: "parent_item" },
@@ -429,6 +482,7 @@ export default {
                         invoiceHeight: null,
                         paymentVisible: false, // Track current payment view state
                         _busHandlers: {},
+                        scanAudioContext: null, // Audio context for scan tones
                 };
         },
 
@@ -487,6 +541,229 @@ export default {
 
                 focusItemSearchField() {
                         this.eventBus.emit("focus_item_search");
+                },
+
+                submitManualScan() {
+                        // VERSION 2.0.1 - Enhanced Scanner
+                        const code = (this.manualScanValue ?? "").toString().trim();
+                        if (!code) {
+                                return;
+                        }
+                        if (this.scannerLocked) {
+                                this.onBarcodeScanned(code);
+                                this.queueManualScanFocus();
+                                return;
+                        }
+                        this.manualScanValue = "";
+                        this.onBarcodeScanned(code);
+                        this.queueManualScanFocus();
+                },
+
+                onBarcodeScanned(scannedCode) {
+                        // VERSION 2.0.1 - Enhanced Scanner with Full Validation
+                        if (this.scannerLocked) {
+                                console.log("[Invoice Scanner v2.0.1] Scanner is locked");
+                                this.playScanTone("error");
+                                if (frappe?.show_alert) {
+                                        frappe.show_alert(
+                                                {
+                                                        message: this.__("Acknowledge the error to resume scanning."),
+                                                        indicator: "red",
+                                                },
+                                                3,
+                                        );
+                                }
+                                return;
+                        }
+
+                        const runScanPipeline = async (code) => {
+                                try {
+                                        this.pendingScanCode = code;
+
+                                        // mark this search as coming from a scanner
+                                        this.search_from_scanner = true;
+
+                                        // Show scanning feedback
+                                        if (this.eventBus?.emit) {
+                                                this.eventBus.emit("show_message", {
+                                                        title: this.__("Scanning for: {0}", [code]),
+                                                        summary: this.__("Scanning items"),
+                                                        detail: code,
+                                                        color: "info",
+                                                        timeout: 2000,
+                                                        groupId: "scanner-progress",
+                                                });
+                                        } else if (frappe?.show_alert) {
+                                                frappe.show_alert(
+                                                        {
+                                                                message: `Scanning for: ${code}`,
+                                                                indicator: "blue",
+                                                        },
+                                                        2,
+                                                );
+                                        }
+
+                                        // Emit to ItemsSelector to handle the scanning with all validations
+                                        this.eventBus.emit("scan_barcode", code);
+                                } catch (error) {
+                                        this.handleScanPipelineError(error, code);
+                                }
+                        };
+
+                        if (this.scanDebounceId) {
+                                clearTimeout(this.scanDebounceId);
+                        }
+                        this.scanQueuedCode = scannedCode;
+                        this.scanDebounceId = setTimeout(() => {
+                                this.scanDebounceId = null;
+                                const code = this.scanQueuedCode || scannedCode;
+                                this.scanQueuedCode = "";
+                                this.$nextTick(() => {
+                                        const maybePromise = runScanPipeline(code);
+                                        if (maybePromise && typeof maybePromise.catch === "function") {
+                                                maybePromise.catch((error) => {
+                                                        this.handleScanPipelineError(error, code);
+                                                });
+                                        }
+                                });
+                        }, 12);
+                },
+
+                handleScanPipelineError(error, code = "") {
+                        const normalizedCode = code || this.pendingScanCode || "";
+                        const details =
+                                error && typeof error.message === "string" && error.message.trim()
+                                        ? error.message
+                                        : this.__("Please try again or enter the item manually.");
+                        this.showScanError({
+                                message: this.__("Unable to add scanned item."),
+                                code: normalizedCode,
+                                details,
+                        });
+                },
+
+                showScanError({ message, code = "", details = "" } = {}) {
+                        // VERSION 2.0.1 - Enhanced Error Handling
+                        this.scanErrorMessage = message || this.__("Unable to add scanned item.");
+                        this.scanErrorCode = code;
+                        this.scanErrorDetails = details;
+                        if (code) {
+                                this.pendingScanCode = code;
+                        }
+                        this.awaitingScanResult = false;
+                        this.search_from_scanner = false;
+                        this.scanErrorDialog = true;
+                        this.scannerLocked = true;
+                        this.playScanTone("error");
+                        if (frappe?.show_alert) {
+                                frappe.show_alert(
+                                        {
+                                                message: this.scanErrorMessage,
+                                                indicator: "red",
+                                        },
+                                        5,
+                                );
+                        }
+                },
+
+                acknowledgeScanError() {
+                        this.scanErrorDialog = false;
+                        this.scannerLocked = false;
+                        this.scanErrorMessage = "";
+                        this.scanErrorCode = "";
+                        this.scanErrorDetails = "";
+                        this.pendingScanCode = "";
+                        this.awaitingScanResult = false;
+                        this.queueManualScanFocus();
+                },
+
+                focusManualScanInput() {
+                        const input = this.$refs.manualScanInput;
+                        if (input && typeof input.focus === "function") {
+                                input.focus();
+                        }
+                },
+
+                queueManualScanFocus() {
+                        this.$nextTick(() => {
+                                const scheduler =
+                                        typeof requestAnimationFrame === "function"
+                                                ? requestAnimationFrame
+                                                : (cb) => setTimeout(cb, 16);
+                                scheduler(() => {
+                                        this.focusManualScanInput();
+                                });
+                        });
+                },
+
+                ensureScanAudioContext() {
+                        if (typeof window === "undefined") {
+                                return null;
+                        }
+                        if (!this.scanAudioContext) {
+                                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                                if (!AudioContext) {
+                                        return null;
+                                }
+                                this.scanAudioContext = new AudioContext();
+                        }
+                        if (this.scanAudioContext?.state === "suspended") {
+                                this.scanAudioContext.resume().catch(() => {});
+                        }
+                        return this.scanAudioContext;
+                },
+
+                playScanTone(type = "success") {
+                        if (typeof window === "undefined") {
+                                return;
+                        }
+                        try {
+                                const ctx = this.ensureScanAudioContext();
+                                if (!ctx) {
+                                        if (frappe?.utils?.play_sound) {
+                                                frappe.utils.play_sound(type === "success" ? "submit" : "error");
+                                        }
+                                        return;
+                                }
+                                const now = ctx.currentTime;
+                                const duration = type === "success" ? 0.16 : 0.35;
+                                const oscillator = ctx.createOscillator();
+                                const gainNode = ctx.createGain();
+                                oscillator.type = "sine";
+                                oscillator.frequency.value = type === "success" ? 880 : 220;
+                                gainNode.gain.setValueAtTime(type === "success" ? 0.18 : 0.28, now);
+                                gainNode.gain.exponentialRampToValueAtTime(0.001, now + duration);
+                                oscillator.connect(gainNode);
+                                gainNode.connect(ctx.destination);
+                                oscillator.start(now);
+                                oscillator.stop(now + duration);
+                        } catch (error) {
+                                console.warn("Scan tone playback failed:", error);
+                                if (frappe?.utils?.play_sound) {
+                                        frappe.utils.play_sound(type === "success" ? "submit" : "error");
+                                }
+                        }
+                },
+
+                handleScanErrorFromItemsSelector(data) {
+                        // Handle scan errors from ItemsSelector
+                        if (data && typeof data === "object") {
+                                this.showScanError({
+                                        message: data.message || this.__("Unable to add scanned item."),
+                                        code: data.code || "",
+                                        details: data.details || "",
+                                });
+                        }
+                },
+
+                handleScanSuccess(data) {
+                        // VERSION 2.0.1 - Enhanced Success Handling
+                        this.scannerLocked = false;
+                        this.search_from_scanner = false;
+                        this.pendingScanCode = "";
+                        this.awaitingScanResult = false;
+                        this.playScanTone("success");
+                        this.queueManualScanFocus();
                 },
 
                 initializeItemsHeaders() {
@@ -771,6 +1048,19 @@ export default {
 
 		handleExpandedUpdate(ids) {
 			this.expanded = Array.isArray(ids) ? ids.slice(-1) : [];
+		},
+		// VERSION 2.0.2 - Wrapper for save_and_clear_invoice to hide left panel
+		async handleSaveAndClear() {
+			try {
+				const result = await this.save_and_clear_invoice();
+				// Hide left panel after successful save & clear
+				if (this.eventBus && this.eventBus.emit) {
+					this.eventBus.emit("hide-item-panel");
+				}
+				return result;
+			} catch (error) {
+				throw error;
+			}
 		},
 
                 async print_draft_invoice() {
@@ -1543,6 +1833,8 @@ export default {
                         reset_posting_date: this.handleResetPostingDate,
                         calc_uom: this.calc_uom,
                         show_payment: this.handleShowPayment,
+                        "scan-error": this.handleScanErrorFromItemsSelector,
+                        "scan-success": this.handleScanSuccess,
                 };
 
                 Object.entries(this._busHandlers).forEach(([eventName, handler]) => {
@@ -1577,6 +1869,18 @@ export default {
                 if (this._suppressClosePaymentsTimer) {
                         clearTimeout(this._suppressClosePaymentsTimer);
                         this._suppressClosePaymentsTimer = null;
+                }
+                if (this.scanDebounceId) {
+                        clearTimeout(this.scanDebounceId);
+                        this.scanDebounceId = null;
+                }
+                if (this.scanAudioContext) {
+                        try {
+                                this.scanAudioContext.close();
+                        } catch (error) {
+                                console.warn("Scan audio context close failed:", error);
+                        }
+                        this.scanAudioContext = null;
                 }
         },
 	// Register global keyboard shortcuts when component is created
@@ -1813,5 +2117,75 @@ export default {
 :deep(.column-switch .v-label) {
 	opacity: 0.9;
 	font-size: 0.95rem;
+}
+
+.manual-scan-container {
+	padding: 16px;
+	border-radius: 12px;
+	border: 1px solid var(--pos-border, rgba(0, 0, 0, 0.08));
+	background-color: var(--pos-card-bg, rgba(255, 255, 255, 0.96));
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+	transition:
+		background-color 0.2s ease,
+		border-color 0.2s ease;
+	margin-bottom: 8px;
+}
+
+.manual-scan-text .text-body-2 {
+	color: rgba(0, 0, 0, 0.6);
+}
+
+:deep(.v-theme--dark) .manual-scan-container {
+	background-color: rgba(30, 30, 30, 0.92);
+	border-color: rgba(255, 255, 255, 0.12);
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+:deep(.v-theme--dark) .manual-scan-text .text-body-2 {
+	color: rgba(255, 255, 255, 0.7);
+}
+
+.scan-error-dialog {
+	border-radius: 16px;
+}
+
+.scan-error-dialog .scan-error-message {
+	font-weight: 600;
+	font-size: 1.05rem;
+	margin: 0;
+}
+
+.scan-error-dialog .scan-error-code {
+	display: inline-flex;
+	align-items: center;
+	gap: 8px;
+	font-family:
+		"Roboto Mono", "Fira Code", "SFMono-Regular", Menlo, Monaco, Consolas, "Liberation Mono",
+		"Courier New", monospace;
+	font-size: 0.95rem;
+	padding: 6px 10px;
+	border-radius: 6px;
+	background-color: rgba(244, 67, 54, 0.12);
+}
+
+.scan-error-dialog .scan-error-details {
+	margin-top: 12px;
+	color: rgba(0, 0, 0, 0.72);
+	line-height: 1.4;
+}
+
+:deep(.v-theme--dark) .scan-error-dialog .scan-error-code {
+	background-color: rgba(244, 67, 54, 0.25);
+	color: #ffebee;
+}
+
+:deep(.v-theme--dark) .scan-error-dialog .scan-error-details {
+	color: rgba(255, 255, 255, 0.7);
+}
+
+.version-indicator {
+	font-size: 0.65rem !important;
+	font-weight: 600;
+	opacity: 0.8;
 }
 </style>

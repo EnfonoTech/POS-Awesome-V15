@@ -27,6 +27,7 @@
 				@sync-invoices="handleSyncInvoices"
 				@toggle-offline="handleToggleOffline"
 				@toggle-theme="handleToggleTheme"
+				@toggle-item-panel="handleToggleItemPanel"
 				@logout="handleLogout"
 				@refresh-cache-usage="handleRefreshCacheUsage"
 				@update-after-delete="handleUpdateAfterDelete"
@@ -479,6 +480,11 @@ export default {
 
 		handleUpdateAfterDelete() {
 			// Handle update after delete
+		},
+
+		handleToggleItemPanel() {
+			// Emit event to Pos component to toggle item panel
+			this.eventBus.emit("toggle-item-panel");
 		},
 
 		remove_frappe_nav() {

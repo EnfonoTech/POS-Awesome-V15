@@ -899,6 +899,10 @@ export default {
 						title: __("Payment saved offline"),
 						color: "warning",
 					});
+					// VERSION 2.0.2 - Hide left panel after successful submit (offline)
+					if (vm.eventBus && vm.eventBus.emit) {
+						vm.eventBus.emit("hide-item-panel");
+					}
 					vm.clear_all(false);
 					vm.customer_name = customer;
 					vm.get_outstanding_invoices();
@@ -923,6 +927,10 @@ export default {
 					vm.isSubmitting = false;
 					if (r.message) {
 						frappe.utils.play_sound("submit");
+						// VERSION 2.0.2 - Hide left panel after successful submit
+						if (vm.eventBus && vm.eventBus.emit) {
+							vm.eventBus.emit("hide-item-panel");
+						}
 						vm.clear_all(false);
 						vm.customer_name = customer;
 						vm.get_outstanding_invoices();
@@ -993,6 +1001,10 @@ export default {
 						title: __("Payment saved offline"),
 						color: "warning",
 					});
+					// VERSION 2.0.2 - Hide left panel after successful submit & print (offline)
+					if (vm.eventBus && vm.eventBus.emit) {
+						vm.eventBus.emit("hide-item-panel");
+					}
 					vm.clear_all(false);
 					vm.customer_name = customer;
 					vm.get_outstanding_invoices();
@@ -1016,8 +1028,11 @@ export default {
 				callback: function (r) {
 					vm.isSubmitting = false;
 					if (r.message) {
-						console.log("Server response:", JSON.stringify(r.message));
 						frappe.utils.play_sound("submit");
+						// VERSION 2.0.2 - Hide left panel after successful submit & print
+						if (vm.eventBus && vm.eventBus.emit) {
+							vm.eventBus.emit("hide-item-panel");
+						}
 
 						// Extract payment name from server response
 						const payment_name =

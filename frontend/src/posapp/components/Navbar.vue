@@ -58,6 +58,7 @@
 					@clear-cache="clearCache"
 					@show-about="showAboutDialog = true"
 					@toggle-theme="toggleTheme"
+					@toggle-item-panel="toggleItemPanel"
 					@logout="logOut"
 				/>
 			</template>
@@ -423,6 +424,9 @@ export default {
 		logOut() {
 			this.$emit("logout");
 		},
+		toggleItemPanel() {
+			this.$emit("toggle-item-panel");
+		},
 		refreshCacheUsage() {
 			this.$emit("refresh-cache-usage");
 		},
@@ -615,6 +619,7 @@ export default {
 		"sync-invoices",
 		"toggle-offline",
 		"toggle-theme",
+		"toggle-item-panel",
 		"logout",
 		"refresh-cache-usage",
 		"update-after-delete",

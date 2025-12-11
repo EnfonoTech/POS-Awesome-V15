@@ -227,6 +227,23 @@
 					</div>
 				</v-list-item>
 
+				<!-- Toggle Item Selection Panel -->
+				<v-list-item @click="$emit('toggle-item-panel')" class="menu-item-compact primary-action">
+					<template v-slot:prepend>
+						<div class="menu-icon-wrapper-compact primary-icon">
+							<v-icon color="white" size="16">mdi-view-split-vertical</v-icon>
+						</div>
+					</template>
+					<div class="menu-content-compact">
+						<v-list-item-title class="menu-item-title-compact">{{
+							__("Toggle Item Panel")
+						}}</v-list-item-title>
+						<v-list-item-subtitle class="menu-item-subtitle-compact">{{
+							__("Show/hide item selection area")
+						}}</v-list-item-subtitle>
+					</div>
+				</v-list-item>
+
 				<v-list-item @click="$emit('logout')" class="menu-item-compact danger-action">
 					<template v-slot:prepend>
 						<div class="menu-icon-wrapper-compact danger-icon">
@@ -584,6 +601,7 @@ export default {
 		"clear-cache",
 		"show-about",
 		"toggle-theme",
+		"toggle-item-panel",
 		"logout",
 		"refresh-cache-usage",
 	],
