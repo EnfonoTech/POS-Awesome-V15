@@ -5,6 +5,8 @@
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "default_print_format",
+  "column_break_wcys",
   "default_hide_item_selection",
   "barcode_scanner_on_right"
  ],
@@ -20,13 +22,24 @@
    "fieldname": "barcode_scanner_on_right",
    "fieldtype": "Check",
    "label": "Barcode Scanner on Right"
+  },
+  {
+   "fieldname": "default_print_format",
+   "fieldtype": "Link",
+   "label": "Default Print Format In Invoice List",
+   "link_filters": "[[\"Print Format\",\"doc_type\",\"=\",\"POS Invoice\"],[\"Print Format\",\"doc_type\",\"=\",\"Sales Invoice\"]]",
+   "options": "Print Format"
+  },
+  {
+   "fieldname": "column_break_wcys",
+   "fieldtype": "Column Break"
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-12-11 09:38:00.004938",
+ "modified": "2025-12-17 19:11:20.864530",
  "modified_by": "Administrator",
  "module": "POSAwesome",
  "name": "Fateh POS Settings",

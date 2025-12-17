@@ -24,7 +24,7 @@
 			<v-card class="mb-4" variant="outlined">
 				<v-card-text>
 					<v-row>
-						<v-col cols="12" md="3">
+						<v-col cols="12" md="2">
 							<v-text-field
 								v-model="filters.invoice_name"
 								:label="__('Invoice Number')"
@@ -35,7 +35,7 @@
 								@input="debouncedSearch"
 							></v-text-field>
 						</v-col>
-						<v-col cols="12" md="3">
+						<v-col cols="12" md="2">
 							<v-text-field
 								v-model="filters.customer_name"
 								:label="__('Customer Name')"
@@ -77,6 +77,19 @@
 								:items="statusOptions"
 								clearable
 								@update:model-value="debouncedSearch"
+							></v-select>
+						</v-col>
+						<v-col cols="12" md="2">
+							<v-select
+								v-model="selectedPrintFormat"
+								:items="printFormatOptions"
+								item-title="title"
+								item-value="value"
+								:label="__('Print Template')"
+								variant="outlined"
+								density="compact"
+								clearable
+								persistent-hint
 							></v-select>
 						</v-col>
 					</v-row>
@@ -411,10 +424,13 @@ export default {
 			],
 			showPrintPreview: false,
 			previewInvoice: null,
+			printFormatOptions: [],
+			selectedPrintFormat: null,
 		};
 	},
 	mounted() {
 		this.loadInvoices();
+		this.loadPrintFormats();
 	},
 	watch: {
 		posProfile: {
@@ -422,12 +438,47 @@ export default {
 				if (newVal && newVal.name && (!oldVal || oldVal.name !== newVal.name)) {
 					this.currentPage = 1; // Reset to first page
 					this.loadInvoices();
+					this.selectedPrintFormat = newVal.print_format || null;
+					this.loadPrintFormats();
 				}
 			},
 			immediate: true
 		}
 	},
 	methods: {
+		async loadPrintFormats() {
+			try {
+				const resp = await frappe.call({
+					method: "frappe.client.get_list",
+					args: {
+						doctype: "Print Format",
+						fields: ["name", "doc_type"],
+						filters: {
+							doc_type: ["in", ["POS Invoice", "Sales Invoice"]],
+							disabled: 0,
+						},
+						limit: 200,
+					},
+				});
+
+				const formats = Array.isArray(resp.message) ? resp.message : [];
+				this.printFormatOptions = formats.map((fmt) => ({
+					title: `${fmt.name} (${fmt.doc_type})`,
+					value: fmt.name,
+				}));
+
+				// Preserve user choice; otherwise default to POS profile setting
+				if (!this.selectedPrintFormat && this.posProfile?.print_format) {
+					this.selectedPrintFormat = this.posProfile.print_format;
+				}
+			} catch (error) {
+				console.error("Error loading print formats:", error);
+				this.eventBus.emit("show_message", {
+					title: __("Unable to load print formats"),
+					color: "error",
+				});
+			}
+		},
 		async loadInvoices() {
 			// Don't load if posProfile is not available yet
 			if (!this.posProfile || !this.posProfile.name) {
@@ -541,7 +592,7 @@ export default {
 				const defaultFormat = doctype === 'POS Invoice' ? 'POS Invoice Print' : 'Sales Invoice Print';
 				
 				const printOptions = {
-					format: this.posProfile?.print_format || defaultFormat,
+					format: this.selectedPrintFormat || this.posProfile?.print_format || defaultFormat,
 					letter_head: this.posProfile?.letter_head || null,
 					silent: this.posProfile?.posa_silent_print || false,
 					onSuccess: () => {
@@ -575,7 +626,7 @@ export default {
 				const defaultFormat = doctype === 'POS Invoice' ? 'POS Invoice Print' : 'Sales Invoice Print';
 				
 				const downloadOptions = {
-					format: this.posProfile?.print_format || defaultFormat,
+					format: this.selectedPrintFormat || this.posProfile?.print_format || defaultFormat,
 					letter_head: this.posProfile?.letter_head || null,
 				};
 
@@ -611,7 +662,7 @@ export default {
 			const params = new URLSearchParams({
 				doctype: doctype,
 				name: invoice.name,
-				format: this.posProfile?.print_format || defaultFormat,
+				format: this.selectedPrintFormat || this.posProfile?.print_format || defaultFormat,
 				no_letterhead: '0'
 			});
 
