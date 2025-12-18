@@ -194,14 +194,6 @@
 								@keydown.enter.prevent="onQuickItemEnter"
 								@focus="onQuickItemFocus"
 							>
-							<template #item="{ props, item }">
-								<v-list-item v-bind="props">
-									<v-list-item-title>{{ item.raw.item_name || item.raw.item_code }}</v-list-item-title>
-								</v-list-item>
-							</template>
-							<template #selection="{ item }">
-								{{ item.raw.item_name || item.raw.item_code }}
-							</template>
 							</v-autocomplete>
 						</div>
 						<v-btn
@@ -1938,34 +1930,8 @@ export default {
 					let fetchedItems = Array.from(uniqueMap.values());
 					console.log(`Quick search for "${txt}": Found ${fetchedItems.length} items (${codeItems.length} by code, ${nameItems.length} by name)`);
 
-					// Additional client-side filtering for word-by-word matching on item_name
-					// This improves matching for multi-word searches
-					const searchLower = txt.toLowerCase().trim();
-					const searchWords = searchLower.split(/\s+/).filter(w => w.length > 0);
-
-					if (searchWords.length > 0) {
-						results = fetchedItems.filter((item) => {
-							const name = (item.item_name || "").toLowerCase();
-							const code = (item.item_code || "").toLowerCase();
-
-							// Match if all search words are found in either item_code or item_name
-							return searchWords.every((word) => {
-								// Check item_code - substring match
-								if (code.includes(word)) {
-									return true;
-								}
-								// Check item_name - full string or word-by-word match
-								if (name.includes(word)) {
-									return true;
-								}
-								// Check word-by-word in item_name
-								const nameWords = name.split(/\s+/);
-								return nameWords.some(nw => nw.includes(word));
-							});
-						});
-					} else {
-						results = fetchedItems;
-					}
+					// Use server results directly - they already contain matches for both item_code and item_name
+					results = fetchedItems;
 				} else {
 					// Build filters for initial list
 					const filters = { 
@@ -2016,7 +1982,7 @@ export default {
 				}
 
 				this.quickItemOptions = results.map((item) => ({
-					title: item.item_code, // item_code for autocomplete internal use
+					title: `${item.item_code} - ${item.item_name || item.item_code}`,  // ← Combine both!
 					value: item.item_code,
 					item_code: item.item_code,
 					item_name: item.item_name || item.item_code,
