@@ -49,7 +49,7 @@
 			<div class="dynamic-padding">
 				<div class="sticky-header">
 					<v-row class="items">
-						<v-col class="pb-0">
+						<v-col class="pb-0" cols="12" md="6">
 							<v-text-field
 								density="compact"
 								clearable
@@ -141,7 +141,7 @@
 								</div>
 							</v-expand-transition>
 						</v-col>
-						<v-col cols="3" class="pb-0" v-if="pos_profile.posa_input_qty">
+						<v-col cols="2" class="pb-0" v-if="pos_profile.posa_input_qty">
 							<v-text-field
 								density="compact"
 								variant="solo"
@@ -155,7 +155,7 @@
 								@focus="clearQty"
 							></v-text-field>
 						</v-col>
-						<v-col cols="2" class="pb-0" v-if="pos_profile.posa_new_line">
+						<v-col cols="1" class="pb-0" v-if="pos_profile.posa_new_line">
 							<v-checkbox
 								v-model="new_line"
 								color="accent"
@@ -4024,6 +4024,8 @@ export default {
 	},
 
 	async mounted() {
+		await this.loadFatehPosSettings();
+
 		this.$watch(
 			() => this.selectedCustomer,
 			(newCustomer) => {

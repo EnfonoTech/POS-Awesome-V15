@@ -426,11 +426,18 @@ export default {
 			previewInvoice: null,
 			printFormatOptions: [],
 			selectedPrintFormat: null,
+			fatehSettings: {},
 		};
 	},
-	mounted() {
+	async mounted() {
+		await this.loadFatehSettings();
+
+		if (this.fatehSettings.default_print_format && !this.selectedPrintFormat) {
+			this.selectedPrintFormat = this.fatehSettings.default_print_format;
+		}
+
+		await this.loadPrintFormats();
 		this.loadInvoices();
-		this.loadPrintFormats();
 	},
 	watch: {
 		posProfile: {
@@ -438,7 +445,11 @@ export default {
 				if (newVal && newVal.name && (!oldVal || oldVal.name !== newVal.name)) {
 					this.currentPage = 1; // Reset to first page
 					this.loadInvoices();
-					this.selectedPrintFormat = newVal.print_format || null;
+					this.selectedPrintFormat =
+						this.selectedPrintFormat ||
+						this.fatehSettings.default_print_format ||
+						newVal.print_format ||
+						null;
 					this.loadPrintFormats();
 				}
 			},
@@ -446,6 +457,21 @@ export default {
 		}
 	},
 	methods: {
+		async loadFatehSettings() {
+			try {
+				const res = await frappe.call({
+					method: "frappe.client.get",
+					args: {
+						doctype: "Fateh POS Settings",
+						name: "Fateh POS Settings",
+					},
+				});
+				this.fatehSettings = res?.message || {};
+			} catch (error) {
+				console.warn("Unable to load Fateh POS Settings:", error);
+				this.fatehSettings = {};
+			}
+		},
 		async loadPrintFormats() {
 			try {
 				const resp = await frappe.call({
@@ -467,9 +493,10 @@ export default {
 					value: fmt.name,
 				}));
 
-				// Preserve user choice; otherwise default to POS profile setting
-				if (!this.selectedPrintFormat && this.posProfile?.print_format) {
-					this.selectedPrintFormat = this.posProfile.print_format;
+				// Preserve user choice; otherwise default to Fateh or POS profile setting
+				if (!this.selectedPrintFormat) {
+					this.selectedPrintFormat =
+						this.fatehSettings.default_print_format || this.posProfile?.print_format || null;
 				}
 			} catch (error) {
 				console.error("Error loading print formats:", error);
@@ -592,7 +619,11 @@ export default {
 				const defaultFormat = doctype === 'POS Invoice' ? 'POS Invoice Print' : 'Sales Invoice Print';
 				
 				const printOptions = {
-					format: this.selectedPrintFormat || this.posProfile?.print_format || defaultFormat,
+					format:
+						this.selectedPrintFormat ||
+						this.fatehSettings.default_print_format ||
+						this.posProfile?.print_format ||
+						defaultFormat,
 					letter_head: this.posProfile?.letter_head || null,
 					silent: this.posProfile?.posa_silent_print || false,
 					onSuccess: () => {
@@ -626,7 +657,11 @@ export default {
 				const defaultFormat = doctype === 'POS Invoice' ? 'POS Invoice Print' : 'Sales Invoice Print';
 				
 				const downloadOptions = {
-					format: this.selectedPrintFormat || this.posProfile?.print_format || defaultFormat,
+					format:
+						this.selectedPrintFormat ||
+						this.fatehSettings.default_print_format ||
+						this.posProfile?.print_format ||
+						defaultFormat,
 					letter_head: this.posProfile?.letter_head || null,
 				};
 
@@ -662,7 +697,11 @@ export default {
 			const params = new URLSearchParams({
 				doctype: doctype,
 				name: invoice.name,
-				format: this.selectedPrintFormat || this.posProfile?.print_format || defaultFormat,
+				format:
+					this.selectedPrintFormat ||
+					this.fatehSettings.default_print_format ||
+					this.posProfile?.print_format ||
+					defaultFormat,
 				no_letterhead: '0'
 			});
 

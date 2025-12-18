@@ -32,8 +32,27 @@
 				<!-- Top Row: Customer Selection and Invoice Type -->
 				<v-row align="center" class="items px-3 py-2">
 					<v-col :cols="pos_profile.posa_allow_sales_order ? 9 : 12" class="pb-0 pr-0">
-						<!-- Customer selection component -->
-                                            <Customer ref="customerComponent" />
+						<div class="d-flex align-start gap-2">
+							<!-- Customer selection component -->
+							<div class="flex-grow-1">
+								<Customer ref="customerComponent" />
+							</div>
+							<!-- Quick Customer Buttons -->
+							<div v-if="quickCustomers.length > 0" class="d-flex align-start gap-1 flex-shrink-0">
+								<v-btn
+									v-for="(quickCustomer, index) in quickCustomers"
+									:key="index"
+									size="small"
+									variant="tonal"
+									color="primary"
+									density="compact"
+									class="quick-customer-btn"
+									@click="selectQuickCustomer(quickCustomer.customer)"
+								>
+									{{ quickCustomer.button_label || quickCustomer.customer_name }}
+								</v-btn>
+							</div>
+						</div>
 					</v-col>
 					<!-- Invoice Type Selection (Only shown if sales orders are allowed) -->
 					<v-col v-if="pos_profile.posa_allow_sales_order" cols="3" class="pb-4">
@@ -123,33 +142,68 @@
 				<div class="items-table-wrapper">
 					<!-- Column selector button moved outside the table -->
 					<div class="column-selector-container">
-						<!-- VERSION 2.0.2 - Scanner input replaces search field -->
-						<v-text-field
-							ref="manualScanInput"
-							v-model="manualScanValue"
-							density="compact"
-							variant="solo"
-							color="primary"
-							class="item-search-field pos-themed-input"
-							:label="__('Search barcode')"
-							prepend-inner-icon="mdi-barcode-scan"
-							hide-details
-							clearable
-							autocomplete="off"
-							@keydown.enter.prevent="submitManualScan"
-							@click:clear="manualScanValue = ''"
-						>
-							<template #append-inner>
-								<v-btn
-									icon="mdi-check"
-									variant="tonal"
-									color="primary"
-									size="small"
-									@click="submitManualScan"
-									:title="__('Submit Code')"
-								></v-btn>
+						<div class="search-fields-container">
+							<!-- VERSION 2.0.2 - Scanner input replaces search field -->
+							<v-text-field
+								ref="manualScanInput"
+								v-model="manualScanValue"
+								density="compact"
+								variant="solo"
+								color="primary"
+								class="item-search-field pos-themed-input"
+								:label="__('Search barcode')"
+								prepend-inner-icon="mdi-barcode-scan"
+								hide-details
+								clearable
+								autocomplete="off"
+								@keydown.enter.prevent="submitManualScan"
+								@click:clear="manualScanValue = ''"
+							>
+								<template #append-inner>
+									<v-btn
+										icon="mdi-check"
+										variant="tonal"
+										color="primary"
+										size="small"
+										@click="submitManualScan"
+										:title="__('Submit Code')"
+									></v-btn>
+								</template>
+							</v-text-field>
+							<v-autocomplete
+								v-if="enableQuickItemSearch"
+								ref="quickItemSearchInput"
+								class="item-search-field pos-themed-input"
+								v-model="quickItemSelection"
+								:items="quickItemOptions"
+								item-title="title"
+								item-value="value"
+								v-model:search="quickItemSearch"
+								:label="__('Item Search')"
+								:placeholder="__('Item code')"
+								:no-data-text="__('No items found')"
+								density="compact"
+								variant="solo"
+								color="primary"
+								clearable
+								hide-details
+								return-object
+								:filter="() => true"
+								@update:search="onQuickItemSearch"
+								@update:model-value="onQuickItemSelected"
+								@keydown.enter.prevent="onQuickItemEnter"
+								@focus="onQuickItemFocus"
+							>
+							<template #item="{ props, item }">
+								<v-list-item v-bind="props">
+									<v-list-item-title>{{ item.raw.item_name || item.raw.item_code }}</v-list-item-title>
+								</v-list-item>
 							</template>
-						</v-text-field>
+							<template #selection="{ item }">
+								{{ item.raw.item_name || item.raw.item_code }}
+							</template>
+							</v-autocomplete>
+						</div>
 						<v-btn
 							density="compact"
 							variant="text"
@@ -371,7 +425,7 @@ export default {
 		const invoiceStore = useInvoiceStore();
 		const customersStore = useCustomersStore();
 		const { selectedCustomer, refreshToken } = storeToRefs(customersStore);
-		return { invoiceStore, selectedCustomer, customerRefreshToken: refreshToken };
+		return { invoiceStore, customersStore, selectedCustomer, customerRefreshToken: refreshToken };
 	},
 	data() {
 		return {
@@ -419,6 +473,11 @@ export default {
 			posting_date_display: "", // Display value for date picker
 			items_headers: [],
 			manualScanValue: "", // Manual scanner input value
+			enableQuickItemSearch: false, // Toggle for quick item search above selected items
+			quickItemSelection: null,
+			quickItemSearch: "",
+			quickItemOptions: [],
+			quickCustomers: [], // Quick customer buttons from Fateh POS Settings
 			// Scanner-related properties (matching ItemsSelector)
 			scanErrorDialog: false,
 			scanErrorMessage: "",
@@ -1760,13 +1819,163 @@ export default {
                 handleShowPayment(data) {
                         this.paymentVisible = data === "true";
                 },
+		async loadFatehPosSettings() {
+			try {
+				const res = await frappe.call({
+					method: "frappe.client.get",
+					args: {
+						doctype: "Fateh POS Settings",
+						name: "Fateh POS Settings",
+					},
+				});
+				const msg = res?.message || {};
+				this.enableQuickItemSearch = Boolean(msg.enable_quick_item_search);
+				// Load quick customers
+				this.quickCustomers = Array.isArray(msg.quick_customers) ? msg.quick_customers : [];
+			} catch (error) {
+				console.warn("Could not load Fateh POS Settings:", error);
+				this.enableQuickItemSearch = false;
+				this.quickCustomers = [];
+			}
+		},
+		selectQuickCustomer(customerName) {
+			// Select customer using the store
+			this.customersStore.setSelectedCustomer(customerName);
+			// Update the customer component if available
+			if (this.$refs.customerComponent && this.$refs.customerComponent.internalCustomer !== undefined) {
+				this.$nextTick(() => {
+					this.$refs.customerComponent.internalCustomer = customerName;
+				});
+			}
+		},
+		async onQuickItemSearch(term) {
+			if (!this.enableQuickItemSearch) return;
+
+			const txt = (term || "").trim();
+			this.quickItemSearch = txt;
+
+			try {
+				let results = [];
+
+				if (txt) {
+					// Fetch a larger set of items and filter client-side (like ItemsSelector does)
+					// This ensures both item_code and item_name searches work reliably
+					const res = await frappe.call({
+						method: "frappe.client.get_list",
+						args: {
+							doctype: "Item",
+							fields: ["item_code", "item_name"],
+							filters: { disabled: 0 },
+							limit: 1000, // Fetch more items for client-side filtering
+							order_by: "item_name asc",
+						},
+					});
+
+					let fetchedItems = Array.isArray(res?.message) ? res.message : [];
+
+					// Client-side filtering - same logic as ItemsSelector
+					// Split search term into words for word-by-word matching
+					const searchLower = txt.toLowerCase().trim();
+					const searchWords = searchLower.split(/\s+/).filter(w => w.length > 0);
+
+					if (searchWords.length > 0) {
+						results = fetchedItems.filter((item) => {
+							const name = (item.item_name || "").toLowerCase();
+							const code = (item.item_code || "").toLowerCase();
+
+							// Match if all search words are found in either item_code or item_name
+							// This works for both item_code (substring match) and item_name (word-by-word match)
+							return searchWords.every((word) => {
+								// Check item_code - substring match (works for "asl" matching "ASL")
+								if (code.includes(word)) {
+									return true;
+								}
+								// Check item_name - full string or word-by-word match
+								if (name.includes(word)) {
+									return true;
+								}
+								// Check word-by-word in item_name
+								const nameWords = name.split(/\s+/);
+								return nameWords.some(nw => nw.includes(word));
+							});
+						});
+					} else {
+						results = fetchedItems;
+					}
+				} else {
+					const res = await frappe.call({
+						method: "frappe.client.get_list",
+						args: {
+							doctype: "Item",
+							fields: ["item_code", "item_name"],
+							filters: { disabled: 0 },
+							limit: 20,
+							order_by: "item_name asc",
+						},
+					});
+					results = Array.isArray(res?.message) ? res.message : [];
+				}
+
+				this.quickItemOptions = results.map((item) => ({
+					title: item.item_code, // item_code for autocomplete internal use
+					value: item.item_code,
+					item_code: item.item_code,
+					item_name: item.item_name || item.item_code,
+				}));
+			} catch (e) {
+				console.error("Quick item search failed", e);
+				this.quickItemOptions = [];
+			}
+		},
+		onQuickItemFocus() {
+			if (!this.quickItemOptions.length) {
+				this.onQuickItemSearch("");
+			}
+		},
+		async onQuickItemSelected(option) {
+			if (!option) {
+				this.quickItemSelection = null;
+				return;
+			}
+			const itemCode = option.value || option.item_code || option;
+			
+			// Use scan_barcode event - ItemsSelector handles it properly
+			// It finds the item (by item_code or barcode), fetches full details, and adds it
+			// This ensures item_name and all other fields are populated correctly
+			this.eventBus.emit("scan_barcode", itemCode);
+			
+			// Clear selection immediately
+			this.quickItemSelection = null;
+			this.quickItemSearch = "";
+			this.quickItemOptions = [];
+			
+			// Refocus the quick item search field after adding item
+			// Use sufficient delay to ensure scan_barcode processing completes
+			this.$nextTick(() => {
+				if (this.$refs.quickItemSearchInput) {
+					const input = this.$refs.quickItemSearchInput.$el.querySelector('input');
+					if (input) {
+						setTimeout(() => {
+							input.focus();
+						}, 300);
+					}
+				}
+			});
+		},
+		onQuickItemEnter() {
+			if (this.quickItemOptions && this.quickItemOptions.length) {
+				this.onQuickItemSelected(this.quickItemOptions[0]);
+			}
+		},
         },
 
-        mounted() {
-                // Load saved column preferences
-                this.loadColumnPreferences();
-                // Restore saved invoice height
-                this.loadInvoiceHeight();
+		async mounted() {
+			await this.loadFatehPosSettings();
+
+			// Load saved column preferences
+			this.loadColumnPreferences();
+			// Restore saved invoice height
+			this.loadInvoiceHeight();
 
                 this._busHandlers = {
                         "item-drag-start": this.handleItemDragStart,
@@ -2031,11 +2240,19 @@ export default {
 	margin-bottom: 8px;
 }
 
-.item-search-field {
-	width: 100%;
-	max-width: 320px;
-	flex: 1 1 240px;
+.search-fields-container {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex: 1 1 auto;
 	margin-right: auto;
+	min-width: 0;
+}
+
+.item-search-field {
+	flex: 1 1 0;
+	min-width: 200px;
+	max-width: 400px;
 }
 
 .column-selector-btn {
@@ -2138,7 +2355,26 @@ export default {
 
 .version-indicator {
 	font-size: 0.65rem !important;
-	font-weight: 600;
-	opacity: 0.8;
+}
+
+/* Quick Customer Buttons */
+.quick-customer-btn {
+	min-width: auto !important;
+	white-space: nowrap;
+	font-size: 0.75rem;
+	padding: 8px 16px !important;
+	min-height: 36px !important;
+	display: flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	text-align: center !important;
+}
+
+.gap-1 {
+	gap: 4px;
+}
+
+.gap-2 {
+	gap: 4px;
 }
 </style>

@@ -8,7 +8,10 @@
   "default_print_format",
   "column_break_wcys",
   "default_hide_item_selection",
-  "barcode_scanner_on_right"
+  "barcode_scanner_on_right",
+  "enable_quick_item_search",
+  "section_break_quick_customers",
+  "quick_customers"
  ],
  "fields": [
   {
@@ -33,6 +36,23 @@
   {
    "fieldname": "column_break_wcys",
    "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "enable_quick_item_search",
+   "fieldtype": "Check",
+   "label": "Enable Quick Item Search (Right Panel)"
+  },
+  {
+   "fieldname": "section_break_quick_customers",
+   "fieldtype": "Section Break",
+   "label": "Quick Customers"
+  },
+  {
+   "fieldname": "quick_customers",
+   "fieldtype": "Table",
+   "label": "Quick Customers",
+   "options": "Fateh POS Quick Customer"
   }
  ],
  "grid_page_length": 50,

@@ -111,14 +111,14 @@
 							></v-text-field>
 						</v-col>
 						<v-col cols="6" v-if="!is_mpesa_c2b_payment(payment)">
-							<v-btn block color="primary" theme="dark" @click="set_full_amount(payment.idx)">
+							<v-btn block color="primary" theme="dark" class="mode-payment-btn" @click="set_full_amount(payment.idx)">
 								{{ payment.mode_of_payment }}
 							</v-btn>
 						</v-col>
 
 						<!-- M-Pesa Payment Button (if payment is M-Pesa) -->
 						<v-col cols="12" v-if="is_mpesa_c2b_payment(payment)" class="pl-3">
-							<v-btn block color="success" theme="dark" @click="mpesa_c2b_dialog(payment)">
+							<v-btn block color="success" theme="dark" class="mode-payment-btn" @click="mpesa_c2b_dialog(payment)">
 								{{ __("Get Payments") }} {{ payment.mode_of_payment }}
 							</v-btn>
 						</v-col>
@@ -2332,5 +2332,34 @@ export default {
 .submit-highlight {
 	box-shadow: 0 0 0 4px rgb(var(--v-theme-primary));
 	transition: box-shadow 0.3s ease-in-out;
+}
+
+/* Lighten hover, active, and focus effects for mode of payment buttons - remove dark overlay */
+.mode-payment-btn:hover::before,
+.mode-payment-btn:focus::before,
+.mode-payment-btn:focus-visible::before,
+.mode-payment-btn:active::before {
+	opacity: 0 !important;
+}
+
+.mode-payment-btn:hover,
+.mode-payment-btn:focus,
+.mode-payment-btn:focus-visible,
+.mode-payment-btn:active {
+	background-color: rgba(var(--v-theme-primary), 0.85) !important;
+}
+
+.mode-payment-btn.color-primary:hover,
+.mode-payment-btn.color-primary:focus,
+.mode-payment-btn.color-primary:focus-visible,
+.mode-payment-btn.color-primary:active {
+	background-color: rgba(var(--v-theme-primary), 0.85) !important;
+}
+
+.mode-payment-btn.color-success:hover,
+.mode-payment-btn.color-success:focus,
+.mode-payment-btn.color-success:focus-visible,
+.mode-payment-btn.color-success:active {
+	background-color: rgba(var(--v-theme-success), 0.85) !important;
 }
 </style>
