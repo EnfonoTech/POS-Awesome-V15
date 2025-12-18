@@ -1858,23 +1858,39 @@ export default {
 				let results = [];
 
 				if (txt) {
-					// Fetch a larger set of items and filter client-side (like ItemsSelector does)
-					// This ensures both item_code and item_name searches work reliably
+					// Build filters
+					const filters = { disabled: 0 };
+					
+					// Add item_group filter if POS profile has item_groups configured
+					if (this.pos_profile?.item_groups && Array.isArray(this.pos_profile.item_groups) && this.pos_profile.item_groups.length > 0) {
+						const itemGroups = this.pos_profile.item_groups.map((g) => g.item_group).filter(Boolean);
+						if (itemGroups.length > 0) {
+							filters.item_group = ["in", itemGroups];
+						}
+					}
+					
+					// Use server-side filtering with or_filters to search both item_code and item_name
+					// This ensures we get all matching items from the database
 					const res = await frappe.call({
 						method: "frappe.client.get_list",
 						args: {
 							doctype: "Item",
 							fields: ["item_code", "item_name"],
-							filters: { disabled: 0 },
-							limit: 1000, // Fetch more items for client-side filtering
+							filters: filters,
+							or_filters: [
+								["item_code", "like", `%${txt}%`],
+								["item_name", "like", `%${txt}%`],
+							],
+							// No limit parameter - let Frappe return all matching items
 							order_by: "item_name asc",
 						},
 					});
 
 					let fetchedItems = Array.isArray(res?.message) ? res.message : [];
+					console.log(`Quick search for "${txt}": Found ${fetchedItems.length} items from server`);
 
-					// Client-side filtering - same logic as ItemsSelector
-					// Split search term into words for word-by-word matching
+					// Additional client-side filtering for word-by-word matching on item_name
+					// This improves matching for multi-word searches
 					const searchLower = txt.toLowerCase().trim();
 					const searchWords = searchLower.split(/\s+/).filter(w => w.length > 0);
 
@@ -1884,9 +1900,8 @@ export default {
 							const code = (item.item_code || "").toLowerCase();
 
 							// Match if all search words are found in either item_code or item_name
-							// This works for both item_code (substring match) and item_name (word-by-word match)
 							return searchWords.every((word) => {
-								// Check item_code - substring match (works for "asl" matching "ASL")
+								// Check item_code - substring match
 								if (code.includes(word)) {
 									return true;
 								}
@@ -1903,13 +1918,24 @@ export default {
 						results = fetchedItems;
 					}
 				} else {
+					// Build filters for initial list
+					const filters = { disabled: 0 };
+					
+					// Add item_group filter if POS profile has item_groups configured
+					if (this.pos_profile?.item_groups && Array.isArray(this.pos_profile.item_groups) && this.pos_profile.item_groups.length > 0) {
+						const itemGroups = this.pos_profile.item_groups.map((g) => g.item_group).filter(Boolean);
+						if (itemGroups.length > 0) {
+							filters.item_group = ["in", itemGroups];
+						}
+					}
+					
 					const res = await frappe.call({
 						method: "frappe.client.get_list",
 						args: {
 							doctype: "Item",
 							fields: ["item_code", "item_name"],
-							filters: { disabled: 0 },
-							limit: 20,
+							filters: filters,
+							limit: 50, // Limit initial list to 50 for performance
 							order_by: "item_name asc",
 						},
 					});
