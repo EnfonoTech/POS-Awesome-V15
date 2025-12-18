@@ -56,6 +56,14 @@ def expand_item_groups(item_groups):
 
 
 @frappe.whitelist()
+def expand_item_groups_api(item_groups):
+    """Whitelisted API wrapper for expand_item_groups."""
+    if isinstance(item_groups, str):
+        item_groups = json.loads(item_groups)
+    return expand_item_groups(item_groups)
+
+
+@frappe.whitelist()
 def get_active_pos_profile(user=None):
     """Return the active POS profile for the given user."""
     user = user or frappe.session.user

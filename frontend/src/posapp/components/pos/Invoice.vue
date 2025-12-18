@@ -1859,35 +1859,84 @@ export default {
 
 				if (txt) {
 					// Build filters
-					const filters = { disabled: 0 };
+					const filters = { 
+						disabled: 0,
+						is_sales_item: 1 // Only show items that can be sold
+					};
 					
-					// Add item_group filter if POS profile has item_groups configured
+					// Expand item_groups to include child groups if POS profile has item_groups configured
+					let expandedItemGroups = [];
 					if (this.pos_profile?.item_groups && Array.isArray(this.pos_profile.item_groups) && this.pos_profile.item_groups.length > 0) {
-						const itemGroups = this.pos_profile.item_groups.map((g) => g.item_group).filter(Boolean);
-						if (itemGroups.length > 0) {
-							filters.item_group = ["in", itemGroups];
+						const baseGroups = this.pos_profile.item_groups.map((g) => g.item_group).filter(Boolean);
+						
+						// Get expanded item groups (including children) from backend
+						try {
+							const expandApiRes = await frappe.call({
+								method: "posawesome.posawesome.api.utils.expand_item_groups_api",
+								args: {
+									item_groups: baseGroups,
+								},
+							});
+							expandedItemGroups = expandApiRes?.message || baseGroups;
+						} catch (error) {
+							console.warn("Could not expand item groups, using base groups:", error);
+							expandedItemGroups = baseGroups;
+						}
+						
+						// Fallback: if expansion failed, use base groups
+						if (expandedItemGroups.length === 0) {
+							expandedItemGroups = baseGroups;
+						}
+						
+						if (expandedItemGroups.length > 0) {
+							filters.item_group = ["in", expandedItemGroups];
 						}
 					}
 					
-					// Use server-side filtering with or_filters to search both item_code and item_name
-					// This ensures we get all matching items from the database
-					const res = await frappe.call({
+					// Fetch items matching item_code and item_name separately, then combine
+					// This ensures both searches work reliably
+					const codeFilters = { ...filters };
+					codeFilters.item_code = ["like", `%${txt}%`];
+					
+					const nameFilters = { ...filters };
+					nameFilters.item_name = ["like", `%${txt}%`];
+					
+					// Fetch items matching item_code
+					const codeRes = await frappe.call({
 						method: "frappe.client.get_list",
 						args: {
 							doctype: "Item",
 							fields: ["item_code", "item_name"],
-							filters: filters,
-							or_filters: [
-								["item_code", "like", `%${txt}%`],
-								["item_name", "like", `%${txt}%`],
-							],
-							// No limit parameter - let Frappe return all matching items
+							filters: codeFilters,
 							order_by: "item_name asc",
 						},
 					});
-
-					let fetchedItems = Array.isArray(res?.message) ? res.message : [];
-					console.log(`Quick search for "${txt}": Found ${fetchedItems.length} items from server`);
+					
+					// Fetch items matching item_name
+					const nameRes = await frappe.call({
+						method: "frappe.client.get_list",
+						args: {
+							doctype: "Item",
+							fields: ["item_code", "item_name"],
+							filters: nameFilters,
+							order_by: "item_name asc",
+						},
+					});
+					
+					// Combine and deduplicate results
+					const codeItems = Array.isArray(codeRes?.message) ? codeRes.message : [];
+					const nameItems = Array.isArray(nameRes?.message) ? nameRes.message : [];
+					
+					// Remove duplicates by item_code
+					const uniqueMap = new Map();
+					[...codeItems, ...nameItems].forEach((item) => {
+						if (!uniqueMap.has(item.item_code)) {
+							uniqueMap.set(item.item_code, item);
+						}
+					});
+					
+					let fetchedItems = Array.from(uniqueMap.values());
+					console.log(`Quick search for "${txt}": Found ${fetchedItems.length} items (${codeItems.length} by code, ${nameItems.length} by name)`);
 
 					// Additional client-side filtering for word-by-word matching on item_name
 					// This improves matching for multi-word searches
@@ -1919,13 +1968,37 @@ export default {
 					}
 				} else {
 					// Build filters for initial list
-					const filters = { disabled: 0 };
+					const filters = { 
+						disabled: 0,
+						is_sales_item: 1 // Only show items that can be sold
+					};
 					
-					// Add item_group filter if POS profile has item_groups configured
+					// Expand item_groups to include child groups if POS profile has item_groups configured
+					let expandedItemGroups = [];
 					if (this.pos_profile?.item_groups && Array.isArray(this.pos_profile.item_groups) && this.pos_profile.item_groups.length > 0) {
-						const itemGroups = this.pos_profile.item_groups.map((g) => g.item_group).filter(Boolean);
-						if (itemGroups.length > 0) {
-							filters.item_group = ["in", itemGroups];
+						const baseGroups = this.pos_profile.item_groups.map((g) => g.item_group).filter(Boolean);
+						
+						// Get expanded item groups (including children) from backend
+						try {
+							const expandApiRes = await frappe.call({
+								method: "posawesome.posawesome.api.utils.expand_item_groups_api",
+								args: {
+									item_groups: baseGroups,
+								},
+							});
+							expandedItemGroups = expandApiRes?.message || baseGroups;
+						} catch (error) {
+							console.warn("Could not expand item groups, using base groups:", error);
+							expandedItemGroups = baseGroups;
+						}
+						
+						// Fallback: if expansion failed, use base groups
+						if (expandedItemGroups.length === 0) {
+							expandedItemGroups = baseGroups;
+						}
+						
+						if (expandedItemGroups.length > 0) {
+							filters.item_group = ["in", expandedItemGroups];
 						}
 					}
 					
