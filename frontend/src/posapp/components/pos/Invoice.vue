@@ -470,6 +470,7 @@ export default {
 			quickItemSearch: "",
 			quickItemOptions: [],
 			quickCustomers: [], // Quick customer buttons from Fateh POS Settings
+			fatehPosSettings: {}, // Fateh POS Settings data
 			// Scanner-related properties (matching ItemsSelector)
 			scanErrorDialog: false,
 			scanErrorMessage: "",
@@ -769,7 +770,11 @@ export default {
                         this.queueManualScanFocus();
                 },
 
-                initializeItemsHeaders() {
+                async initializeItemsHeaders() {
+                        // Ensure Fateh POS Settings are loaded before initializing columns
+                        if (!this.fatehPosSettings || Object.keys(this.fatehPosSettings).length === 0) {
+                                await this.loadFatehPosSettings();
+                        }
                         // Define all available columns
                         this.available_columns = [
                                 { title: __("Name"), align: "start", sortable: true, key: "item_name", required: true },
@@ -786,6 +791,7 @@ export default {
 				{ title: __("Discount Amount"), key: "discount_amount", align: "end", required: false },
 				{ title: __("Rate"), key: "rate", align: "center", required: true },
 				{ title: __("Amount"), key: "amount", align: "center", required: true },
+				{ title: __("Batch No"), key: "batch_no", align: "start", required: false, width: "160px" },
 				{ title: __("Offer?"), key: "posa_is_offer", align: "center", required: false },
 				{ title: __("Actions"), key: "actions", align: "center", required: true, sortable: false },
 			];
@@ -801,6 +807,9 @@ export default {
 						if (col.key === "discount_value" && this.pos_profile.posa_display_discount_percentage)
 							return true;
 						if (col.key === "discount_amount" && this.pos_profile.posa_display_discount_amount)
+							return true;
+						// Show batch column if enabled in Fateh POS Settings
+						if (col.key === "batch_no" && this.fatehPosSettings?.show_batch_column_by_default)
 							return true;
 						return false;
 					})
@@ -1706,7 +1715,11 @@ export default {
                 handleRegisterPosProfile(data) {
                         this.pos_profile = data.pos_profile;
                         this.company = data.company || null;
-                        this.customer = data.pos_profile.customer;
+                        // Only set customer from profile if no customer is currently selected
+                        // This prevents overwriting quick customer button selections
+                        if (!this.customer && data.pos_profile.customer) {
+                                this.customer = data.pos_profile.customer;
+                        }
                         this.pos_opening_shift = data.pos_opening_shift;
                         this.stock_settings = data.stock_settings;
                         const prec = parseInt(data.pos_profile.posa_decimal_precision);
@@ -1824,20 +1837,33 @@ export default {
 				this.enableQuickItemSearch = Boolean(msg.enable_quick_item_search);
 				// Load quick customers
 				this.quickCustomers = Array.isArray(msg.quick_customers) ? msg.quick_customers : [];
+				// Store settings for use in column initialization
+				this.fatehPosSettings = msg;
 			} catch (error) {
 				console.warn("Could not load Fateh POS Settings:", error);
 				this.enableQuickItemSearch = false;
 				this.quickCustomers = [];
+				this.fatehPosSettings = {};
 			}
 		},
 		selectQuickCustomer(customerName) {
-			// Select customer using the store
+			// Set customer directly to ensure it's selected immediately
+			this.customer = customerName;
+			// Select customer using the store to keep it in sync
 			this.customersStore.setSelectedCustomer(customerName);
 			// Update the customer component if available
 			if (this.$refs.customerComponent && this.$refs.customerComponent.internalCustomer !== undefined) {
 				this.$nextTick(() => {
 					this.$refs.customerComponent.internalCustomer = customerName;
+					// Trigger customer details fetch
+					if (this.$refs.customerComponent.fetch_customer_details) {
+						this.$refs.customerComponent.fetch_customer_details();
+					}
 				});
+			}
+			// Fetch customer details for the selected customer
+			if (customerName) {
+				this.fetch_customer_details();
 			}
 		},
 		async onQuickItemSearch(term) {
@@ -2133,6 +2159,26 @@ export default {
 					this.fetch_customer_details();
 				}
 			},
+		);
+		// Watch customer_info to auto-toggle credit sale for "Online Delivery" customer group
+		this.$watch(
+			() => this.customer_info,
+			(newCustomerInfo, oldCustomerInfo) => {
+				const newGroup = newCustomerInfo?.customer_group;
+				const oldGroup = oldCustomerInfo?.customer_group;
+				
+				// Only toggle when a customer is actually selected (customerGroup has a value)
+				if (newGroup) {
+					if (newGroup === "Online Delivery") {
+						// Auto-enable credit sale for Online Delivery customer group
+						this.eventBus.emit("auto_toggle_credit_sale", true);
+					} else if (oldGroup === "Online Delivery") {
+						// Auto-disable credit sale when switching from Online Delivery to a different customer group
+						this.eventBus.emit("auto_toggle_credit_sale", false);
+					}
+				}
+			},
+			{ deep: true, immediate: false },
 		);
                 this._shortcutHandlers = this._shortcutHandlers || {};
 

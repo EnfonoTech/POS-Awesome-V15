@@ -2285,6 +2285,10 @@ export default {
                                 if (cached) {
                                         vm.customer_info = { ...cached };
                                         vm.sync_invoice_customer_details(vm.customer_info);
+                                        // Auto-toggle credit sale for "Online Delivery" customer group
+                                        if (cached.customer_group === "Online Delivery") {
+                                                vm.eventBus.emit("auto_toggle_credit_sale", true);
+                                        }
                                         if (vm.pos_profile.posa_force_price_from_customer_price_list !== false) {
                                                 const defaultPriceList = vm.pos_profile?.selling_price_list || null;
                                                 const resolvedPriceList = cached.customer_price_list || defaultPriceList;
@@ -2300,6 +2304,10 @@ export default {
                                 if (queued) {
                                         vm.customer_info = { ...queued, name: queued.customer_name };
                                         vm.sync_invoice_customer_details(vm.customer_info);
+                                        // Auto-toggle credit sale for "Online Delivery" customer group
+                                        if (queued.customer_group === "Online Delivery") {
+                                                vm.eventBus.emit("auto_toggle_credit_sale", true);
+                                        }
                                         if (vm.pos_profile.posa_force_price_from_customer_price_list !== false) {
                                                 const defaultPriceList = vm.pos_profile?.selling_price_list || null;
                                                 const resolvedPriceList = queued.customer_price_list || defaultPriceList;
@@ -2327,6 +2335,10 @@ export default {
                                         ...message,
                                 };
                                 vm.sync_invoice_customer_details(vm.customer_info);
+                                // Auto-toggle credit sale for "Online Delivery" customer group
+                                if (message.customer_group === "Online Delivery") {
+                                        vm.eventBus.emit("auto_toggle_credit_sale", true);
+                                }
                         }
 			// When force reload is enabled, automatically switch to the
 			// customer's default price list so that item rates are fetched

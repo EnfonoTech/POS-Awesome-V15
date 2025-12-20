@@ -71,6 +71,15 @@ export function useBatchSerial() {
 			item.batch_no = batch_to_use.batch_no;
 			item.actual_batch_qty = batch_to_use.batch_qty;
 			item.batch_no_expiry_date = batch_to_use.expiry_date;
+			
+			// Force UI update to ensure autocomplete displays the batch number
+			if (context && context.$nextTick) {
+				context.$nextTick(() => {
+					if (context.$forceUpdate) {
+						context.$forceUpdate();
+					}
+				});
+			}
 
 			if (batch_to_use.batch_price) {
 				// Store batch price in base currency

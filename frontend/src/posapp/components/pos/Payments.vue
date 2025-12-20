@@ -811,6 +811,7 @@ export default {
 			addresses: [], // List of customer addresses
 			is_user_editing_paid_change: false, // User interaction flag
 			highlightSubmit: false, // Highlight state for submit button
+			_pendingCreditSaleState: null, // Pending credit sale state to apply when invoice_doc is available
 		};
 	},
 	computed: {
@@ -2179,7 +2180,22 @@ export default {
 			this.eventBus.on("send_invoice_doc_payment", (invoice_doc) => {
 				this.invoice_doc = invoice_doc;
 				const default_payment = this.invoice_doc.payments.find((payment) => payment.default === 1);
-				this.is_credit_sale = false;
+				// Check if there's a pending credit sale state to apply
+				if (this._pendingCreditSaleState !== null && !invoice_doc.is_return) {
+					this.is_credit_sale = this._pendingCreditSaleState;
+					this._pendingCreditSaleState = null;
+				} else if (!invoice_doc.is_return) {
+					// Don't reset is_credit_sale if customer group is Online Delivery
+					// Check both invoice_doc and customerInfoFromStore for customer_group
+					const customerGroup = invoice_doc.customer_group || this.customerInfoFromStore?.customer_group;
+					if (customerGroup !== "Online Delivery") {
+						this.is_credit_sale = false;
+					} else {
+						this.is_credit_sale = true;
+					}
+				} else {
+					this.is_credit_sale = false;
+				}
 				this.is_write_off_change = false;
 				if (invoice_doc.is_return) {
 					this.is_return = true;
@@ -2252,6 +2268,16 @@ export default {
 			});
 			this.eventBus.on("set_mpesa_payment", (data) => {
 				this.set_mpesa_payment(data);
+			});
+			// Auto-toggle credit sale (e.g., for Online Delivery customer group)
+			this.eventBus.on("auto_toggle_credit_sale", (enable) => {
+				// Apply immediately if invoice_doc exists, otherwise it will be applied when invoice_doc is set
+				if (this.invoice_doc && !this.invoice_doc.is_return) {
+					this.is_credit_sale = enable === true;
+				} else {
+					// Store the desired state to apply when invoice_doc becomes available
+					this._pendingCreditSaleState = enable === true;
+				}
 			});
 			// Clear any stored invoice when parent emits clear_invoice
 			this.eventBus.on("clear_invoice", () => {

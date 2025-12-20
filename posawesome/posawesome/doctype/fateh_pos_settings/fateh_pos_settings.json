@@ -4,15 +4,17 @@
  "creation": "2025-12-11 08:21:30.462026",
  "doctype": "DocType",
  "engine": "InnoDB",
- "field_order": [
-  "default_print_format",
-  "column_break_wcys",
-  "default_hide_item_selection",
-  "barcode_scanner_on_right",
-  "enable_quick_item_search",
-  "section_break_quick_customers",
-  "quick_customers"
- ],
+  "field_order": [
+   "default_print_format",
+   "column_break_wcys",
+   "default_hide_item_selection",
+   "barcode_scanner_on_right",
+   "enable_quick_item_search",
+   "section_break_quick_customers",
+   "quick_customers",
+   "column_break_batch",
+   "show_batch_column_by_default"
+  ],
  "fields": [
   {
    "default": "0",
@@ -53,6 +55,16 @@
    "fieldtype": "Table",
    "label": "Quick Customers",
    "options": "Fateh POS Quick Customer"
+  },
+  {
+   "fieldname": "column_break_batch",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "0",
+   "fieldname": "show_batch_column_by_default",
+   "fieldtype": "Check",
+   "label": "Show Batch Column by Default"
   }
  ],
  "grid_page_length": 50,

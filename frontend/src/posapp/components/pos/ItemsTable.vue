@@ -187,6 +187,47 @@
 				</div>
 			</template>
 
+			<!-- Batch No column -->
+			<template v-slot:item.batch_no="{ item }">
+				<div class="batch-no-display" @click.stop>
+					<v-autocomplete
+						v-if="item.has_batch_no || item.batch_no || (item.batch_no_data && item.batch_no_data.length > 0)"
+						:key="`batch-${item.posa_row_id}-${item.batch_no || 'empty'}-${(item.batch_no_data && item.batch_no_data.length) || 0}`"
+						v-model="item.batch_no"
+						:items="getBatchItemsWithCurrent(item)"
+						item-title="batch_no"
+						item-value="batch_no"
+						variant="outlined"
+						density="compact"
+						color="primary"
+						class="inline-batch-select pos-themed-input"
+						hide-details
+						:disabled="!!item.posa_is_replace"
+						:menu-props="{ 
+							contentClass: 'batch-dropdown-menu',
+							maxHeight: '300px'
+						}"
+						@update:model-value="setBatchQty(item, $event)"
+						@click.stop
+						@mousedown.stop
+					>
+						<template v-slot:item="{ props, item: batchItem }">
+							<v-list-item v-bind="props">
+								<v-list-item-title
+									v-html="batchItem.raw.batch_no"
+								></v-list-item-title>
+								<v-list-item-subtitle
+									v-html="
+										`Available QTY  '${batchItem.raw.batch_qty}' - Expiry Date ${batchItem.raw.expiry_date || 'N/A'}`
+									"
+								></v-list-item-subtitle>
+							</v-list-item>
+						</template>
+					</v-autocomplete>
+					<span v-else class="text-caption text-grey">{{ __("N/A") }}</span>
+				</div>
+			</template>
+
 			<!-- Offer toggle -->
 			<template v-slot:item.posa_is_offer="{ item }">
 				<v-btn
@@ -932,6 +973,43 @@ export default {
 		},
 	},
 	methods: {
+		// Ensure current batch_no is included in items list for autocomplete
+		getBatchItemsWithCurrent(item) {
+			if (!item) return [];
+			
+			const batchData = Array.isArray(item.batch_no_data) ? [...item.batch_no_data] : [];
+			const currentBatch = item.batch_no;
+			
+			// Always include current batch_no if it exists, even if batch_no_data is empty
+			// This handles the case when batch_no is auto-fetched before batch_no_data is loaded
+			if (currentBatch) {
+				const exists = batchData.some(b => b && b.batch_no === currentBatch);
+				if (!exists) {
+					// Create a batch object with available data
+					const currentBatchObj = {
+						batch_no: currentBatch,
+						batch_qty: item.actual_batch_qty || 0,
+						expiry_date: item.batch_no_expiry_date || null,
+						manufacturing_date: item.batch_no_manufacturing_date || null
+					};
+					// Add at the beginning so it's the first option
+					batchData.unshift(currentBatchObj);
+				}
+			}
+			
+			// If no batch data exists but batch_no is set, return array with just the current batch
+			// This ensures autocomplete can display the value
+			if (batchData.length === 0 && currentBatch) {
+				return [{
+					batch_no: currentBatch,
+					batch_qty: item.actual_batch_qty || 0,
+					expiry_date: item.batch_no_expiry_date || null,
+					manufacturing_date: item.batch_no_manufacturing_date || null
+				}];
+			}
+			
+			return batchData;
+		},
 		customItemFilter(value, search, item) {
 			if (search == null) {
 				return true;
@@ -3403,6 +3481,94 @@ body[dir="rtl"] .number-field-rtl {
 	}
 	
 	.inline-uom-select :deep(.v-field__input) {
+		padding: 1px 4px !important;
+		font-size: 0.7rem !important;
+	}
+}
+
+/* Batch No column styling */
+.batch-no-display {
+	display: flex;
+	align-items: center;
+	justify-content: flex-start;
+	width: 100%;
+	height: 100%;
+	padding: 2px 0;
+}
+
+.batch-selection-text {
+	display: inline-block;
+	width: 100%;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.inline-batch-select {
+	min-width: 140px;
+	max-width: 200px;
+	width: auto;
+	flex: 1;
+}
+
+.inline-batch-select :deep(.v-field) {
+	border-radius: 6px !important;
+	background: var(--pos-input-bg) !important;
+	border: 1px solid var(--pos-border-light) !important;
+	transition: all 0.3s ease !important;
+	font-size: 0.8rem !important;
+}
+
+.inline-batch-select :deep(.v-field__input) {
+	padding: 4px 8px !important;
+	font-size: 0.8rem !important;
+	min-height: auto !important;
+}
+
+.inline-batch-select :deep(.v-field:hover) {
+	border-color: var(--pos-primary-variant) !important;
+	box-shadow: 0 2px 8px var(--pos-shadow) !important;
+}
+
+.inline-batch-select :deep(.v-field--focused) {
+	border-color: var(--pos-primary) !important;
+	box-shadow: 0 0 0 2px var(--pos-primary-container) !important;
+}
+
+.batch-dropdown-menu {
+	z-index: 9999 !important;
+}
+
+/* Responsive batch select */
+@media (max-width: 768px) {
+	.inline-batch-select {
+		min-width: 120px;
+		max-width: 160px;
+	}
+	
+	.inline-batch-select :deep(.v-field) {
+		font-size: 0.75rem !important;
+		min-height: 28px !important;
+	}
+	
+	.inline-batch-select :deep(.v-field__input) {
+		padding: 2px 6px !important;
+		font-size: 0.75rem !important;
+	}
+}
+
+@media (max-width: 480px) {
+	.inline-batch-select {
+		min-width: 100px;
+		max-width: 140px;
+	}
+	
+	.inline-batch-select :deep(.v-field) {
+		font-size: 0.7rem !important;
+		min-height: 26px !important;
+	}
+	
+	.inline-batch-select :deep(.v-field__input) {
 		padding: 1px 4px !important;
 		font-size: 0.7rem !important;
 	}
