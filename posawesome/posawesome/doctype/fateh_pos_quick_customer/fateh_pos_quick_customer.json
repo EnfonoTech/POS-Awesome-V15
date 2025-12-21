@@ -8,7 +8,8 @@
  "field_order": [
   "customer",
   "customer_name",
-  "button_label"
+  "button_label",
+  "button_color"
  ],
  "fields": [
   {
@@ -33,6 +34,13 @@
    "in_list_view": 1,
    "label": "Button Label",
    "placeholder": "Leave empty to use customer name"
+  },
+  {
+   "fieldname": "button_color",
+   "fieldtype": "Color",
+   "in_list_view": 1,
+   "label": "Button Color",
+   "description": "Choose a color for this button (optional)"
   }
  ],
  "index_web_pages_for_search": 0,

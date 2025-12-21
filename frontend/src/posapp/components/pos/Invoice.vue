@@ -44,7 +44,7 @@
 									:key="index"
 									size="small"
 									variant="tonal"
-									color="primary"
+									:color="quickCustomer.button_color || 'primary'"
 									density="compact"
 									class="quick-customer-btn"
 									@click="selectQuickCustomer(quickCustomer.customer)"
@@ -2470,7 +2470,7 @@ export default {
 
 /* Quick Customer Buttons */
 .quick-customer-btn {
-	min-width: auto !important;
+	min-width: 120px !important;
 	white-space: nowrap;
 	font-size: 0.75rem;
 	padding: 8px 16px !important;
