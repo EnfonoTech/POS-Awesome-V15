@@ -279,6 +279,8 @@
 						:setBatchQty="set_batch_qty"
 						:validateDueDate="validate_due_date"
 						:removeItem="remove_item"
+						:getFrozenStockQuantity="getFrozenStockQuantity"
+						:fatehPosSettings="fatehPosSettings"
 						:subtractOne="subtract_one"
 						:addOne="add_one"
 						:toggleOffer="toggleOffer"
@@ -471,6 +473,7 @@ export default {
 			quickItemOptions: [],
 			quickCustomers: [], // Quick customer buttons from Fateh POS Settings
 			fatehPosSettings: {}, // Fateh POS Settings data
+			frozenStockQuantities: new Map(), // Store frozen stock quantities when freeze_stock_during_entry is enabled
 			// Scanner-related properties (matching ItemsSelector)
 			scanErrorDialog: false,
 			scanErrorMessage: "",
@@ -909,12 +912,84 @@ export default {
                         })();
 
                         collections.forEach((items) => {
+                                // If freeze_stock_during_entry is enabled, freeze stock quantities BEFORE updating
+                                // This ensures we capture the original values before stock coordinator changes them
+                                if (this.fatehPosSettings?.freeze_stock_during_entry) {
+                                        items.forEach((item) => {
+                                                if (item?.item_code) {
+                                                        this.freezeStockQuantity(item);
+                                                }
+                                        });
+                                }
                                 stockCoordinator.applyAvailabilityToCollection(items, codesSet, {
                                         updateBaseAvailable: false,
                                 });
+                                // After stock coordinator updates, freeze any newly set values, then restore frozen values
+                                if (this.fatehPosSettings?.freeze_stock_during_entry) {
+                                        items.forEach((item) => {
+                                                if (item?.item_code) {
+                                                        // Try to freeze again in case stock coordinator just set values
+                                                        this.freezeStockQuantity(item);
+                                                        // Restore frozen values if they exist
+                                                        const frozen = this.frozenStockQuantities.get(item.item_code);
+                                                        if (frozen) {
+                                                                if (frozen.max_qty !== undefined && frozen.max_qty !== null) {
+                                                                        item.max_qty = frozen.max_qty;
+                                                                }
+                                                                if (frozen.actual_qty !== undefined && frozen.actual_qty !== null) {
+                                                                        item.actual_qty = frozen.actual_qty;
+                                                                }
+                                                        }
+                                                }
+                                        });
+                                }
                         });
 
                         this.$forceUpdate();
+                },
+                freezeStockQuantity(item) {
+                        // Store the current actual_qty and max_qty as frozen if freeze_stock_during_entry is enabled
+                        if (this.fatehPosSettings?.freeze_stock_during_entry && item?.item_code) {
+                                const key = item.item_code;
+                                if (!this.frozenStockQuantities.has(key)) {
+                                        const frozen = {};
+                                        // Only freeze values that are defined
+                                        if (item.actual_qty !== undefined && item.actual_qty !== null) {
+                                                frozen.actual_qty = item.actual_qty;
+                                        }
+                                        if (item.max_qty !== undefined && item.max_qty !== null) {
+                                                frozen.max_qty = item.max_qty;
+                                        }
+                                        // Only set if we have at least one value to freeze
+                                        if (Object.keys(frozen).length > 0) {
+                                                this.frozenStockQuantities.set(key, frozen);
+                                        }
+                                } else {
+                                        // If already frozen, update missing values if they now exist
+                                        const existing = this.frozenStockQuantities.get(key);
+                                        if (item.max_qty !== undefined && item.max_qty !== null && existing.max_qty === undefined) {
+                                                existing.max_qty = item.max_qty;
+                                        }
+                                        if (item.actual_qty !== undefined && item.actual_qty !== null && existing.actual_qty === undefined) {
+                                                existing.actual_qty = item.actual_qty;
+                                        }
+                                }
+                        }
+                },
+                getFrozenStockQuantity(item, field = "max_qty") {
+                        // Return frozen stock quantity if freeze_stock_during_entry is enabled
+                        if (this.fatehPosSettings?.freeze_stock_during_entry && item?.item_code) {
+                                const frozen = this.frozenStockQuantities.get(item.item_code);
+                                if (frozen && frozen[field] !== undefined) {
+                                        return frozen[field];
+                                }
+                        }
+                        // Otherwise return the current value
+                        return item?.[field];
+                },
+                clearFrozenStock() {
+                        // Clear frozen stock after invoice submission
+                        this.frozenStockQuantities.clear();
                 },
                 primeInvoiceStockState(source = "invoice") {
                         const baseItems = [];
@@ -1715,10 +1790,15 @@ export default {
                 handleRegisterPosProfile(data) {
                         this.pos_profile = data.pos_profile;
                         this.company = data.company || null;
-                        // Only set customer from profile if no customer is currently selected
-                        // This prevents overwriting quick customer button selections
-                        if (!this.customer && data.pos_profile.customer) {
+                        // Only set customer from POS profile if no customer is currently selected
+                        // This prevents overwriting customer selections when switching views
+                        // The customer store will maintain the selected customer across views
+                        if (data.pos_profile.customer && !this.customer) {
                                 this.customer = data.pos_profile.customer;
+                                // Only sync with customer store if no customer is already selected there
+                                if (!this.selectedCustomer) {
+                                        this.customersStore.setSelectedCustomer(data.pos_profile.customer);
+                                }
                         }
                         this.pos_opening_shift = data.pos_opening_shift;
                         this.stock_settings = data.stock_settings;
@@ -1750,6 +1830,8 @@ export default {
                 },
                 handleClearInvoice() {
                         this.clear_invoice();
+                        // Clear frozen stock when invoice is cleared
+                        this.clearFrozenStock();
                         this.eventBus.emit("focus_item_search");
                 },
                 handleLoadInvoice(data) {

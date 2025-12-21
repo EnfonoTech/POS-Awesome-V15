@@ -474,13 +474,20 @@ export default {
 		},
 		async loadPrintFormats() {
 			try {
+				// Determine which doctype templates to show based on POS profile setting
+				let docTypeFilter = "Sales Invoice"; // Default to Sales Invoice
+				
+				if (this.posProfile && this.posProfile.create_pos_invoice_instead_of_sales_invoice) {
+					docTypeFilter = "POS Invoice";
+				}
+				
 				const resp = await frappe.call({
 					method: "frappe.client.get_list",
 					args: {
 						doctype: "Print Format",
 						fields: ["name", "doc_type"],
 						filters: {
-							doc_type: ["in", ["POS Invoice", "Sales Invoice"]],
+							doc_type: docTypeFilter,
 							disabled: 0,
 						},
 						limit: 200,
@@ -489,7 +496,7 @@ export default {
 
 				const formats = Array.isArray(resp.message) ? resp.message : [];
 				this.printFormatOptions = formats.map((fmt) => ({
-					title: `${fmt.name} (${fmt.doc_type})`,
+					title: `${fmt.name}`,
 					value: fmt.name,
 				}));
 

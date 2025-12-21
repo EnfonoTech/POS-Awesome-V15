@@ -1028,9 +1028,15 @@ def get_sales_invoice_list(page=1, items_per_page=25, filters=None, pos_profile=
         conditions += " AND si.posting_date <= %(to_date)s"
         values["to_date"] = filters["to_date"]
 
+    # Always filter by POS profile if provided (mandatory for POS invoices)
     if pos_profile:
         conditions += " AND si.pos_profile = %(pos_profile)s"
         values["pos_profile"] = pos_profile
+    
+    # Filter by is_pos if provided in filters
+    if filters.get("is_pos") is not None:
+        conditions += " AND si.is_pos = %(is_pos)s"
+        values["is_pos"] = filters.get("is_pos")
 
     #  Unified Status Handling
     if filters.get("status") not in (None, ""):

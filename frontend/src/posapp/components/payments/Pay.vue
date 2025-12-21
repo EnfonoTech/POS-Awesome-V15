@@ -32,26 +32,39 @@
 							</v-col>
 						</v-row>
 						<v-row align="center" no-gutters class="mb-1">
-							<v-col md="4" cols="12">
-								<v-select
+							<v-col md="3" cols="12">
+								<v-text-field
 									density="compact"
 									variant="outlined"
 									hide-details
-									clearable
 									class="pos-themed-input"
-									v-model="pos_profile_search"
-									:items="pos_profiles_list"
-									item-value="name"
-									label="Select POS Profile"
-								></v-select>
+									v-model="invoice_number_search"
+									:label="__('Invoice Number')"
+									clearable
+									@keyup.enter="get_outstanding_invoices"
+								></v-text-field>
 							</v-col>
-							<v-col> </v-col>
 							<v-col md="3" cols="12">
+								<v-autocomplete
+									density="compact"
+									variant="outlined"
+									hide-details
+									class="pos-themed-input"
+									v-model="sales_person_search"
+									:label="__('Sales Person')"
+									:items="sales_persons_list"
+									item-title="sales_person_name"
+									item-value="sales_person"
+									clearable
+									@keyup.enter="get_outstanding_invoices"
+								></v-autocomplete>
+							</v-col>
+							<v-col md="2" cols="12">
 								<v-btn block color="warning" theme="dark" @click="get_outstanding_invoices">{{
 									__("Search")
 								}}</v-btn>
 							</v-col>
-							<v-col md="3" cols="12">
+							<v-col md="2" cols="12">
 								<v-btn
 									v-if="selected_invoices.length"
 									block
@@ -293,9 +306,22 @@
 								v-if="payment_methods.length"
 								v-for="method in payment_methods"
 								:key="method.row_id"
+								class="payment-method-row"
 							>
-								<v-col md="7"
-									><span class="mt-1">{{ __(method.mode_of_payment) }}:</span>
+								<v-col md="4" class="d-flex align-center">
+									<span class="mt-1">{{ __(method.mode_of_payment) }}:</span>
+								</v-col>
+								<v-col md="3">
+									<v-btn
+										block
+										color="primary"
+										variant="flat"
+										@click="setPaymentMethodAmount(method)"
+										:disabled="!total_selected_invoices || total_selected_invoices <= 0"
+										class="payment-method-btn"
+									>
+										{{ __(method.mode_of_payment) }}
+									</v-btn>
 								</v-col>
 								<v-col md="5">
 									<div class="d-flex align-center">
@@ -428,6 +454,9 @@ export default {
 			selected_mpesa_payments: [],
 			pos_profiles_list: [],
 			pos_profile_search: "",
+			invoice_number_search: "",
+			sales_person_search: "",
+			sales_persons_list: [],
 			payment_methods_list: [],
 			mpesa_search_name: "",
 			mpesa_search_mobile: "",
@@ -563,6 +592,21 @@ export default {
 	},
 
 	methods: {
+		async loadFatehSettings() {
+			try {
+				const res = await frappe.call({
+					method: "frappe.client.get",
+					args: {
+						doctype: "Fateh POS Settings",
+						name: "Fateh POS Settings",
+					},
+				});
+				return res?.message || {};
+			} catch (error) {
+				console.warn("Unable to load Fateh POS Settings:", error);
+				return {};
+			}
+		},
 		async check_opening_entry() {
 			var vm = this;
 			await initPromise;
@@ -571,7 +615,7 @@ export default {
 				.call("posawesome.posawesome.api.shifts.check_opening_shift", {
 					user: frappe.session.user,
 				})
-				.then((r) => {
+				.then(async (r) => {
 					if (r.message) {
 						this.pos_profile = r.message.pos_profile;
 						this.pos_opening_shift = r.message.pos_opening_shift;
@@ -600,8 +644,17 @@ export default {
 							this.payment_methods_list.push(element.mode_of_payment);
 						});
 						this.get_available_pos_profiles();
+						this.load_sales_persons();
 						this.get_outstanding_invoices();
 						this.get_draft_mpesa_payments_register();
+						
+						// Load Fateh POS Settings and set default customer only if no customer is already selected
+						const fatehSettings = await this.loadFatehSettings();
+						if (fatehSettings.default_customer_for_payments && !this.selectedCustomer) {
+							this.$nextTick(() => {
+								useCustomersStore().setSelectedCustomer(fatehSettings.default_customer_for_payments);
+							});
+						}
 					} else {
 						const data = getOpeningStorage();
 						if (data) {
@@ -618,12 +671,20 @@ export default {
 							this.get_available_pos_profiles();
 							this.get_outstanding_invoices();
 							this.get_draft_mpesa_payments_register();
+							
+							// Load Fateh POS Settings and set default customer if configured
+							const fatehSettings = await this.loadFatehSettings();
+							if (fatehSettings.default_customer_for_payments) {
+								this.$nextTick(() => {
+									useCustomersStore().setSelectedCustomer(fatehSettings.default_customer_for_payments);
+								});
+							}
 							return;
 						}
 						this.create_opening_voucher();
 					}
 				})
-				.catch(() => {
+				.catch(async () => {
 					const data = getOpeningStorage();
 					if (data) {
 						this.pos_profile = data.pos_profile;
@@ -637,8 +698,17 @@ export default {
 							this.payment_methods_list.push(element.mode_of_payment);
 						});
 						this.get_available_pos_profiles();
+						this.load_sales_persons();
 						this.get_outstanding_invoices();
 						this.get_draft_mpesa_payments_register();
+						
+						// Load Fateh POS Settings and set default customer only if no customer is already selected
+						const fatehSettings = await this.loadFatehSettings();
+						if (fatehSettings.default_customer_for_payments && !this.selectedCustomer) {
+							this.$nextTick(() => {
+								useCustomersStore().setSelectedCustomer(fatehSettings.default_customer_for_payments);
+							});
+						}
 						return;
 					}
 					this.create_opening_voucher();
@@ -719,6 +789,33 @@ export default {
 				});
 			}
 		},
+		async load_sales_persons() {
+			if (isOffline()) {
+				this.sales_persons_list = [];
+				return;
+			}
+			try {
+				const res = await frappe.call({
+					method: "frappe.client.get_list",
+					args: {
+						doctype: "Sales Person",
+						fields: ["name", "sales_person_name"],
+						filters: {
+							enabled: 1,
+						},
+						limit: 500,
+						order_by: "sales_person_name asc",
+					},
+				});
+				this.sales_persons_list = (res?.message || []).map((sp) => ({
+					sales_person: sp.name,
+					sales_person_name: sp.sales_person_name || sp.name,
+				}));
+			} catch (error) {
+				console.error("Error loading sales persons:", error);
+				this.sales_persons_list = [];
+			}
+		},
 		get_outstanding_invoices() {
 			this.invoices_loading = true;
 			// Reset selection completely
@@ -735,7 +832,8 @@ export default {
 					customer: this.customer_name,
 					company: this.company,
 					currency: this.pos_profile.currency,
-					pos_profile: this.pos_profile_search || null,
+					pos_profile: this.pos_profile.name, // Always use logged-in POS profile
+					invoice_number: this.invoice_number_search || null,
 				})
 				.then((r) => {
 					if (r.message) {
@@ -824,6 +922,18 @@ export default {
 					row_id: method.name,
 				});
 			});
+		},
+		setPaymentMethodAmount(method) {
+			// Clear all other payment methods and set only the selected one
+			if (this.total_selected_invoices && this.total_selected_invoices > 0) {
+				// Clear all payment method amounts first
+				this.payment_methods.forEach((pm) => {
+					pm.amount = 0;
+				});
+				// Set the selected payment method amount to total
+				method.amount = this.total_selected_invoices;
+				this.$forceUpdate();
+			}
 		},
 		clear_all(with_customer_info = true) {
 			this.customer_name = "";
@@ -1177,7 +1287,7 @@ export default {
 		total_payment_methods() {
 			if (!this.payment_methods || !this.payment_methods.length) return 0;
 
-			// Ensure each amount is properly converted to a number
+			// Sum all payment method amounts
 			const total = this.payment_methods.reduce((acc, cur) => {
 				const amount = parseFloat(cur?.amount || 0);
 				return acc + (isNaN(amount) ? 0 : amount);
@@ -1265,6 +1375,7 @@ input[payments_methods] {
 	text-align: right;
 }
 
+
 input[total_selected_payments] {
 	text-align: right;
 }
@@ -1278,6 +1389,18 @@ input[total_selected_mpesa_payments] {
 }
 
 .selected-row {
-	background-color: #e3f2fd !important;
+	background-color: #e8f5e9 !important;
+}
+
+.payment-method-btn.v-btn--disabled {
+	opacity: 0.5;
+}
+
+.payment-method-btn:not(.v-btn--disabled):hover {
+	opacity: 0.9;
+}
+
+.payment-method-btn:not(.v-btn--disabled):active {
+	opacity: 0.8;
 }
 </style>

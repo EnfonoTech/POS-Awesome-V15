@@ -187,7 +187,7 @@
 				</div>
 			</template>
 
-			<!-- Batch No column -->
+ 				<!-- Batch No column -->
 			<template v-slot:item.batch_no="{ item }">
 				<div class="batch-no-display" @click.stop>
 					<v-autocomplete
@@ -304,7 +304,9 @@
 											{{
 												__("In stock: {0}", [
 													formatFloat(
-														item.max_qty,
+														getFrozenStockQuantity && fatehPosSettings?.freeze_stock_during_entry 
+															? (getFrozenStockQuantity(item, 'max_qty') ?? item.max_qty) 
+															: item.max_qty,
 														hide_qty_decimals ? 0 : undefined,
 													),
 												])
@@ -763,6 +765,8 @@ export default {
 		toggleOffer: Function,
 		changePriceListRate: Function,
 		isNegative: Function,
+		getFrozenStockQuantity: Function,
+		fatehPosSettings: Object,
 	},
 	data() {
 		return {

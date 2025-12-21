@@ -373,12 +373,12 @@
 													<span
 														class="stock-amount"
 														:class="{
-															'negative-number': isNegative(item.actual_qty),
+															'negative-number': isNegative(getDisplayStockQuantity(item)),
 														}"
 													>
 														{{
 															format_number(
-																item.actual_qty,
+																getDisplayStockQuantity(item),
 																hide_qty_decimals ? 0 : 4,
 															) || 0
 														}}
@@ -442,8 +442,8 @@
 								<template v-slot:item.actual_qty="{ item }">
 									<span
 										class="golden--text"
-										:class="{ 'negative-number': isNegative(item.actual_qty) }"
-										>{{ format_number(item.actual_qty, hide_qty_decimals ? 0 : 4) }}</span
+										:class="{ 'negative-number': isNegative(getDisplayStockQuantity(item)) }"
+										>{{ format_number(getDisplayStockQuantity(item), hide_qty_decimals ? 0 : 4) }}</span
 									>
 								</template>
 							</v-data-table-virtual>
@@ -686,6 +686,8 @@ export default {
 		scanQueuedCode: "",
 		refreshInFlight: false,
 		clearingSearch: false,
+		fatehPosSettings: {}, // Fateh POS Settings
+		frozenStockQuantities: new Map(), // Store frozen stock quantities when freeze_stock_during_entry is enabled
 	}),
 
 	watch: {
@@ -903,6 +905,44 @@ export default {
 	},
 
 	methods: {
+		async loadFatehPosSettings() {
+			try {
+				const res = await frappe.call({
+					method: "frappe.client.get",
+					args: {
+						doctype: "Fateh POS Settings",
+						name: "Fateh POS Settings",
+					},
+				});
+				this.fatehPosSettings = res?.message || {};
+			} catch (error) {
+				console.warn("Could not load Fateh POS Settings:", error);
+				this.fatehPosSettings = {};
+			}
+		},
+		getDisplayStockQuantity(item) {
+			// If freeze_stock_during_entry is enabled and we have frozen stock for this item, return frozen value
+			if (this.fatehPosSettings?.freeze_stock_during_entry && item?.item_code) {
+				const frozenQty = this.frozenStockQuantities.get(item.item_code);
+				if (frozenQty !== undefined && frozenQty !== null) {
+					return frozenQty;
+				}
+			}
+			// Otherwise return the actual_qty (current behavior)
+			return item?.actual_qty;
+		},
+		freezeStockQuantity(item) {
+			// Store the current actual_qty as frozen if freeze_stock_during_entry is enabled
+			if (this.fatehPosSettings?.freeze_stock_during_entry && item?.item_code && item.actual_qty !== undefined && item.actual_qty !== null) {
+				if (!this.frozenStockQuantities.has(item.item_code)) {
+					this.frozenStockQuantities.set(item.item_code, item.actual_qty);
+				}
+			}
+		},
+		clearFrozenStock() {
+			// Clear frozen stock after invoice submission
+			this.frozenStockQuantities.clear();
+		},
 		// Performance optimization: Memoized search function
 		memoizedSearch(searchTerm, itemGroup) {
 			const cacheKey = `${searchTerm || ""}_${itemGroup || "ALL"}`;
@@ -1308,6 +1348,10 @@ export default {
 					const item = vm.displayedItems.find((it) => it.item_code === det.item_code);
 					if (item) {
 						const upd = { actual_qty: det.actual_qty };
+						// Freeze stock quantity if setting is enabled
+						if (item.item_code) {
+							this.freezeStockQuantity(item);
+						}
 						if (det.item_uoms && det.item_uoms.length > 0) {
 							upd.item_uoms = det.item_uoms;
 							saveItemUOMs(item.item_code, det.item_uoms);
@@ -1345,6 +1389,10 @@ export default {
 					const item = vm.displayedItems.find((it) => it.item_code === updItem.item_code);
 					if (item) {
 						const upd = { actual_qty: updItem.actual_qty };
+						// Freeze stock quantity if setting is enabled
+						if (item.item_code) {
+							this.freezeStockQuantity(item);
+						}
 						if (updItem.item_uoms && updItem.item_uoms.length > 0) {
 							upd.item_uoms = updItem.item_uoms;
 							saveItemUOMs(item.item_code, updItem.item_uoms);
@@ -2107,6 +2155,14 @@ export default {
                         })();
                         collections.forEach((items) => {
                                 stockCoordinator.applyAvailabilityToCollection(items, codesSet, options);
+                                // If freeze_stock_during_entry is enabled, freeze stock quantities when first loaded
+                                if (this.fatehPosSettings?.freeze_stock_during_entry) {
+                                        items.forEach((item) => {
+                                                if (item?.item_code) {
+                                                        this.freezeStockQuantity(item);
+                                                }
+                                        });
+                                }
                         });
                         if (collections.length) {
                                 this.$forceUpdate();
@@ -2334,6 +2390,8 @@ export default {
                         } catch (error) {
                                 console.error("Failed to refresh item details after invoice submission", error);
                         } finally {
+                                // Clear frozen stock after invoice submission so next entry gets fresh stock
+                                this.clearFrozenStock();
                                 this.recomputeAvailabilityForCodes(codes);
                         }
                 },
@@ -2415,6 +2473,8 @@ export default {
                                         item.actual_qty = localQty;
                                         vm.captureBaseAvailability(item, localQty);
                                         baseRecords.set(item.item_code, localQty);
+                                        // Freeze stock quantity if setting is enabled
+                                        vm.freezeStockQuantity(item);
                                 } else {
                                         allCached = false;
                                 }
