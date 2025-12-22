@@ -415,7 +415,7 @@
 					</v-col>
 
 					<!-- Additional Notes (if enabled in POS profile) -->
-					<v-col cols="12" v-if="pos_profile.posa_display_additional_notes">
+					<v-col cols="12" v-if="pos_profile.posa_display_additional_notes && invoice_doc">
 						<v-textarea
 							class="pa-0 sleek-field"
 							variant="solo"
@@ -431,7 +431,7 @@
 				</v-row>
 
 				<!-- Customer Purchase Order (if enabled in POS profile) -->
-				<div v-if="pos_profile.posa_allow_customer_purchase_order">
+				<div v-if="pos_profile.posa_allow_customer_purchase_order && invoice_doc">
 					<v-divider></v-divider>
 					<v-row class="pa-1" justify="center" align="start">
 						<v-col cols="6">
@@ -718,7 +718,7 @@
 				<v-card-title>
 					<span class="text-h5 text-primary">{{ __("Confirm Mobile Number") }}</span>
 				</v-card-title>
-				<v-card-text class="pa-0">
+				<v-card-text class="pa-0" v-if="invoice_doc">
 					<v-container>
 						<v-text-field
 							density="compact"
@@ -1995,7 +1995,9 @@ export default {
 		},
 		// Update purchase order date after selection
 		update_po_date() {
-			this.invoice_doc.po_date = this.formatDate(this.new_po_date);
+			if (this.invoice_doc) {
+				this.invoice_doc.po_date = this.formatDate(this.new_po_date);
+			}
 		},
 		// Update credit due date after selection
 		update_credit_due_date() {

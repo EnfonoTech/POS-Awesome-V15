@@ -650,9 +650,12 @@ export default {
 						
 						// Load Fateh POS Settings and set default customer only if no customer is already selected
 						const fatehSettings = await this.loadFatehSettings();
-						if (fatehSettings.default_customer_for_payments && !this.selectedCustomer) {
+						// Check both reactive ref and store directly to ensure we get the current value
+						const customersStore = useCustomersStore();
+						const currentCustomer = this.selectedCustomer || customersStore.selectedCustomer;
+						if (fatehSettings.default_customer_for_payments && !currentCustomer) {
 							this.$nextTick(() => {
-								useCustomersStore().setSelectedCustomer(fatehSettings.default_customer_for_payments);
+								customersStore.setSelectedCustomer(fatehSettings.default_customer_for_payments);
 							});
 						}
 					} else {
@@ -672,11 +675,14 @@ export default {
 							this.get_outstanding_invoices();
 							this.get_draft_mpesa_payments_register();
 							
-							// Load Fateh POS Settings and set default customer if configured
+							// Load Fateh POS Settings and set default customer only if no customer is already selected
 							const fatehSettings = await this.loadFatehSettings();
-							if (fatehSettings.default_customer_for_payments) {
+							// Check both reactive ref and store directly to ensure we get the current value
+							const customersStore = useCustomersStore();
+							const currentCustomer = this.selectedCustomer || customersStore.selectedCustomer;
+							if (fatehSettings.default_customer_for_payments && !currentCustomer) {
 								this.$nextTick(() => {
-									useCustomersStore().setSelectedCustomer(fatehSettings.default_customer_for_payments);
+									customersStore.setSelectedCustomer(fatehSettings.default_customer_for_payments);
 								});
 							}
 							return;
@@ -704,9 +710,12 @@ export default {
 						
 						// Load Fateh POS Settings and set default customer only if no customer is already selected
 						const fatehSettings = await this.loadFatehSettings();
-						if (fatehSettings.default_customer_for_payments && !this.selectedCustomer) {
+						// Check both reactive ref and store directly to ensure we get the current value
+						const customersStore = useCustomersStore();
+						const currentCustomer = this.selectedCustomer || customersStore.selectedCustomer;
+						if (fatehSettings.default_customer_for_payments && !currentCustomer) {
 							this.$nextTick(() => {
-								useCustomersStore().setSelectedCustomer(fatehSettings.default_customer_for_payments);
+								customersStore.setSelectedCustomer(fatehSettings.default_customer_for_payments);
 							});
 						}
 						return;

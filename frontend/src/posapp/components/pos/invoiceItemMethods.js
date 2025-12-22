@@ -361,8 +361,13 @@ export default {
 				if (!item.posa_row_id) {
 					item.posa_row_id = this.makeid(20);
 				}
-				if (item.batch_no) {
+				// Only set batch_qty if batch_no_data is available (to avoid errors during invoice reload)
+				if (item.batch_no && item.batch_no_data && Array.isArray(item.batch_no_data) && item.batch_no_data.length > 0) {
 					this.set_batch_qty(item, item.batch_no);
+				} else if (item.batch_no) {
+					// Just preserve the batch_no value without processing batch data
+					// The batch data will be loaded later via update_items_details
+					item.batch_no = item.batch_no;
 				}
 				if (!item.original_item_name) {
 					item.original_item_name = item.item_name;
@@ -391,7 +396,29 @@ export default {
 			});
 		}
 
-		this.customer = data.customer;
+		// When loading an invoice from backend (has name), always use the invoice's customer
+		// When creating a new invoice (no name), preserve the selected customer from store
+		if (data.name) {
+			// Existing invoice from backend - use invoice's customer
+			this.customer = data.customer || this.customer;
+			if (this.customersStore && data.customer) {
+				this.customersStore.setSelectedCustomer(data.customer);
+			}
+		} else {
+			// New invoice - preserve selected customer from store if available
+			const currentCustomer = this.customersStore?.selectedCustomer || this.customer;
+			if (data.customer && !currentCustomer) {
+				this.customer = data.customer;
+				if (this.customersStore) {
+					this.customersStore.setSelectedCustomer(data.customer);
+				}
+			} else if (currentCustomer) {
+				// Preserve the current customer from store
+				this.customer = currentCustomer;
+			} else {
+				this.customer = data.customer;
+			}
+		}
 		this.posting_date = this.formatDateForBackend(data.posting_date || frappe.datetime.nowdate());
 		this.discount_amount = data.discount_amount;
 		this.additional_discount_percentage = data.additional_discount_percentage;
@@ -496,11 +523,38 @@ export default {
 				if (!item.posa_row_id) {
 					item.posa_row_id = this.makeid(20);
 				}
-				if (item.batch_no) {
+				// Only set batch_qty if batch_no_data is available (to avoid errors during invoice reload)
+				if (item.batch_no && item.batch_no_data && Array.isArray(item.batch_no_data) && item.batch_no_data.length > 0) {
 					this.set_batch_qty(item, item.batch_no);
+				} else if (item.batch_no) {
+					// Just set the batch_no value without processing batch data
+					// The batch data will be loaded later via update_items_details
+					item.batch_no = item.batch_no;
 				}
 			});
-			this.customer = data.customer;
+			// When loading an invoice from backend (has name), always use the invoice's customer
+			// When creating a new invoice (no name), preserve the selected customer from store
+			if (data.name) {
+				// Existing invoice from backend - use invoice's customer
+				this.customer = data.customer || this.customer;
+				if (this.customersStore && data.customer) {
+					this.customersStore.setSelectedCustomer(data.customer);
+				}
+			} else {
+				// New invoice - preserve selected customer from store if available
+				const currentCustomer = this.customersStore?.selectedCustomer || this.customer;
+				if (data.customer && !currentCustomer) {
+					this.customer = data.customer;
+					if (this.customersStore) {
+						this.customersStore.setSelectedCustomer(data.customer);
+					}
+				} else if (currentCustomer) {
+					// Preserve the current customer from store
+					this.customer = currentCustomer;
+				} else {
+					this.customer = data.customer;
+				}
+			}
 			this.posting_date = this.formatDateForBackend(data.posting_date || frappe.datetime.nowdate());
 			this.discount_amount = data.discount_amount;
 			this.additional_discount_percentage = data.additional_discount_percentage;
@@ -1215,6 +1269,8 @@ export default {
 				if (manualOverrides.length) {
 					this._applyManualRateOverridesToDoc(doc, manualOverrides);
 				}
+				// Load invoice - the load_invoice function will use the invoice's customer
+				// since it has a name (existing invoice from backend)
 				await this.load_invoice(doc);
 				return doc;
 			}
@@ -1516,6 +1572,13 @@ export default {
 					color: "error",
 				});
 				return;
+			}
+
+			// Sync customer to customer store before navigating to payments
+			// This ensures the customer persists when navigating to the payments screen
+			if (this.customer && this.customersStore) {
+				this.customersStore.setSelectedCustomer(this.customer);
+				console.log("Synced customer to store:", this.customer);
 			}
 
 			if (!this.items.length) {

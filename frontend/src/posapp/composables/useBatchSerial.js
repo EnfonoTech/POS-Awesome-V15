@@ -20,23 +20,59 @@ export function useBatchSerial() {
 	// Set batch number for an item (and update batch data)
 	const setBatchQty = (item, value, update = true, context) => {
 		console.log("Setting batch quantity:", item, value);
+		
+		// Guard against missing context or items
+		if (!context || !context.items || !Array.isArray(context.items)) {
+			if (value && item) {
+				item.batch_no = value;
+			}
+			return;
+		}
+		
+		// If item doesn't have batch_no_data, return early (item might not have batch data loaded yet)
+		// This can happen when loading invoices from backend before batch data is fetched
+		if (!item || !item.has_batch_no) {
+			return;
+		}
+		
+		// If batch_no_data is not available yet, just set the batch_no value if provided
+		// The batch data will be loaded later via update_items_details
+		if (!item.batch_no_data || !Array.isArray(item.batch_no_data) || item.batch_no_data.length === 0) {
+			if (value) {
+				item.batch_no = value;
+			}
+			return;
+		}
+		
 		const existing_items = context.items.filter(
 			(element) => element.item_code == item.item_code && element.posa_row_id != item.posa_row_id,
 		);
 		const used_batches = {};
+		
+		// Double-check batch_no_data is valid before iterating
+		if (!item.batch_no_data || !Array.isArray(item.batch_no_data)) {
+			if (value) {
+				item.batch_no = value;
+			}
+			return;
+		}
+		
 		item.batch_no_data.forEach((batch) => {
+			if (!batch || !batch.batch_no) return; // Skip invalid batch entries
 			used_batches[batch.batch_no] = {
 				...batch,
 				used_qty: 0,
-				remaining_qty: batch.batch_qty,
+				remaining_qty: batch.batch_qty || 0,
 			};
-			existing_items.forEach((element) => {
-				if (element.batch_no && element.batch_no == batch.batch_no) {
-					used_batches[batch.batch_no].used_qty += element.qty;
-					used_batches[batch.batch_no].remaining_qty -= element.qty;
-					used_batches[batch.batch_no].batch_qty -= element.qty;
-				}
-			});
+			if (Array.isArray(existing_items)) {
+				existing_items.forEach((element) => {
+					if (element && element.batch_no && element.batch_no == batch.batch_no) {
+						used_batches[batch.batch_no].used_qty += element.qty || 0;
+						used_batches[batch.batch_no].remaining_qty -= element.qty || 0;
+						used_batches[batch.batch_no].batch_qty -= element.qty || 0;
+					}
+				});
+			}
 		});
 
 		const batch_no_data = Object.values(used_batches)
