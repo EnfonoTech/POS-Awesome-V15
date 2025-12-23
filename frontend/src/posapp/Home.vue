@@ -357,15 +357,17 @@ export default {
 				frappe.urllib.get_base_url() +
 				"/printview?doctype=" +
 				encodeURIComponent(doctype) +
-				"&name=" +
-				this.lastInvoiceId +
-				"&trigger_print=1" +
-				"&format=" +
-				print_format +
-				"&no_letterhead=" +
-				letter_head;
+			"&name=" +
+			this.lastInvoiceId +
+			"&format=" +
+			print_format +
+			"&no_letterhead=" +
+			letter_head;
 
-                        const printOptions = { allowOfflineFallback: isOffline() };
+                        const printOptions = { 
+                                allowOfflineFallback: isOffline(),
+                                posProfile: this.posProfile,
+                        };
                         if (this.posProfile.posa_silent_print) {
                                 silentPrint(url, printOptions);
                         } else {

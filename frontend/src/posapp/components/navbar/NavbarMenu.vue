@@ -96,28 +96,28 @@
 					</div>
 				</v-list-item>
 
-				<v-list-item
-					v-if="posProfile.posa_allow_print_last_invoice"
-					@click="$emit('print-last-invoice')"
-					:disabled="!lastInvoiceId"
-					class="menu-item-compact secondary-action"
-				>
-					<template v-slot:prepend>
-						<div class="menu-icon-wrapper-compact secondary-icon">
-							<v-icon color="white" size="16">mdi-printer</v-icon>
-						</div>
-					</template>
-					<div class="menu-content-compact">
-						<v-list-item-title class="menu-item-title-compact">{{
-							__("Print Last Invoice")
-						}}</v-list-item-title>
-						<v-list-item-subtitle class="menu-item-subtitle-compact">{{
-							__("Reprint previous transaction")
-						}}</v-list-item-subtitle>
+			<v-list-item
+				v-if="posProfile.posa_allow_print_last_invoice"
+				@click="$emit('print-last-invoice')"
+				:disabled="!lastInvoiceId"
+				class="menu-item-compact secondary-action"
+			>
+				<template v-slot:prepend>
+					<div class="menu-icon-wrapper-compact secondary-icon">
+						<v-icon color="white" size="16">mdi-printer</v-icon>
 					</div>
-				</v-list-item>
+				</template>
+				<div class="menu-content-compact">
+					<v-list-item-title class="menu-item-title-compact">{{
+						__("Print Last Invoice")
+					}}</v-list-item-title>
+					<v-list-item-subtitle class="menu-item-subtitle-compact">{{
+						__("Reprint previous transaction")
+					}}</v-list-item-subtitle>
+				</div>
+			</v-list-item>
 
-				<v-list-item @click="$emit('sync-invoices')" class="menu-item-compact info-action">
+			<v-list-item @click="$emit('sync-invoices')" class="menu-item-compact info-action">
 					<template v-slot:prepend>
 						<div class="menu-icon-wrapper-compact info-icon">
 							<v-icon color="white" size="16">mdi-sync</v-icon>
@@ -783,6 +783,11 @@ export default {
 	box-shadow: 0 2px 6px rgba(97, 97, 97, 0.2);
 }
 
+.success-icon {
+	background: linear-gradient(135deg, #388e3c 0%, #66bb6a 100%);
+	box-shadow: 0 2px 6px rgba(56, 142, 60, 0.2);
+}
+
 .danger-icon {
 	background: linear-gradient(135deg, #d32f2f 0%, #f44336 100%);
 	box-shadow: 0 2px 6px rgba(211, 47, 47, 0.2);
@@ -835,6 +840,11 @@ export default {
 .neutral-action:hover .neutral-icon {
 	transform: scale(1.1);
 	box-shadow: 0 3px 8px rgba(97, 97, 97, 0.25);
+}
+
+.neutral-action:hover .success-icon {
+	transform: scale(1.1) rotate(5deg);
+	box-shadow: 0 3px 8px rgba(56, 142, 60, 0.25);
 }
 
 .danger-action:hover .danger-icon {
@@ -1014,6 +1024,12 @@ export default {
 :deep(.v-theme--dark) .neutral-icon {
 	background: linear-gradient(135deg, #bdbdbd 0%, #9e9e9e 100%);
 	box-shadow: 0 2px 6px rgba(189, 189, 189, 0.3);
+}
+
+:deep([data-theme="dark"]) .success-icon,
+:deep(.v-theme--dark) .success-icon {
+	background: linear-gradient(135deg, #81c784 0%, #66bb6a 100%);
+	box-shadow: 0 2px 6px rgba(129, 199, 132, 0.3);
 }
 
 :deep([data-theme="dark"]) .danger-icon,

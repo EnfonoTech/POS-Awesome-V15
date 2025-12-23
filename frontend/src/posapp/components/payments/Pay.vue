@@ -1090,17 +1090,19 @@ export default {
 				return;
 			}
 
-			// Use simplest URL possible to avoid errors
-			const url =
-				frappe.urllib.get_base_url() +
-				"/printview?doctype=Payment%20Entry" +
-				"&name=" +
-				payment_name +
-				"&trigger_print=1";
+		// Use simplest URL possible to avoid errors
+		const url =
+			frappe.urllib.get_base_url() +
+			"/printview?doctype=Payment%20Entry" +
+			"&name=" +
+			payment_name;
 
 			console.log("Opening printing URL:", url);
 
-                        const printOptions = { allowOfflineFallback: isOffline() };
+                        const printOptions = { 
+                                allowOfflineFallback: isOffline(),
+                                posProfile: this.pos_profile,
+                        };
                         if (this.pos_profile?.posa_silent_print) {
                                 silentPrint(url, printOptions);
                         } else {

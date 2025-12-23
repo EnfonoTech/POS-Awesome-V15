@@ -157,23 +157,33 @@ async function ensureReadyAndPrint(targetWindow, options = {}) {
                 timeout = DEFAULT_TIMEOUT,
                 invoiceDoc = null,
                 allowOfflineFallback = true,
+                skipPrintCall = false,
+                posProfile = null,
         } = options;
 
         const readySelectors = Array.isArray(selectors)
                 ? selectors.filter(Boolean)
                 : [selectors].filter(Boolean);
 
+        // Check if kiosk printing mode is enabled in POS Profile
+        const kioskPrintingEnabled = posProfile?.posa_kiosk_printing_mode || false;
+
+        // Skip calling print() if kiosk printing mode is enabled (Chrome handles it automatically)
+        const shouldSkipPrint = skipPrintCall || kioskPrintingEnabled;
+
         try {
                 await waitForDocumentSelectors(targetWindow, readySelectors.length ? readySelectors : DEFAULT_READY_SELECTORS, timeout);
                 targetWindow.focus();
-                targetWindow.print();
+                if (!shouldSkipPrint) {
+                        targetWindow.print();
+                }
         } catch (err) {
                 console.warn("Print readiness check failed", err);
                 let usedFallback = false;
                 if (allowOfflineFallback && invoiceDoc) {
                         usedFallback = await fallbackToOfflinePrint(invoiceDoc, targetWindow);
                 }
-                if (!usedFallback) {
+                if (!usedFallback && !shouldSkipPrint) {
                         try {
                                 targetWindow.focus();
                                 targetWindow.print();

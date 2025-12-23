@@ -30,15 +30,14 @@ export function printInvoice(invoice, options = {}) {
 		// Determine doctype based on invoice properties
 		const doctype = invoice.doctype || 'POS Invoice';
 		
-		// Build print URL
-		const baseUrl = frappe.urllib.get_base_url();
-		const params = new URLSearchParams({
-			doctype: doctype,
-			name: invoice.name,
-			trigger_print: '1',
-			format: format,
-			no_letterhead: no_letterhead ? '1' : '0'
-		});
+	// Build print URL
+	const baseUrl = frappe.urllib.get_base_url();
+	const params = new URLSearchParams({
+		doctype: doctype,
+		name: invoice.name,
+		format: format,
+		no_letterhead: no_letterhead ? '1' : '0'
+	});
 
 		if (letter_head) {
 			params.append('letter_head', letter_head);
@@ -46,26 +45,26 @@ export function printInvoice(invoice, options = {}) {
 
 		const printUrl = `${baseUrl}/printview?${params.toString()}`;
 
-		// Handle silent printing
-		if (silent) {
-			silentPrint(printUrl);
-		} else {
-			// Open in new window for regular printing
-			const printWindow = window.open(printUrl, 'Print', 'width=1280,height=1024');
-			
-			if (printWindow) {
-				printWindow.addEventListener('load', function() {
-					printWindow.print();
-					if (onSuccess) onSuccess();
-				}, { once: true });
+	// Handle silent printing
+	if (silent) {
+		silentPrint(printUrl, options);
+	} else {
+		// Open in new window for regular printing
+		const printWindow = window.open(printUrl, 'Print', 'width=1280,height=1024');
+		
+		if (printWindow) {
+			printWindow.addEventListener('load', function() {
+				printWindow.print();
+				if (onSuccess) onSuccess();
+			}, { once: true });
 
-				printWindow.addEventListener('error', function() {
-					if (onError) onError(new Error('Failed to load print window'));
-				}, { once: true });
-			} else {
-				if (onError) onError(new Error('Failed to open print window'));
-			}
+			printWindow.addEventListener('error', function() {
+				if (onError) onError(new Error('Failed to load print window'));
+			}, { once: true });
+		} else {
+			if (onError) onError(new Error('Failed to open print window'));
 		}
+	}
 
 		return true;
 	} catch (error) {
@@ -264,9 +263,14 @@ export async function getLetterheads() {
 /**
  * Silent print function (imported from existing print.js)
  * @param {string} url - URL to print
+ * @param {Object} options - Print options including posProfile
  */
-function silentPrint(url) {
+function silentPrint(url, options = {}) {
 	if (!url) return;
+	
+	const { posProfile } = options;
+	const kioskPrintingEnabled = posProfile?.posa_kiosk_printing_mode || false;
+	
 	try {
 		const iframe = document.createElement("iframe");
 		iframe.style.position = "fixed";
@@ -278,7 +282,10 @@ function silentPrint(url) {
 		iframe.onload = () => {
 			try {
 				iframe.contentWindow.focus();
-				iframe.contentWindow.print();
+				// Skip calling print() if kiosk printing mode is enabled in POS Profile
+				if (!kioskPrintingEnabled) {
+					iframe.contentWindow.print();
+				}
 			} finally {
 				setTimeout(() => iframe.remove(), 1000);
 			}
@@ -288,7 +295,7 @@ function silentPrint(url) {
 	} catch (err) {
 		console.error("Silent print failed, falling back to new window", err);
 		const win = window.open(url, "_blank");
-		if (win) {
+		if (win && !kioskPrintingEnabled) {
 			win.addEventListener("load", () => win.print(), { once: true });
 		}
 	}

@@ -1454,22 +1454,25 @@ export default {
 		const doctype = this.pos_profile.create_pos_invoice_instead_of_sales_invoice
 			? "POS Invoice"
 			: "Sales Invoice";
-		const url =
-			frappe.urllib.get_base_url() +
-			"/printview?doctype=" +
-			encodeURIComponent(doctype) +
-			"&name=" +
-			invoice_name +
-			"&trigger_print=1" +
-			"&format=" +
-			print_format +
-			"&no_letterhead=" +
-			letter_head;
+	const url =
+		frappe.urllib.get_base_url() +
+		"/printview?doctype=" +
+		encodeURIComponent(doctype) +
+		"&name=" +
+		invoice_name +
+		"&format=" +
+		print_format +
+		"&no_letterhead=" +
+		letter_head;
 
                 if (this.pos_profile.posa_silent_print) {
-                        silentPrint(url, { allowOfflineFallback: isOffline() });
+                        silentPrint(url, { allowOfflineFallback: isOffline(), posProfile: this.pos_profile });
                 } else {
-			const printWindow = window.open(url, "Print");
+		const printWindow = window.open(url, "Print");
+		// Check if kiosk printing mode is enabled in POS Profile
+		const kioskPrintingEnabled = this.pos_profile?.posa_kiosk_printing_mode || false;
+		if (!kioskPrintingEnabled) {
+			// Only call print() if not in kiosk mode (Chrome --kiosk-printing handles it automatically)
 			printWindow.addEventListener(
 				"load",
 				function () {
@@ -1478,6 +1481,7 @@ export default {
 				{ once: true },
 			);
 		}
+	}
 	},
 
 	formatDateForBackend(date) {

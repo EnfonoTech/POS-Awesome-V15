@@ -10,3 +10,4 @@ from frappe.model.document import Document
 class FatehPOSSettings(Document):
 	pass
 
+

@@ -1624,20 +1624,20 @@ export default {
 			const doctype = this.pos_profile.create_pos_invoice_instead_of_sales_invoice
 				? "POS Invoice"
 				: "Sales Invoice";
-			const url =
-				frappe.urllib.get_base_url() +
-				"/printview?doctype=" +
-				encodeURIComponent(doctype) +
-				"&name=" +
-				this.invoice_doc.name +
-				"&trigger_print=1" +
-				"&format=" +
-				print_format +
-				"&no_letterhead=" +
-				letter_head;
+		const url =
+			frappe.urllib.get_base_url() +
+			"/printview?doctype=" +
+			encodeURIComponent(doctype) +
+			"&name=" +
+			this.invoice_doc.name +
+			"&format=" +
+			print_format +
+			"&no_letterhead=" +
+			letter_head;
                         const printOptions = {
                                 invoiceDoc: this.invoice_doc,
                                 allowOfflineFallback: isOffline(),
+                                posProfile: this.pos_profile,
                         };
                         if (this.pos_profile.posa_silent_print) {
                                 silentPrint(url, printOptions);
