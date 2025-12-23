@@ -5,6 +5,7 @@
 from __future__ import unicode_literals
 
 import frappe
+import json
 from frappe.utils import cstr, add_to_date, get_datetime
 from typing import List, Dict
 import time
@@ -610,6 +611,15 @@ def set_current_user_language(lang_code):
         return {"success": False, "message": "Failed to set language"}
 
 
+def _validate_language_code(lang_code):
+    """Validate language code format."""
+    if not lang_code or not isinstance(lang_code, str):
+        return False, "Language code must be a non-empty string"
+    if len(lang_code) > 10:
+        return False, "Language code is too long"
+    return True, None
+
+
 @frappe.whitelist()
 def get_language_info(lang_code):
     """Get detailed information about a specific language."""
@@ -643,3 +653,99 @@ def get_language_info(lang_code):
     except Exception as e:
         frappe.log_error(f"Error getting language info for {lang_code}: {str(e)}")
         return {"success": False, "message": "Failed to get language info"}
+
+
+@frappe.whitelist()
+def get_fateh_pos_settings():
+    """Get Fateh POS Settings including favorite items and global UOM."""
+    try:
+        # Try to get from Fateh POS Settings doctype if it exists
+        if frappe.db.exists("DocType", "Fateh POS Settings"):
+            if frappe.db.exists("Fateh POS Settings", "Fateh POS Settings"):
+                doc = frappe.get_doc("Fateh POS Settings", "Fateh POS Settings")
+                favorite_items = []
+                if hasattr(doc, "favorite_items") and doc.favorite_items:
+                    favorite_items = [row.item_code for row in doc.favorite_items if row.item_code]
+                global_uom = doc.get("global_uom") or ""
+                use_global_uom = doc.get("use_global_uom") or 0
+                show_favorites_on_top = doc.get("show_favorites_on_top") or 0
+                return {
+                    "favorite_items": favorite_items,
+                    "global_uom": global_uom,
+                    "use_global_uom": bool(use_global_uom),
+                    "show_favorites_on_top": bool(show_favorites_on_top),
+                }
+        
+        # Fallback: return defaults
+        return {
+            "favorite_items": [],
+            "global_uom": "",
+            "use_global_uom": True,
+            "show_favorites_on_top": True,
+        }
+    except Exception as e:
+        frappe.log_error(f"Error getting Fateh POS Settings: {str(e)}")
+        return {
+            "favorite_items": [],
+            "global_uom": "",
+            "use_global_uom": True,
+            "show_favorites_on_top": True,
+        }
+
+
+@frappe.whitelist()
+def save_fateh_pos_settings(favorite_items=None, global_uom=None, use_global_uom=None, show_favorites_on_top=None):
+    """Save Fateh POS Settings including favorite items and global UOM."""
+    try:
+        # Try to save to Fateh POS Settings doctype if it exists
+        if frappe.db.exists("DocType", "Fateh POS Settings"):
+            if not frappe.db.exists("Fateh POS Settings", "Fateh POS Settings"):
+                # Create the settings doc
+                doc = frappe.get_doc({
+                    "doctype": "Fateh POS Settings",
+                    "name": "Fateh POS Settings"
+                })
+                doc.insert()
+            else:
+                doc = frappe.get_doc("Fateh POS Settings", "Fateh POS Settings")
+            
+            # Update favorite items if provided
+            if favorite_items is not None:
+                # Handle if favorite_items comes as a JSON string
+                if isinstance(favorite_items, str):
+                    try:
+                        favorite_items = json.loads(favorite_items)
+                    except (json.JSONDecodeError, ValueError):
+                        frappe.log_error(f"Invalid favorite_items JSON: {favorite_items}")
+                        favorite_items = []
+                
+                # Ensure it's a list
+                if not isinstance(favorite_items, list):
+                    favorite_items = []
+                
+                # Filter out empty or invalid values
+                favorite_items = [item for item in favorite_items if item and isinstance(item, str) and item.strip()]
+                
+                if hasattr(doc, "favorite_items"):
+                    doc.set("favorite_items", [])
+                    for item_code in favorite_items:
+                        if item_code and item_code.strip():
+                            doc.append("favorite_items", {"item_code": item_code.strip()})
+            
+            # Update other settings if provided
+            if global_uom is not None:
+                doc.global_uom = global_uom
+            if use_global_uom is not None:
+                doc.use_global_uom = 1 if use_global_uom else 0
+            if show_favorites_on_top is not None:
+                doc.show_favorites_on_top = 1 if show_favorites_on_top else 0
+            
+            doc.save()
+            frappe.db.commit()
+            return {"success": True}
+        
+        # If doctype doesn't exist, return success but don't save
+        return {"success": True, "message": "Fateh POS Settings doctype not found, using defaults"}
+    except Exception as e:
+        frappe.log_error(f"Error saving Fateh POS Settings: {str(e)}")
+        return {"success": False, "message": str(e)}

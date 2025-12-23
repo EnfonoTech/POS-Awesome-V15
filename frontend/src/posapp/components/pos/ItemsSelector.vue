@@ -30,8 +30,9 @@
 				rtlClasses,
 			]"
 			:style="{
-				height: responsiveStyles['--container-height'],
-				maxHeight: responsiveStyles['--container-height'],
+				height: responsiveStyles['--container-height'] || 'calc(100vh - 120px)',
+				maxHeight: 'calc(100vh - 80px)',
+				minHeight: 'calc(100vh - 150px)',
 				resize: 'vertical',
 				overflow: 'auto',
 				position: 'relative',
@@ -140,6 +141,21 @@
 									</v-text-field>
 								</div>
 							</v-expand-transition>
+						</v-col>
+						<v-col cols="auto" class="pb-0" v-if="useGlobalUom">
+							<v-select
+								density="compact"
+								variant="solo"
+								color="primary"
+								:label="frappe._('UOM')"
+								hide-details
+								v-model="globalUom"
+								:items="availableUoms"
+								@update:model-value="saveGlobalUomSettings"
+								prepend-inner-icon="mdi-weight"
+								style="min-width: 150px;"
+							>
+							</v-select>
 						</v-col>
 						<v-col cols="3" class="pb-0" v-if="pos_profile.posa_input_qty">
 							<v-text-field
@@ -250,6 +266,34 @@
 												class="mb-2 pos-themed-input"
 											>
 											</v-text-field>
+											<v-switch
+												v-model="temp_show_favorites_on_top"
+												:label="__('Show favorite items on top')"
+												hide-details
+												density="compact"
+												color="primary"
+												class="mb-2"
+											></v-switch>
+											<v-switch
+												v-model="temp_use_global_uom"
+												:label="__('Use global UOM (auto-set UOM when item clicked)')"
+												hide-details
+												density="compact"
+												color="primary"
+												class="mb-2"
+											></v-switch>
+											<v-text-field
+												v-if="temp_use_global_uom"
+												v-model="temp_global_uom"
+												density="compact"
+												variant="outlined"
+												color="primary"
+												hide-details
+												:label="__('Global UOM')"
+												class="mb-2 pos-themed-input"
+												hint="UOM to auto-set for all items (if available)"
+											>
+											</v-text-field>
 										</v-card-text>
 										<v-card-actions class="pa-4 pt-0">
 											<v-btn color="error" variant="text" @click="cancelItemSettings"
@@ -287,35 +331,22 @@
 								@update="onVirtualRangeUpdate"
 							>
 								<template #default="{ item }">
-									<div
-										v-if="item"
-										:key="item.item_code"
-										class="card-item-card"
-										@click="select_item($event, item)"
-										:draggable="true"
-										@dragstart="onDragStart($event, item)"
-										@dragend="onDragEnd"
-									>
-										<div class="card-item-image-container">
-											<v-img
-												:src="item.image || placeholderImage"
-												class="card-item-image"
-												aspect-ratio="1"
-												:alt="item.item_name"
-											>
-												<template #placeholder>
-													<div class="image-placeholder">
-														<v-icon size="40" color="grey-lighten-2">
-															mdi-image
-														</v-icon>
-													</div>
-												</template>
-											</v-img>
-										</div>
+									<div class="card-item-wrapper">
+										<div
+											v-if="item"
+											:key="item.item_code"
+											class="card-item-card"
+											@click="select_item($event, item)"
+											:draggable="true"
+											@dragstart="onDragStart($event, item)"
+											@dragend="onDragEnd"
+										>
 										<div class="card-item-content">
 											<div class="card-item-header">
-												<h4 class="card-item-name">{{ item.item_name }}</h4>
-												<span class="card-item-code">{{ item.item_code }}</span>
+												<div class="card-item-header-left">
+													<h4 class="card-item-name">{{ item.item_name }}</h4>
+													<span class="card-item-code">{{ item.item_code }}</span>
+												</div>
 											</div>
 											<div class="card-item-details">
 												<div class="card-item-price">
@@ -344,7 +375,19 @@
 																)
 															}}
 														</span>
+														<span class="card-item-uom">{{ item.stock_uom || "" }}</span>
 													</div>
+													<v-btn
+														icon
+														size="x-small"
+														variant="text"
+														:color="isFavorite(item.item_code) ? 'warning' : 'grey-lighten-1'"
+														@click.stop="toggleFavorite(item.item_code)"
+														class="favorite-btn-after-rate"
+														style="min-width: 24px; width: 24px; height: 24px;"
+													>
+														<v-icon size="small">{{ isFavorite(item.item_code) ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
+													</v-btn>
 													<div
 														v-if="
 															pos_profile.posa_allow_multi_currency &&
@@ -366,27 +409,9 @@
 														</span>
 													</div>
 												</div>
-												<div class="card-item-stock">
-													<v-icon size="small" class="stock-icon">
-														mdi-package-variant
-													</v-icon>
-													<span
-														class="stock-amount"
-														:class="{
-															'negative-number': isNegative(item.actual_qty),
-														}"
-													>
-														{{
-															format_number(
-																item.actual_qty,
-																hide_qty_decimals ? 0 : 4,
-															) || 0
-														}}
-													</span>
-													<span class="stock-uom">{{ item.stock_uom || "" }}</span>
-												</div>
 											</div>
 										</div>
+									</div>
 									</div>
 								</template>
 							</RecycleScroller>
@@ -452,58 +477,31 @@
 				</v-row>
 			</div>
 		</v-card>
-		<v-card class="cards mb-0 mt-3 dynamic-padding resizable" style="resize: vertical; overflow: auto">
-			<v-row no-gutters align="center" justify="center" class="dynamic-spacing-sm">
-				<v-col cols="12" class="mb-2">
-					<v-select
-						:items="items_group"
-						:label="frappe._('Items Group')"
-						density="compact"
-						variant="solo"
-						hide-details
-						v-model="item_group"
-					></v-select>
-				</v-col>
-				<v-col cols="12" class="mb-2" v-if="pos_profile.posa_enable_price_list_dropdown !== false">
-					<v-text-field
-						density="compact"
-						variant="solo"
-						color="primary"
-						:label="frappe._('Price List')"
-						hide-details
-						:model-value="active_price_list"
-						readonly
-					></v-text-field>
-				</v-col>
-				<v-col cols="3" class="dynamic-margin-xs">
-					<v-btn-toggle v-model="items_view" color="primary" group density="compact" rounded>
-						<v-btn size="small" value="list">{{ __("List") }}</v-btn>
-						<v-btn size="small" value="card">{{ __("Card") }}</v-btn>
-					</v-btn-toggle>
-				</v-col>
-				<v-col cols="5" class="dynamic-margin-xs">
-					<v-btn
-						size="small"
-						block
-						color="warning"
-						variant="text"
-						@click="show_offers"
-						class="action-btn-consistent"
-					>
-						{{ offersCount }} {{ __("Offers") }}
-					</v-btn>
-				</v-col>
-				<v-col cols="4" class="dynamic-margin-xs">
-					<v-btn
-						size="small"
-						block
-						color="primary"
-						variant="text"
-						@click="show_coupons"
-						class="action-btn-consistent"
-						>{{ couponsCount }} {{ __("Coupons") }}</v-btn
-					>
-				</v-col>
+		<v-card class="cards mb-0 mt-2 dynamic-padding resizable" style="resize: vertical; overflow: auto; padding: 4px 8px;">
+			<v-row no-gutters align="center" justify="start" class="dynamic-spacing-xs" style="gap: 4px;">
+				<v-btn-toggle v-model="items_view" color="primary" group density="compact" rounded size="x-small" style="height: 28px;">
+					<v-btn size="x-small" value="list" style="min-width: 50px; font-size: 0.7rem;">{{ __("List") }}</v-btn>
+					<v-btn size="x-small" value="card" style="min-width: 50px; font-size: 0.7rem;">{{ __("Card") }}</v-btn>
+				</v-btn-toggle>
+				<v-btn
+					size="x-small"
+					color="warning"
+					variant="text"
+					@click="show_offers"
+					class="action-btn-consistent"
+					style="height: 28px; min-width: auto; padding: 0 8px; font-size: 0.7rem;"
+				>
+					{{ offersCount }} {{ __("Offers") }}
+				</v-btn>
+				<v-btn
+					size="x-small"
+					color="primary"
+					variant="text"
+					@click="show_coupons"
+					class="action-btn-consistent"
+					style="height: 28px; min-width: auto; padding: 0 8px; font-size: 0.7rem;"
+					>{{ couponsCount }} {{ __("Coupons") }}</v-btn
+				>
 			</v-row>
 		</v-card>
 
@@ -686,6 +684,14 @@ export default {
 		scanQueuedCode: "",
 		refreshInFlight: false,
 		clearingSearch: false,
+		// Favorite items and global UOM settings
+		favoriteItems: [],
+		globalUom: "", // Single global UOM that applies to all items
+		showFavoritesOnTop: true,
+		useGlobalUom: false,
+		temp_show_favorites_on_top: true,
+		temp_use_global_uom: false,
+		temp_global_uom: "",
 	}),
 
 	watch: {
@@ -1812,6 +1818,62 @@ export default {
 				await this.update_items_details([item]);
 				if (!item.item_uoms || item.item_uoms.length === 0) {
 					item.item_uoms = [{ uom: item.stock_uom, conversion_factor: 1.0 }];
+				}
+			}
+
+			// Apply global UOM if enabled and the UOM exists for this item
+			if (this.useGlobalUom && this.globalUom && item.item_uoms && item.item_uoms.length > 0) {
+				// Check if the global UOM exists in item's UOMs
+				const uomExists = item.item_uoms.some((u) => u.uom === this.globalUom);
+				if (uomExists) {
+					const oldUom = item.uom || item.stock_uom;
+					item.uom = this.globalUom;
+					// Find and set conversion factor
+					const uomData = item.item_uoms.find((u) => u.uom === this.globalUom);
+					if (uomData) {
+						item.conversion_factor = uomData.conversion_factor;
+					}
+					
+					// Fetch price for the new UOM synchronously before adding to cart
+					if (oldUom !== this.globalUom) {
+						try {
+							const priceList = this.active_price_list;
+							const r = await frappe.call({
+								method: "posawesome.posawesome.api.items.get_price_for_uom",
+								args: {
+									item_code: item.item_code,
+									price_list: priceList,
+									uom: this.globalUom,
+								},
+							});
+							if (r.message) {
+								const uomRate = parseFloat(r.message);
+								if (uomRate && uomRate > 0) {
+									item._manual_rate_set = true;
+									item.base_price_list_rate = uomRate;
+									if (!item.posa_offer_applied) {
+										item.base_rate = uomRate;
+									}
+									// Apply currency conversion if needed
+									const baseCurrency = this.price_list_currency || this.pos_profile.currency;
+									if (this.selected_currency !== baseCurrency) {
+										item.price_list_rate = this.flt(
+											item.base_price_list_rate * this.exchange_rate,
+											this.currency_precision,
+										);
+										item.rate = this.flt(item.base_rate * this.exchange_rate, this.currency_precision);
+									} else {
+										item.price_list_rate = item.base_price_list_rate;
+										item.rate = item.base_rate;
+									}
+								}
+							}
+						} catch (e) {
+							console.error("Failed to fetch UOM price", e);
+							// Fallback: emit calc_uom event to Invoice component
+							this.eventBus.emit("calc_uom", item, this.globalUom);
+						}
+					}
 				}
 			}
 
@@ -3510,6 +3572,9 @@ export default {
 			this.temp_enable_custom_items_per_page = this.enable_custom_items_per_page;
 			this.temp_items_per_page = this.items_per_page;
 			this.temp_force_server_items = !!(this.pos_profile && this.pos_profile.posa_force_server_items);
+			this.temp_show_favorites_on_top = this.showFavoritesOnTop;
+			this.temp_use_global_uom = this.useGlobalUom;
+			this.temp_global_uom = this.globalUom;
 			this.show_item_settings = true;
 		},
 		cancelItemSettings() {
@@ -3527,8 +3592,152 @@ export default {
 			this.itemsPerPage = this.items_per_page;
 			this.pos_profile.posa_force_server_items = this.temp_force_server_items ? 1 : 0;
 			this.savePosProfileSetting("posa_force_server_items", this.pos_profile.posa_force_server_items);
+			this.showFavoritesOnTop = this.temp_show_favorites_on_top;
+			this.useGlobalUom = this.temp_use_global_uom;
+			this.globalUom = this.temp_global_uom || "";
 			this.saveItemSettings();
+			this.saveFavorites();
+			this.saveGlobalUomSettings();
 			this.show_item_settings = false;
+		},
+		// Favorite items methods
+		toggleFavorite(itemCode) {
+			const index = this.favoriteItems.indexOf(itemCode);
+			if (index > -1) {
+				this.favoriteItems.splice(index, 1);
+			} else {
+				this.favoriteItems.push(itemCode);
+			}
+			this.saveFavorites();
+		},
+		isFavorite(itemCode) {
+			return this.favoriteItems.includes(itemCode);
+		},
+		async loadFavorites() {
+			try {
+				// Try to load from server settings first
+				const res = await frappe.call({
+					method: "posawesome.posawesome.api.utilities.get_fateh_pos_settings",
+				});
+				if (res && res.message && res.message.favorite_items) {
+					this.favoriteItems = res.message.favorite_items || [];
+				} else {
+					// Fallback to localStorage
+					const saved = localStorage.getItem("posawesome_favorite_items");
+					if (saved) {
+						this.favoriteItems = JSON.parse(saved);
+					} else {
+						this.favoriteItems = [];
+					}
+				}
+			} catch (e) {
+				console.error("Failed to load favorites:", e);
+				// Fallback to localStorage
+				try {
+					const saved = localStorage.getItem("posawesome_favorite_items");
+					if (saved) {
+						this.favoriteItems = JSON.parse(saved);
+					} else {
+						this.favoriteItems = [];
+					}
+				} catch (e2) {
+					this.favoriteItems = [];
+				}
+			}
+		},
+		async saveFavorites() {
+			try {
+				// Save to server settings
+				await frappe.call({
+					method: "posawesome.posawesome.api.utilities.save_fateh_pos_settings",
+					args: {
+						favorite_items: this.favoriteItems,
+					},
+				});
+			} catch (e) {
+				console.error("Failed to save favorites to server:", e);
+			}
+			// Also save to localStorage as backup
+			try {
+				localStorage.setItem("posawesome_favorite_items", JSON.stringify(this.favoriteItems));
+			} catch (e) {
+				console.error("Failed to save favorites to localStorage:", e);
+			}
+		},
+		// Global UOM methods
+		async loadGlobalUomSettings() {
+			try {
+				// Try to load from server settings first
+				const res = await frappe.call({
+					method: "posawesome.posawesome.api.utilities.get_fateh_pos_settings",
+				});
+				if (res && res.message) {
+					this.useGlobalUom = res.message.use_global_uom !== undefined ? res.message.use_global_uom : true;
+					this.showFavoritesOnTop = res.message.show_favorites_on_top !== undefined ? res.message.show_favorites_on_top : true;
+					this.globalUom = res.message.global_uom || "";
+				} else {
+					// Fallback to localStorage
+					const saved = localStorage.getItem("posawesome_global_uom_settings");
+					if (saved) {
+						const settings = JSON.parse(saved);
+						this.useGlobalUom = settings.useGlobalUom !== undefined ? settings.useGlobalUom : true;
+						this.showFavoritesOnTop = settings.showFavoritesOnTop !== undefined ? settings.showFavoritesOnTop : true;
+						this.globalUom = settings.globalUom || "";
+					} else {
+						// Set defaults
+						this.useGlobalUom = true;
+						this.showFavoritesOnTop = true;
+						this.globalUom = "";
+						this.saveGlobalUomSettings();
+					}
+				}
+			} catch (e) {
+				console.error("Failed to load global UOM settings:", e);
+				// Fallback to localStorage
+				try {
+					const saved = localStorage.getItem("posawesome_global_uom_settings");
+					if (saved) {
+						const settings = JSON.parse(saved);
+						this.useGlobalUom = settings.useGlobalUom !== undefined ? settings.useGlobalUom : true;
+						this.showFavoritesOnTop = settings.showFavoritesOnTop !== undefined ? settings.showFavoritesOnTop : true;
+						this.globalUom = settings.globalUom || "";
+					} else {
+						this.useGlobalUom = true;
+						this.showFavoritesOnTop = true;
+						this.globalUom = "";
+					}
+				} catch (e2) {
+					this.useGlobalUom = true;
+					this.showFavoritesOnTop = true;
+					this.globalUom = "";
+				}
+			}
+		},
+		async saveGlobalUomSettings() {
+			try {
+				// Save to server settings
+				await frappe.call({
+					method: "posawesome.posawesome.api.utilities.save_fateh_pos_settings",
+					args: {
+						global_uom: this.globalUom || "",
+						use_global_uom: this.useGlobalUom,
+						show_favorites_on_top: this.showFavoritesOnTop,
+					},
+				});
+			} catch (e) {
+				console.error("Failed to save global UOM settings to server:", e);
+			}
+			// Also save to localStorage as backup
+			try {
+				const settings = {
+					useGlobalUom: this.useGlobalUom,
+					showFavoritesOnTop: this.showFavoritesOnTop,
+					globalUom: this.globalUom || "",
+				};
+				localStorage.setItem("posawesome_global_uom_settings", JSON.stringify(settings));
+			} catch (e) {
+				console.error("Failed to save global UOM settings to localStorage:", e);
+			}
 		},
 		onDragStart(event, item) {
 			this.isDragging = true;
@@ -3596,6 +3805,9 @@ export default {
 						this.itemsPerPage = this.items_per_page;
 					}
 				}
+				// Load favorites and global UOM settings
+				this.loadFavorites();
+				this.loadGlobalUomSettings();
 			} catch (e) {
 				console.error("Failed to load item selector settings:", e);
 			}
@@ -3643,52 +3855,78 @@ export default {
 		},
 		cardColumns() {
 			if (this.windowWidth <= 768) {
-				return 1;
-			}
-			if (this.windowWidth <= 1200) {
 				return 2;
 			}
-			return 3;
+			if (this.windowWidth <= 1200) {
+				return 4;
+			}
+			return 6;
+		},
+		availableUoms() {
+			// Collect all unique UOMs from all items
+			const uomSet = new Set();
+			if (this.items && this.items.length > 0) {
+				this.items.forEach((item) => {
+					if (item.item_uoms && Array.isArray(item.item_uoms)) {
+						item.item_uoms.forEach((uomData) => {
+							if (uomData.uom) {
+								uomSet.add(uomData.uom);
+							}
+						});
+					}
+					// Also include stock_uom
+					if (item.stock_uom) {
+						uomSet.add(item.stock_uom);
+					}
+				});
+			}
+			return Array.from(uomSet).sort();
 		},
 		cardGap() {
 			if (this.windowWidth <= 768) {
-				return 10;
+				return 8;
 			}
 			if (this.windowWidth <= 1200) {
-				return 12;
+				return 8;
 			}
-			return 16;
+			return 8;
 		},
 		cardPadding() {
 			if (this.windowWidth <= 768) {
-				return 10;
+				return 8;
 			}
 			if (this.windowWidth <= 1200) {
-				return 12;
+				return 8;
 			}
-			return 16;
+			return 8;
 		},
 		cardRowHeight() {
+			// Row height: 140px card + 10px padding = 150px
+			// First row starts at 20px due to grid padding-top
 			if (this.windowWidth <= 768) {
-				return 220;
+				return 150;
 			}
 			if (this.windowWidth <= 1200) {
-				return 240;
+				return 150;
 			}
-			return 260;
+			return 150;
 		},
 		cardColumnWidth() {
 			const columns = Math.max(1, this.cardColumns);
 			const containerWidth = this.cardContainerWidth || 0;
 			if (!containerWidth) {
-				return 240;
+				return 180;
 			}
 
-			const gapTotal = this.cardGap * (columns - 1);
+			// Account for 4px gap between cards (2px padding on each side)
+			const gapBetweenCards = 4;
+			const gapTotal = gapBetweenCards * (columns - 1);
 			const paddingTotal = this.cardPadding * 2;
 			const available = Math.max(0, containerWidth - gapTotal - paddingTotal);
 			const width = Math.floor(available / columns);
-			return Math.max(180, width);
+			// Subtract 4px to create horizontal gaps between cards (2px on each side)
+			// Padding on wrapper creates vertical and horizontal spacing
+			return Math.max(156, width - 4);
 		},
 		displayedItems() {
 			const baseItems = Array.isArray(this.filteredItems) ? [...this.filteredItems] : [];
@@ -3699,6 +3937,28 @@ export default {
 
 			const searchTerm = this.get_search(this.first_search).trim().toLowerCase();
 			let filteredItems = baseItems;
+
+			// Sort favorites to top if enabled, preserving order from favoriteItems array
+			if (this.showFavoritesOnTop && this.favoriteItems.length > 0) {
+				filteredItems.sort((a, b) => {
+					const aIsFavorite = this.isFavorite(a.item_code);
+					const bIsFavorite = this.isFavorite(b.item_code);
+					
+					// Both are favorites - sort by their order in favoriteItems array
+					if (aIsFavorite && bIsFavorite) {
+						const aIndex = this.favoriteItems.indexOf(a.item_code);
+						const bIndex = this.favoriteItems.indexOf(b.item_code);
+						return aIndex - bIndex;
+					}
+					
+					// Only one is favorite - favorite comes first
+					if (aIsFavorite && !bIsFavorite) return -1;
+					if (!aIsFavorite && bIsFavorite) return 1;
+					
+					// Neither is favorite - maintain original order
+					return 0;
+				});
+			}
 
 			// Apply search filter only for queries with at least three characters
 			if (searchTerm.length >= 2) {
@@ -4170,6 +4430,7 @@ export default {
 	z-index: 100;
 	background-color: var(--surface-primary, #fff);
 	padding: var(--dynamic-sm);
+	padding-top: 8px;
 	margin: 0;
 	border-bottom: 1px solid rgba(0, 0, 0, 0.1);
 	/* Performance optimizations for theme switching */
@@ -4305,12 +4566,14 @@ export default {
 	-moz-osx-font-smoothing: grayscale;
 }
 
-/* Enhanced Card View Grid Layout - 3 items per row */
+/* Enhanced Card View Grid Layout - 5 items per row */
 .items-card-grid {
 	display: grid;
-	grid-template-columns: repeat(3, 1fr);
-	gap: 16px;
-	padding: 16px;
+	grid-template-columns: repeat(5, minmax(0, 1fr));
+	gap: 0;
+	row-gap: 0;
+	column-gap: 0;
+	padding: 9px;
 	height: calc(100% - 80px);
 	overflow-y: auto;
 	scrollbar-width: thin;
@@ -4325,15 +4588,41 @@ export default {
 	height: calc(100% - 80px);
 	overflow-y: auto;
 	position: relative;
+	padding-top: 20px;
 }
 
 .virtual-scroller .items-card-grid {
 	height: auto;
 	overflow: visible;
+	gap: 0;
+	row-gap: 0;
+	column-gap: 0;
+	padding: 1px;
 }
 
 .virtual-scroller .vue-recycle-scroller__item-wrapper {
 	display: contents;
+	margin: 0;
+	padding: 0;
+}
+
+.virtual-scroller .vue-recycle-scroller__item-view {
+	margin: 0;
+	padding: 0 !important;
+	box-sizing: border-box !important;
+}
+
+.card-item-wrapper {
+	margin: 0;
+	padding: 5px 1px;
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+}
+
+.card-item-wrapper .card-item-card {
+	height: 140px;
+	min-height: 140px;
 }
 
 .items-card-grid::-webkit-scrollbar {
@@ -4349,6 +4638,14 @@ export default {
 	border-radius: 4px;
 }
 
+.card-item-wrapper {
+	margin: 0;
+	padding: 5px 2px;
+	box-sizing: border-box;
+	width: 100%;
+	height: 100%;
+}
+
 .card-item-card {
 	background-color: var(--surface-secondary, #ffffff);
 	border-radius: 12px;
@@ -4361,11 +4658,15 @@ export default {
 	cursor: pointer;
 	display: flex;
 	flex-direction: column;
-	height: auto;
+	height: 140px;
+	min-height: 140px;
 	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 	will-change: transform;
 	backface-visibility: hidden;
 	transform: translate3d(0, 0, 0);
+	width: 100%;
+	margin: 0;
+	box-sizing: border-box;
 }
 
 .card-item-card:hover {
@@ -4374,46 +4675,34 @@ export default {
 	border-color: var(--primary-color, #1976d2);
 }
 
-.card-item-image-container {
-	position: relative;
-	height: 120px;
-	overflow: hidden;
-	background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-}
-
-.card-item-image {
-	width: 100%;
-	height: 100%;
-	object-fit: cover;
-	transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-	will-change: transform;
-	backface-visibility: hidden;
-}
-
-.card-item-card:hover .card-item-image {
-	transform: scale3d(1.05, 1.05, 1);
-}
-
-.image-placeholder {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	height: 100%;
-	background: linear-gradient(135deg, #f5f5f5 0%, #eeeeee 100%);
-}
-
 .card-item-content {
-	padding: 12px 16px 16px;
+	padding: 10px 12px 12px;
 	flex: 1;
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: 6px;
 }
 
 .card-item-header {
 	border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-	padding-bottom: 8px;
+	padding-bottom: 6px;
 	margin-bottom: 4px;
+	display: flex;
+	justify-content: space-between;
+	align-items: flex-start;
+	gap: 8px;
+}
+
+.card-item-header-left {
+	flex: 1;
+	min-width: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+
+.favorite-btn {
+	flex-shrink: 0;
 }
 
 .card-item-name {
@@ -4421,7 +4710,8 @@ export default {
 	font-weight: 600;
 	color: var(--text-primary, #2c3e50);
 	margin: 0 0 4px 0;
-	line-height: 1.3;
+	line-height: 1.4;
+	min-height: 2.8em;
 	display: -webkit-box;
 	-webkit-line-clamp: 2;
 	line-clamp: 2;
@@ -4456,16 +4746,31 @@ export default {
 
 .card-item-price {
 	display: flex;
-	flex-direction: column;
-	gap: 4px;
+	flex-direction: row;
+	align-items: center;
+	gap: 6px;
+	justify-content: space-between;
 }
 
 .primary-price {
 	display: flex;
 	align-items: center;
-	gap: 2px;
+	gap: 4px;
 	font-weight: 600;
 	color: var(--primary-color, #1976d2);
+	flex: 1;
+}
+
+.card-item-uom {
+	font-size: 0.75rem;
+	color: var(--pos-text-secondary, #6c757d);
+	font-weight: 500;
+	margin-left: 4px;
+}
+
+.favorite-btn-after-rate {
+	flex-shrink: 0;
+	margin-left: auto;
 }
 
 .secondary-price {
@@ -4743,9 +5048,9 @@ export default {
 /* Responsive breakpoints */
 @media (max-width: 1200px) {
 	.items-card-grid {
-		grid-template-columns: repeat(2, 1fr);
-		gap: 12px;
-		padding: 12px;
+		grid-template-columns: repeat(4, minmax(160px, 1fr));
+		gap: 8px;
+		padding: 8px;
 	}
 }
 

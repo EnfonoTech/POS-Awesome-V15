@@ -1,0 +1,99 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "format:Fateh POS Settings",
+ "creation": "2024-01-01 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "favorite_items_section",
+  "favorite_items",
+  "global_uom_section",
+  "use_global_uom",
+  "global_uom",
+  "show_favorites_on_top"
+ ],
+ "fields": [
+  {
+   "fieldname": "favorite_items_section",
+   "fieldtype": "Section Break",
+   "label": "Favorite Items"
+  },
+  {
+   "fieldname": "favorite_items",
+   "fieldtype": "Table",
+   "label": "Favorite Items",
+   "options": "Fateh POS Favorite Item"
+  },
+  {
+   "fieldname": "global_uom_section",
+   "fieldtype": "Section Break",
+   "label": "Global UOM Settings"
+  },
+  {
+   "default": "1",
+   "fieldname": "use_global_uom",
+   "fieldtype": "Check",
+   "label": "Use Global UOM"
+  },
+  {
+   "depends_on": "eval:doc.use_global_uom == 1",
+   "fieldname": "global_uom",
+   "fieldtype": "Link",
+   "label": "Global UOM",
+   "options": "UOM"
+  },
+  {
+   "default": "1",
+   "fieldname": "show_favorites_on_top",
+   "fieldtype": "Check",
+   "label": "Show Favorite Items on Top"
+  }
+ ],
+ "index_web_pages_for_search": 0,
+ "issingle": 1,
+ "links": [],
+ "modified": "2024-01-01 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "POSAwesome",
+ "name": "Fateh POS Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales User",
+   "share": 1
+  },
+  {
+   "create": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Sales Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "track_changes": 1
+}
