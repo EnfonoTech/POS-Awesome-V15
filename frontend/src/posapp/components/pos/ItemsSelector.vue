@@ -3853,15 +3853,22 @@ export default {
 		headers() {
 			return this.getItemsHeaders();
 		},
-		cardColumns() {
-			if (this.windowWidth <= 768) {
-				return 2;
-			}
-			if (this.windowWidth <= 1200) {
-				return 4;
-			}
-			return 6;
-		},
+	cardColumns() {
+		// Calculate columns based on container width and minimum card width
+		const minCardWidth = 160; // Minimum width for each card
+		const containerWidth = this.cardContainerWidth || this.windowWidth;
+		const columns = Math.floor(containerWidth / minCardWidth);
+		
+		// Ensure at least 2 columns on mobile, cap at reasonable max
+		if (this.windowWidth <= 768) {
+			return Math.max(2, Math.min(columns, 3));
+		}
+		if (this.windowWidth <= 1200) {
+			return Math.max(3, Math.min(columns, 5));
+		}
+		// Desktop: allow more columns based on available space
+		return Math.max(4, Math.min(columns, 8));
+	},
 		availableUoms() {
 			// Collect all unique UOMs from all items
 			const uomSet = new Set();
@@ -3911,23 +3918,24 @@ export default {
 			}
 			return 150;
 		},
-		cardColumnWidth() {
-			const columns = Math.max(1, this.cardColumns);
-			const containerWidth = this.cardContainerWidth || 0;
-			if (!containerWidth) {
-				return 180;
-			}
+	cardColumnWidth() {
+		const columns = Math.max(1, this.cardColumns);
+		const containerWidth = this.cardContainerWidth || 0;
+		if (!containerWidth) {
+			// Default fallback based on screen size
+			if (this.windowWidth <= 768) return 140;
+			if (this.windowWidth <= 1200) return 150;
+			return 160;
+		}
 
-			// Account for 4px gap between cards (2px padding on each side)
-			const gapBetweenCards = 4;
-			const gapTotal = gapBetweenCards * (columns - 1);
-			const paddingTotal = this.cardPadding * 2;
-			const available = Math.max(0, containerWidth - gapTotal - paddingTotal);
-			const width = Math.floor(available / columns);
-			// Subtract 4px to create horizontal gaps between cards (2px on each side)
-			// Padding on wrapper creates vertical and horizontal spacing
-			return Math.max(156, width - 4);
-		},
+		// Account for gaps and padding
+		const gapBetweenCards = 4; // 2px padding on each side
+		const paddingTotal = 2; // 1px container padding on each side
+		const available = Math.max(0, containerWidth - paddingTotal);
+		const width = Math.floor(available / columns);
+		// Subtract gap to create spacing between cards
+		return Math.max(140, width - gapBetweenCards);
+	},
 		displayedItems() {
 			const baseItems = Array.isArray(this.filteredItems) ? [...this.filteredItems] : [];
 
@@ -4569,11 +4577,12 @@ export default {
 /* Enhanced Card View Grid Layout - 5 items per row */
 .items-card-grid {
 	display: grid;
-	grid-template-columns: repeat(5, minmax(0, 1fr));
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
 	gap: 0;
 	row-gap: 0;
 	column-gap: 0;
-	padding: 9px;
+	padding: 1px;
+	padding-top: 20px;
 	height: calc(100% - 80px);
 	overflow-y: auto;
 	scrollbar-width: thin;
@@ -5048,9 +5057,9 @@ export default {
 /* Responsive breakpoints */
 @media (max-width: 1200px) {
 	.items-card-grid {
-		grid-template-columns: repeat(4, minmax(160px, 1fr));
-		gap: 8px;
-		padding: 8px;
+		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+		padding: 1px;
+		padding-top: 20px;
 	}
 }
 
@@ -5070,9 +5079,9 @@ export default {
 	}
 
 	.items-card-grid {
-		grid-template-columns: 1fr;
-		gap: 10px;
-		padding: 10px;
+		grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+		padding: 1px;
+		padding-top: 20px;
 	}
 
 	.card-item-image-container {

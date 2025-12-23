@@ -11,3 +11,6 @@ class FatehPOSFavoriteItem(Document):
 	pass
 
 
+
+
+
