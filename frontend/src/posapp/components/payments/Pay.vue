@@ -50,14 +50,15 @@
 									variant="outlined"
 									hide-details
 									class="pos-themed-input"
-									v-model="sales_person_search"
-									:label="__('Sales Person')"
-									:items="sales_persons_list"
-									item-title="sales_person_name"
-									item-value="sales_person"
-									clearable
-									@keyup.enter="get_outstanding_invoices"
-								></v-autocomplete>
+								v-model="sales_person_search"
+								:label="__('Sales Person')"
+								:items="sales_persons_list"
+								item-title="sales_person_name"
+								item-value="sales_person"
+								clearable
+								@keyup.enter="get_outstanding_invoices"
+								@update:model-value="get_outstanding_invoices"
+							></v-autocomplete>
 							</v-col>
 							<v-col md="2" cols="12">
 								<v-btn block color="warning" theme="dark" @click="get_outstanding_invoices">{{
@@ -648,12 +649,11 @@ export default {
 						this.get_outstanding_invoices();
 						this.get_draft_mpesa_payments_register();
 						
-						// Load Fateh POS Settings and set default customer only if no customer is already selected
+						// Load Fateh POS Settings and prioritize default customer for payments
 						const fatehSettings = await this.loadFatehSettings();
-						// Check both reactive ref and store directly to ensure we get the current value
 						const customersStore = useCustomersStore();
-						const currentCustomer = this.selectedCustomer || customersStore.selectedCustomer;
-						if (fatehSettings.default_customer_for_payments && !currentCustomer) {
+						// Always use default customer from Fateh POS Settings for payments if it's set
+						if (fatehSettings.default_customer_for_payments) {
 							this.$nextTick(() => {
 								customersStore.setSelectedCustomer(fatehSettings.default_customer_for_payments);
 							});
@@ -675,12 +675,11 @@ export default {
 							this.get_outstanding_invoices();
 							this.get_draft_mpesa_payments_register();
 							
-							// Load Fateh POS Settings and set default customer only if no customer is already selected
+							// Load Fateh POS Settings and prioritize default customer for payments
 							const fatehSettings = await this.loadFatehSettings();
-							// Check both reactive ref and store directly to ensure we get the current value
 							const customersStore = useCustomersStore();
-							const currentCustomer = this.selectedCustomer || customersStore.selectedCustomer;
-							if (fatehSettings.default_customer_for_payments && !currentCustomer) {
+							// Always use default customer from Fateh POS Settings for payments if it's set
+							if (fatehSettings.default_customer_for_payments) {
 								this.$nextTick(() => {
 									customersStore.setSelectedCustomer(fatehSettings.default_customer_for_payments);
 								});
@@ -708,12 +707,11 @@ export default {
 						this.get_outstanding_invoices();
 						this.get_draft_mpesa_payments_register();
 						
-						// Load Fateh POS Settings and set default customer only if no customer is already selected
+						// Load Fateh POS Settings and prioritize default customer for payments
 						const fatehSettings = await this.loadFatehSettings();
-						// Check both reactive ref and store directly to ensure we get the current value
 						const customersStore = useCustomersStore();
-						const currentCustomer = this.selectedCustomer || customersStore.selectedCustomer;
-						if (fatehSettings.default_customer_for_payments && !currentCustomer) {
+						// Always use default customer from Fateh POS Settings for payments if it's set
+						if (fatehSettings.default_customer_for_payments) {
 							this.$nextTick(() => {
 								customersStore.setSelectedCustomer(fatehSettings.default_customer_for_payments);
 							});
@@ -843,6 +841,7 @@ export default {
 					currency: this.pos_profile.currency,
 					pos_profile: this.pos_profile.name, // Always use logged-in POS profile
 					invoice_number: this.invoice_number_search || null,
+					sales_person: this.sales_person_search || null,
 				})
 				.then((r) => {
 					if (r.message) {

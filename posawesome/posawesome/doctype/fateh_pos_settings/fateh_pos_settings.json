@@ -12,11 +12,13 @@
    "enable_quick_item_search",
    "section_break_quick_customers",
    "quick_customers",
-   "column_break_batch",
-   "show_batch_column_by_default",
-   "default_customer_for_payments",
-   "freeze_stock_during_entry"
-  ],
+  "column_break_batch",
+  "show_batch_column_by_default",
+  "default_customer_for_payments",
+  "freeze_stock_during_entry",
+  "section_break_warehouse_stock",
+  "warehouse_stock_warehouses"
+ ],
  "fields": [
   {
    "default": "0",
@@ -81,6 +83,18 @@
 			"fieldtype": "Check",
 			"label": "Freeze Stock During Entry",
 			"description": "When enabled, stock quantities shown in item selector will remain fixed at the start of entry and only update after successful invoice submission"
+		},
+		{
+			"fieldname": "section_break_warehouse_stock",
+			"fieldtype": "Section Break",
+			"label": "Warehouse Stock Display"
+		},
+		{
+			"fieldname": "warehouse_stock_warehouses",
+			"fieldtype": "Table",
+			"label": "Additional Warehouses for Stock Display",
+			"options": "Fateh POS Warehouse Stock",
+			"description": "Select additional warehouses to display stock quantities in the item details. The POS profile warehouse is already shown by default."
 		}
  ],
  "grid_page_length": 50,

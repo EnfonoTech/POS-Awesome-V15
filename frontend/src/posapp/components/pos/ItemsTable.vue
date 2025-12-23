@@ -483,7 +483,11 @@
 											:label="frappe._('Available QTY')"
 											class="pos-themed-input"
 											hide-details
-											:model-value="formatFloat(item.actual_qty)"
+											:model-value="formatFloat(
+												getFrozenStockQuantity && fatehPosSettings?.freeze_stock_during_entry 
+													? (getFrozenStockQuantity(item, 'actual_qty') ?? item.actual_qty) 
+													: item.actual_qty
+											)"
 											disabled
 											prepend-inner-icon="mdi-package-variant"
 										></v-text-field>
@@ -552,6 +556,31 @@
 											class="mt-1"
 											color="success"
 										></v-checkbox>
+									</div>
+								</div>
+								
+								<!-- Additional Warehouse Stock Display -->
+								<div v-if="fatehPosSettings?.warehouse_stock_warehouses && 
+									Array.isArray(fatehPosSettings.warehouse_stock_warehouses) && 
+									fatehPosSettings.warehouse_stock_warehouses.length > 0" 
+									class="form-row mt-2">
+									<div class="form-field" style="width: 100%;">
+										<div class="text-caption text-grey mb-2 font-weight-medium">{{ __("Additional Warehouse Stock") }}</div>
+										<div class="warehouse-stock-grid">
+											<div v-for="warehouseRow in fatehPosSettings.warehouse_stock_warehouses" 
+												:key="warehouseRow.warehouse" 
+												class="warehouse-stock-item">
+												<span class="warehouse-stock-label">{{ warehouseRow.warehouse }}:</span>
+												<span class="warehouse-stock-value">
+													{{ formatFloat(
+														getWarehouseStock && getWarehouseStock(item, warehouseRow.warehouse) !== null
+															? getWarehouseStock(item, warehouseRow.warehouse)
+															: '-',
+														hide_qty_decimals ? 0 : undefined
+													) }}
+												</span>
+											</div>
+										</div>
 									</div>
 								</div>
 							</div>
@@ -766,6 +795,7 @@ export default {
 		changePriceListRate: Function,
 		isNegative: Function,
 		getFrozenStockQuantity: Function,
+		getWarehouseStock: Function,
 		fatehPosSettings: Object,
 	},
 	data() {
@@ -3566,15 +3596,86 @@ body[dir="rtl"] .number-field-rtl {
 		min-width: 100px;
 		max-width: 140px;
 	}
-	
-	.inline-batch-select :deep(.v-field) {
-		font-size: 0.7rem !important;
-		min-height: 26px !important;
+}
+
+/* =================================================================
+   WAREHOUSE STOCK GRID STYLES
+   ================================================================= */
+
+.warehouse-stock-grid {
+	display: grid;
+	grid-template-columns: repeat(3, 1fr);
+	gap: 12px 16px;
+	padding: 8px 0;
+}
+
+.warehouse-stock-item {
+	display: flex;
+	flex-direction: row;
+	align-items: center;
+	justify-content: space-between;
+	padding: 8px 12px;
+	background: var(--pos-card-bg, #f5f5f5);
+	border: 1px solid var(--pos-border-light, #e0e0e0);
+	border-radius: 8px;
+	transition: all 0.2s ease;
+	gap: 8px;
+}
+
+.warehouse-stock-item:hover {
+	background: var(--pos-hover-bg, #eeeeee);
+	border-color: var(--pos-primary-variant, #1976d2);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.warehouse-stock-label {
+	font-size: 0.75rem;
+	color: var(--pos-text-secondary, #666);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-weight: 500;
+	flex: 1;
+	min-width: 0;
+}
+
+.warehouse-stock-value {
+	font-size: 0.875rem;
+	font-weight: 600;
+	color: var(--pos-text-primary, #333);
+	flex-shrink: 0;
+}
+
+/* Responsive adjustments for warehouse stock grid */
+@media (max-width: 1024px) {
+	.warehouse-stock-grid {
+		grid-template-columns: repeat(2, 1fr);
+	}
+}
+
+@media (max-width: 768px) {
+	.warehouse-stock-grid {
+		grid-template-columns: repeat(2, 1fr);
+		gap: 8px 12px;
 	}
 	
-	.inline-batch-select :deep(.v-field__input) {
-		padding: 1px 4px !important;
-		font-size: 0.7rem !important;
+	.warehouse-stock-item {
+		padding: 6px 10px;
+	}
+	
+	.warehouse-stock-label {
+		font-size: 0.7rem;
+	}
+	
+	.warehouse-stock-value {
+		font-size: 0.8rem;
+	}
+}
+
+@media (max-width: 480px) {
+	.warehouse-stock-grid {
+		grid-template-columns: 1fr;
+		gap: 8px;
 	}
 }
 </style>

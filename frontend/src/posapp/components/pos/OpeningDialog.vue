@@ -196,7 +196,7 @@ export default {
 			});
 		},
 
-		pos_profile(val) {
+		async pos_profile(val) {
 			this.payments_methods = [];
 			this.payments_method_data.forEach((element) => {
 				if (element.parent === val) {
@@ -207,6 +207,11 @@ export default {
 					});
 				}
 			});
+			
+			// Load last closed shift amounts for this POS profile
+			if (val) {
+				await this.load_last_closed_shift_amounts(val);
+			}
 		},
 	},
 
@@ -247,9 +252,38 @@ export default {
 						} catch (e) {
 							console.error("Failed to cache opening dialog data", e);
 						}
+						// Load last closed shift amounts if POS profile is already set
+						if (vm.pos_profile) {
+							vm.load_last_closed_shift_amounts(vm.pos_profile);
+						}
 					}
 				},
 			});
+		},
+
+		async load_last_closed_shift_amounts(pos_profile) {
+			if (!pos_profile) return;
+			
+			try {
+				const res = await frappe.call({
+					method: "posawesome.posawesome.api.shifts.get_last_closed_shift_amounts",
+					args: {
+						pos_profile: pos_profile,
+					},
+				});
+				
+				if (res.message && Object.keys(res.message).length > 0) {
+					// Update amounts for matching payment methods
+					this.payments_methods.forEach((method) => {
+						if (res.message[method.mode_of_payment] !== undefined) {
+							method.amount = res.message[method.mode_of_payment] || 0;
+						}
+					});
+				}
+			} catch (error) {
+				console.error("Error loading last closed shift amounts:", error);
+				// Silently fail - if there's no previous shift, amounts will remain 0
+			}
 		},
 
 		submit_dialog() {

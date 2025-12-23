@@ -1976,12 +1976,27 @@ export default {
 						(element) => element.posa_row_id == item.posa_row_id,
 					);
 					if (updated_item) {
-						item.actual_qty = updated_item.actual_qty;
-						item.item_uoms = updated_item.item_uoms;
-						item.has_batch_no = updated_item.has_batch_no;
-						item.has_serial_no = updated_item.has_serial_no;
-						item.batch_no_data = updated_item.batch_no_data;
-						item.serial_no_data = updated_item.serial_no_data;
+						// Freeze stock BEFORE updating, if freeze setting is enabled
+						// This ensures we capture the original stock from backend before any reductions
+						if (this.freezeStockQuantity && this.fatehPosSettings?.freeze_stock_during_entry && item?.item_code) {
+							// Update item first with fresh stock from backend
+							item.actual_qty = updated_item.actual_qty;
+							item.item_uoms = updated_item.item_uoms;
+							item.has_batch_no = updated_item.has_batch_no;
+							item.has_serial_no = updated_item.has_serial_no;
+							item.batch_no_data = updated_item.batch_no_data;
+							item.serial_no_data = updated_item.serial_no_data;
+							
+							// Now freeze the fresh stock immediately (before stock coordinator reduces it)
+							this.freezeStockQuantity(item);
+						} else {
+							item.actual_qty = updated_item.actual_qty;
+							item.item_uoms = updated_item.item_uoms;
+							item.has_batch_no = updated_item.has_batch_no;
+							item.has_serial_no = updated_item.has_serial_no;
+							item.batch_no_data = updated_item.batch_no_data;
+							item.serial_no_data = updated_item.serial_no_data;
+						}
 						if (updated_item.rate !== undefined) {
 							const force =
 								this.pos_profile?.posa_force_price_from_customer_price_list !== false;
@@ -2002,6 +2017,18 @@ export default {
 						if (updated_item.currency) {
 							item.currency = updated_item.currency;
 						}
+					}
+				});
+			}
+			
+			// Fetch warehouse stock for items if configured in Fateh POS Settings
+			if (this.fatehPosSettings?.warehouse_stock_warehouses && 
+				Array.isArray(this.fatehPosSettings.warehouse_stock_warehouses) &&
+				this.fatehPosSettings.warehouse_stock_warehouses.length > 0 &&
+				this.fetchWarehouseStock) {
+				items.forEach((item) => {
+					if (item?.item_code) {
+						this.fetchWarehouseStock(item);
 					}
 				});
 			}
@@ -2174,6 +2201,12 @@ export default {
                 item.actual_qty = data.actual_qty;
                 item.available_qty = data.actual_qty;
 
+                // Freeze stock BEFORE stock coordinator reduces it, if freeze setting is enabled
+                if (this.freezeStockQuantity && this.fatehPosSettings?.freeze_stock_during_entry && item?.item_code) {
+                        // Freeze the fresh stock from backend before stock coordinator modifies it
+                        this.freezeStockQuantity(item);
+                }
+
                 const hasCode = item && item.item_code !== undefined && item.item_code !== null;
                 const baseActualQty = Number(data.actual_qty);
                 if (hasCode && Number.isFinite(baseActualQty)) {
@@ -2192,10 +2225,31 @@ export default {
 
                 if (hasCode) {
                         stockCoordinator.applyAvailabilityToItem(item, { updateBaseAvailable: false });
+                        
+                        // After stock coordinator reduces stock, restore frozen values if freeze is enabled
+                        if (this.fatehPosSettings?.freeze_stock_during_entry && item?.item_code) {
+                                const frozen = this.frozenStockQuantities?.get(item.item_code);
+                                if (frozen) {
+                                        if (frozen.actual_qty !== undefined && frozen.actual_qty !== null) {
+                                                item.actual_qty = frozen.actual_qty;
+                                        }
+                                        if (frozen.max_qty !== undefined && frozen.max_qty !== null) {
+                                                // max_qty will be set by update_qty_limits, so we need to restore after
+                                        }
+                                }
+                        }
                 }
 
                 if (this.update_qty_limits) {
                         this.update_qty_limits(item);
+                        
+                        // Restore frozen max_qty after update_qty_limits sets it from reduced available_qty
+                        if (this.fatehPosSettings?.freeze_stock_during_entry && item?.item_code) {
+                                const frozen = this.frozenStockQuantities?.get(item.item_code);
+                                if (frozen && frozen.max_qty !== undefined && frozen.max_qty !== null) {
+                                        item.max_qty = frozen.max_qty;
+                                }
+                        }
                 }
 
 		if (data.barcode) {

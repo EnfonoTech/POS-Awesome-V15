@@ -109,3 +109,48 @@ def update_opening_shift_data(data, pos_profile):
     allow_negative_stock = cint(frappe.db.get_single_value("Stock Settings", "allow_negative_stock") or 0)
     data["stock_settings"] = {}
     data["stock_settings"].update({"allow_negative_stock": bool(allow_negative_stock)})
+
+
+@frappe.whitelist()
+def get_last_closed_shift_amounts(pos_profile):
+    """
+    Get the closing amounts from the last closed shift for the same POS profile.
+    Returns a dictionary mapping mode_of_payment to closing_amount.
+    """
+    if not pos_profile:
+        return {}
+    
+    # Get the last closed shift for this POS profile
+    last_closed_shift = frappe.db.get_all(
+        "POS Closing Shift",
+        filters={
+            "pos_profile": pos_profile,
+            "docstatus": 1,
+        },
+        fields=["name"],
+        order_by="period_end_date desc",
+        limit=1,
+    )
+    
+    if not last_closed_shift:
+        return {}
+    
+    closing_shift_name = last_closed_shift[0].name
+    
+    # Get payment reconciliation details from the closing shift
+    payment_details = frappe.get_all(
+        "POS Closing Shift Detail",
+        filters={
+            "parent": closing_shift_name,
+            "parenttype": "POS Closing Shift",
+        },
+        fields=["mode_of_payment", "closing_amount"],
+    )
+    
+    # Convert to dictionary: {mode_of_payment: closing_amount}
+    amounts = {}
+    for detail in payment_details:
+        if detail.mode_of_payment:
+            amounts[detail.mode_of_payment] = detail.closing_amount or 0
+    
+    return amounts

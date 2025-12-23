@@ -123,6 +123,32 @@ def _ensure_pos_profile(pos_profile):
     return profile_dict, profile_json
 
 
+@frappe.whitelist()
+def get_multi_warehouse_stock(item_code, warehouses):
+    """Return stock quantities for an item across multiple warehouses.
+    
+    Args:
+        item_code: Item code to get stock for
+        warehouses: List of warehouse names
+        
+    Returns:
+        Dictionary mapping warehouse to actual_qty
+    """
+    if not item_code or not warehouses:
+        return {}
+    
+    warehouses = json.loads(warehouses) if isinstance(warehouses, str) else warehouses
+    if not isinstance(warehouses, list):
+        return {}
+    
+    result = {}
+    for warehouse in warehouses:
+        if warehouse:
+            result[warehouse] = get_stock_availability(item_code, warehouse)
+    
+    return result
+
+
 def get_stock_availability(item_code, warehouse):
     """Return total available quantity for an item in the given warehouse.
 

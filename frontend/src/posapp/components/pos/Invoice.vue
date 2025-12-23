@@ -280,6 +280,7 @@
 						:validateDueDate="validate_due_date"
 						:removeItem="remove_item"
 						:getFrozenStockQuantity="getFrozenStockQuantity"
+						:getWarehouseStock="getWarehouseStock"
 						:fatehPosSettings="fatehPosSettings"
 						:subtractOne="subtract_one"
 						:addOne="add_one"
@@ -474,6 +475,7 @@ export default {
 			quickCustomers: [], // Quick customer buttons from Fateh POS Settings
 			fatehPosSettings: {}, // Fateh POS Settings data
 			frozenStockQuantities: new Map(), // Store frozen stock quantities when freeze_stock_during_entry is enabled
+			warehouseStockData: new Map(), // Store stock quantities for additional warehouses: Map<item_code, Map<warehouse, qty>>
 			// Scanner-related properties (matching ItemsSelector)
 			scanErrorDialog: false,
 			scanErrorMessage: "",
@@ -943,6 +945,12 @@ export default {
                                                 }
                                         });
                                 }
+                                // Fetch warehouse stock for items if configured
+                                items.forEach((item) => {
+                                        if (item?.item_code) {
+                                                this.fetchWarehouseStock(item);
+                                        }
+                                });
                         });
 
                         this.$forceUpdate();
@@ -987,9 +995,62 @@ export default {
                         // Otherwise return the current value
                         return item?.[field];
                 },
+                async fetchWarehouseStock(item) {
+                        // Fetch stock from additional warehouses configured in Fateh POS Settings
+                        if (!item?.item_code || !this.fatehPosSettings?.warehouse_stock_warehouses || 
+                            !Array.isArray(this.fatehPosSettings.warehouse_stock_warehouses) ||
+                            this.fatehPosSettings.warehouse_stock_warehouses.length === 0) {
+                                return;
+                        }
+                        
+                        const warehouses = this.fatehPosSettings.warehouse_stock_warehouses
+                                .map(w => w.warehouse)
+                                .filter(w => w); // Filter out empty warehouses
+                        
+                        if (warehouses.length === 0) {
+                                return;
+                        }
+                        
+                        try {
+                                const res = await frappe.call({
+                                        method: "posawesome.posawesome.api.items.get_multi_warehouse_stock",
+                                        args: {
+                                                item_code: item.item_code,
+                                                warehouses: warehouses,
+                                        },
+                                });
+                                
+                                if (res.message && Object.keys(res.message).length > 0) {
+                                        // Store warehouse stock data
+                                        if (!this.warehouseStockData.has(item.item_code)) {
+                                                this.warehouseStockData.set(item.item_code, new Map());
+                                        }
+                                        const itemWarehouseStock = this.warehouseStockData.get(item.item_code);
+                                        
+                                        // Store stock (frozen if setting is enabled)
+                                        Object.entries(res.message).forEach(([warehouse, qty]) => {
+                                                itemWarehouseStock.set(warehouse, qty);
+                                        });
+                                }
+                        } catch (error) {
+                                console.error("Error fetching warehouse stock:", error);
+                        }
+                },
+                getWarehouseStock(item, warehouse) {
+                        // Get stock quantity for a specific warehouse
+                        if (!item?.item_code || !warehouse) {
+                                return null;
+                        }
+                        const itemWarehouseStock = this.warehouseStockData.get(item.item_code);
+                        if (itemWarehouseStock) {
+                                return itemWarehouseStock.get(warehouse);
+                        }
+                        return null;
+                },
                 clearFrozenStock() {
                         // Clear frozen stock after invoice submission
                         this.frozenStockQuantities.clear();
+                        this.warehouseStockData.clear();
                 },
                 primeInvoiceStockState(source = "invoice") {
                         const baseItems = [];
@@ -1790,15 +1851,11 @@ export default {
                 handleRegisterPosProfile(data) {
                         this.pos_profile = data.pos_profile;
                         this.company = data.company || null;
-                        // Only set customer from POS profile if no customer is currently selected
-                        // This prevents overwriting customer selections when switching views
-                        // The customer store will maintain the selected customer across views
-                        if (data.pos_profile.customer && !this.customer) {
+                        // Always reset customer to POS profile customer when registering POS profile
+                        // This ensures POS uses its own customer, separate from payments
+                        if (data.pos_profile.customer) {
                                 this.customer = data.pos_profile.customer;
-                                // Only sync with customer store if no customer is already selected there
-                                if (!this.selectedCustomer) {
-                                        this.customersStore.setSelectedCustomer(data.pos_profile.customer);
-                                }
+                                this.customersStore.setSelectedCustomer(data.pos_profile.customer);
                         }
                         this.pos_opening_shift = data.pos_opening_shift;
                         this.stock_settings = data.stock_settings;
@@ -1905,6 +1962,11 @@ export default {
                 },
                 handleShowPayment(data) {
                         this.paymentVisible = data === "true";
+                        // When closing payments, reset customer to POS profile customer
+                        if (data === "false" && this.pos_profile && this.pos_profile.customer) {
+                                this.customer = this.pos_profile.customer;
+                                this.customersStore.setSelectedCustomer(this.pos_profile.customer);
+                        }
                 },
 		async loadFatehPosSettings() {
 			try {
