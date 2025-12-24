@@ -4,20 +4,23 @@
  "creation": "2025-12-11 08:21:30.462026",
  "doctype": "DocType",
  "engine": "InnoDB",
-  "field_order": [
-   "default_print_format",
-   "column_break_wcys",
-   "default_hide_item_selection",
-   "barcode_scanner_on_right",
-   "enable_quick_item_search",
-   "section_break_quick_customers",
-   "quick_customers",
+ "field_order": [
+  "default_print_format",
+  "column_break_wcys",
+  "default_hide_item_selection",
+  "barcode_scanner_on_right",
+  "enable_quick_item_search",
+  "section_break_quick_customers",
+  "quick_customers",
   "column_break_batch",
   "show_batch_column_by_default",
   "default_customer_for_payments",
   "freeze_stock_during_entry",
   "section_break_warehouse_stock",
-  "warehouse_stock_warehouses"
+  "warehouse_stock_warehouses",
+  "section_break_cash_transfer",
+  "enable_cash_transfer",
+  "cash_transfer_account"
  ],
  "fields": [
   {
@@ -64,44 +67,65 @@
    "fieldname": "column_break_batch",
    "fieldtype": "Column Break"
   },
-		{
-			"default": "0",
-			"fieldname": "show_batch_column_by_default",
-			"fieldtype": "Check",
-			"label": "Show Batch Column by Default"
-		},
-		{
-			"fieldname": "default_customer_for_payments",
-			"fieldtype": "Link",
-			"label": "Default Customer for Payments",
-			"options": "Customer",
-			"description": "Select a default customer to be used in the payments register"
-		},
-		{
-			"default": "0",
-			"fieldname": "freeze_stock_during_entry",
-			"fieldtype": "Check",
-			"label": "Freeze Stock During Entry",
-			"description": "When enabled, stock quantities shown in item selector will remain fixed at the start of entry and only update after successful invoice submission"
-		},
-		{
-			"fieldname": "section_break_warehouse_stock",
-			"fieldtype": "Section Break",
-			"label": "Warehouse Stock Display"
-		},
-		{
-			"fieldname": "warehouse_stock_warehouses",
-			"fieldtype": "Table",
-			"label": "Additional Warehouses for Stock Display",
-			"options": "Fateh POS Warehouse Stock",
-			"description": "Select additional warehouses to display stock quantities in the item details. The POS profile warehouse is already shown by default."
-		}
+  {
+   "default": "0",
+   "fieldname": "show_batch_column_by_default",
+   "fieldtype": "Check",
+   "label": "Show Batch Column by Default"
+  },
+  {
+   "description": "Select a default customer to be used in the payments register",
+   "fieldname": "default_customer_for_payments",
+   "fieldtype": "Link",
+   "label": "Default Customer for Payments",
+   "options": "Customer"
+  },
+  {
+   "default": "0",
+   "description": "When enabled, stock quantities shown in item selector will remain fixed at the start of entry and only update after successful invoice submission",
+   "fieldname": "freeze_stock_during_entry",
+   "fieldtype": "Check",
+   "label": "Freeze Stock During Entry"
+  },
+  {
+   "fieldname": "section_break_warehouse_stock",
+   "fieldtype": "Section Break",
+   "label": "Warehouse Stock Display"
+  },
+  {
+   "description": "Select additional warehouses to display stock quantities in the item details. The POS profile warehouse is already shown by default.",
+   "fieldname": "warehouse_stock_warehouses",
+   "fieldtype": "Table",
+   "label": "Additional Warehouses for Stock Display",
+   "options": "Fateh POS Warehouse Stock"
+  },
+  {
+   "fieldname": "section_break_cash_transfer",
+   "fieldtype": "Section Break",
+   "label": "Cash Transfer Settings"
+  },
+  {
+   "default": "0",
+   "description": "When enabled, allows transferring cash amount to another account during closing shift. The remaining balance will be used as opening for next shift.",
+   "fieldname": "enable_cash_transfer",
+   "fieldtype": "Check",
+   "label": "Enable Cash Transfer on Closing Shift"
+  },
+  {
+   "depends_on": "eval:doc.enable_cash_transfer==1",
+   "description": "Account to transfer cash to during closing shift",
+   "fieldname": "cash_transfer_account",
+   "fieldtype": "Link",
+   "label": "Cash Transfer Account",
+   "link_filters": "[[\"Account\",\"is_group\",\"=\",0]]",
+   "options": "Account"
+  }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-12-17 19:11:20.864530",
+ "modified": "2025-12-24 20:16:16.476897",
  "modified_by": "Administrator",
  "module": "POSAwesome",
  "name": "Fateh POS Settings",

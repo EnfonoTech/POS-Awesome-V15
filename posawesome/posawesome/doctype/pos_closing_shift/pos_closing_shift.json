@@ -25,6 +25,8 @@
   "payment_reconciliation_details",
   "section_break_11",
   "payment_reconciliation",
+  "section_break_cash_transfer",
+  "cash_transfer_amount",
   "section_break_13",
   "grand_total",
   "net_total",
@@ -130,6 +132,19 @@
    "options": "POS Closing Shift Detail"
   },
   {
+   "fieldname": "section_break_cash_transfer",
+   "fieldtype": "Section Break",
+   "label": "Cash Transfer"
+  },
+  {
+   "default": "0",
+   "description": "Amount to transfer from cash account to transfer account. Remaining balance will be used as opening for next shift.",
+   "fieldname": "cash_transfer_amount",
+   "fieldtype": "Currency",
+   "label": "Cash Transfer Amount",
+   "options": "company:company_currency"
+  },
+  {
    "collapsible": 1,
    "collapsible_depends_on": "eval:doc.docstatus==0",
    "fieldname": "section_break_13",
@@ -199,8 +214,13 @@
   }
  ],
  "is_submittable": 1,
- "links": [],
- "modified": "2023-06-12 03:01:49.146706",
+ "links": [
+  {
+   "link_doctype": "Payment Entry",
+   "link_fieldname": "posa_pos_closing_shift"
+  }
+ ],
+ "modified": "2025-12-24 20:25:21.219450",
  "modified_by": "Administrator",
  "module": "POSAwesome",
  "name": "POS Closing Shift",
@@ -249,6 +269,7 @@
    "write": 1
   }
  ],
+ "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
  "states": [],

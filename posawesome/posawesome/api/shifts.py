@@ -5,7 +5,7 @@
 from __future__ import unicode_literals
 import json
 import frappe
-from frappe.utils import cint, nowdate
+from frappe.utils import cint, nowdate, flt
 from frappe import _
 from .utilities import get_version
 
@@ -116,6 +116,7 @@ def get_last_closed_shift_amounts(pos_profile):
     """
     Get the closing amounts from the last closed shift for the same POS profile.
     Returns a dictionary mapping mode_of_payment to closing_amount.
+    Accounts for cash transfer - remaining balance (closing_amount - transfer_amount) is used for cash opening.
     """
     if not pos_profile:
         return {}
@@ -127,7 +128,7 @@ def get_last_closed_shift_amounts(pos_profile):
             "pos_profile": pos_profile,
             "docstatus": 1,
         },
-        fields=["name"],
+        fields=["name", "cash_transfer_amount"],
         order_by="period_end_date desc",
         limit=1,
     )
@@ -136,6 +137,7 @@ def get_last_closed_shift_amounts(pos_profile):
         return {}
     
     closing_shift_name = last_closed_shift[0].name
+    transfer_amount = flt(last_closed_shift[0].get("cash_transfer_amount") or 0)
     
     # Get payment reconciliation details from the closing shift
     payment_details = frappe.get_all(
@@ -147,10 +149,30 @@ def get_last_closed_shift_amounts(pos_profile):
         fields=["mode_of_payment", "closing_amount"],
     )
     
+    # Get cash mode of payment
+    cash_mode_of_payment = (
+        frappe.db.get_value("POS Profile", pos_profile, "posa_cash_mode_of_payment") or "Cash"
+    )
+    
+    # Check if cash transfer is enabled
+    settings = frappe.get_cached_doc("Fateh POS Settings", "Fateh POS Settings")
+    cash_transfer_enabled = settings.get("enable_cash_transfer") if settings else False
+    
     # Convert to dictionary: {mode_of_payment: closing_amount}
     amounts = {}
     for detail in payment_details:
         if detail.mode_of_payment:
-            amounts[detail.mode_of_payment] = detail.closing_amount or 0
+            closing_amount = flt(detail.closing_amount or 0)
+            
+            # If this is cash mode and transfer is enabled, subtract transfer amount
+            if (
+                cash_transfer_enabled
+                and detail.mode_of_payment == cash_mode_of_payment
+                and transfer_amount > 0
+            ):
+                # Use remaining balance as opening (closing_amount - transfer_amount)
+                amounts[detail.mode_of_payment] = closing_amount - transfer_amount
+            else:
+                amounts[detail.mode_of_payment] = closing_amount
     
     return amounts

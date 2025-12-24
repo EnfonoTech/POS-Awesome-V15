@@ -76,6 +76,31 @@
 								</v-data-table>
 							</v-col>
 						</v-row>
+						<v-row v-if="cashTransferEnabled">
+							<v-col cols="12" class="pa-1">
+								<div class="table-header mb-4">
+									<h4 class="text-h6 text-grey-darken-2 mb-1">
+										{{ __("Cash Transfer") }}
+									</h4>
+									<p class="text-body-2 text-grey">
+										{{ __("Transfer cash amount to another account. Remaining balance will be used as opening for next shift.") }}
+									</p>
+								</div>
+								<v-text-field
+									v-model="dialog_data.cash_transfer_amount"
+									:label="__('Cash Transfer Amount')"
+									type="number"
+									density="compact"
+									variant="outlined"
+									color="primary"
+									class="pos-themed-input"
+									:prefix="currencySymbol(pos_profile.currency)"
+									:rules="[cashTransferAmountRule]"
+									:hint="cashTransferHint"
+									persistent-hint
+								></v-text-field>
+							</v-col>
+						</v-row>
 					</v-container>
 				</v-card-text>
 
@@ -117,6 +142,7 @@ export default {
 		itemsPerPage: 20,
 		dialog_data: {},
 		pos_profile: "",
+		cashTransferEnabled: false,
 		headers: [
 			{
 				title: __("Mode of Payment"),
@@ -177,17 +203,96 @@ export default {
 				alert(this.__("Invalid closing amount"));
 				return;
 			}
+			// Validate cash transfer amount if enabled
+			if (this.cashTransferEnabled) {
+				const transferAmount = parseFloat(this.dialog_data.cash_transfer_amount || 0);
+				if (transferAmount < 0) {
+					alert(this.__("Cash transfer amount cannot be negative"));
+					return;
+				}
+				const cashMode = this.dialog_data.payment_reconciliation?.find(
+					(p) => p.mode_of_payment === this.cashModeOfPayment
+				);
+				if (cashMode && transferAmount > parseFloat(cashMode.closing_amount || 0)) {
+					alert(this.__("Cash transfer amount cannot exceed cash closing amount"));
+					return;
+				}
+			}
 			this.eventBus.emit("submit_closing_pos", this.dialog_data);
 			this.closingDialog = false;
 		},
+		async checkCashTransferEnabled() {
+			try {
+				const result = await frappe.call({
+					method: "frappe.client.get",
+					args: {
+						doctype: "Fateh POS Settings",
+						name: "Fateh POS Settings",
+					},
+				});
+				if (result.message) {
+					this.cashTransferEnabled = result.message.enable_cash_transfer || false;
+				}
+			} catch (e) {
+				console.error("Error checking cash transfer settings:", e);
+				this.cashTransferEnabled = false;
+			}
+		},
+		cashTransferAmountRule(v) {
+			if (v === "" || v === null || v === undefined || v === 0) {
+				return true;
+			}
+
+			const value = typeof v === "number" ? v : Number(String(v).trim());
+
+			if (!Number.isFinite(value)) {
+				return "Please enter a valid number";
+			}
+
+			if (value < 0) {
+				return "Amount cannot be negative";
+			}
+
+			// Check if transfer amount exceeds cash closing amount
+			const cashMode = this.dialog_data.payment_reconciliation?.find(
+				(p) => p.mode_of_payment === this.cashModeOfPayment
+			);
+			if (cashMode && value > cashMode.closing_amount) {
+				return "Transfer amount cannot exceed cash closing amount";
+			}
+
+			return true;
+		},
 	},
 
-	computed: {},
+	computed: {
+		cashModeOfPayment() {
+			return this.pos_profile?.posa_cash_mode_of_payment || "Cash";
+		},
+		cashTransferHint() {
+			const cashMode = this.dialog_data.payment_reconciliation?.find(
+				(p) => p.mode_of_payment === this.cashModeOfPayment
+			);
+			if (cashMode) {
+				const transferAmount = parseFloat(this.dialog_data.cash_transfer_amount || 0);
+				const closingAmount = parseFloat(cashMode.closing_amount || 0);
+				const remaining = closingAmount - transferAmount;
+				return `Cash Closing: ${this.currencySymbol(this.pos_profile.currency)}${this.formatCurrency(closingAmount)} | Remaining (Next Opening): ${this.currencySymbol(this.pos_profile.currency)}${this.formatCurrency(remaining)}`;
+			}
+			return "";
+		},
+	},
 
 	created: function () {
 		this.eventBus.on("open_ClosingDialog", (data) => {
 			this.closingDialog = true;
 			this.dialog_data = data;
+			// Initialize cash_transfer_amount if not present
+			if (this.dialog_data.cash_transfer_amount === undefined) {
+				this.dialog_data.cash_transfer_amount = 0;
+			}
+			// Check if cash transfer is enabled
+			this.checkCashTransferEnabled();
 		});
 		this.eventBus.on("register_pos_profile", (data) => {
 			this.pos_profile = data.pos_profile;
@@ -366,3 +471,6 @@ export default {
 	}
 }
 </style>
+
+
+

@@ -114,6 +114,140 @@ class POSClosingShift(Document):
 
                 for invoices in invoices_by_currency.values():
                     consolidate_pos_invoices(pos_invoices=invoices)
+        
+        # Create cash transfer payment entry if enabled and amount is specified
+        self._create_cash_transfer_payment_entry()
+
+    def _create_cash_transfer_payment_entry(self):
+        """Create Internal Transfer payment entry for cash transfer after submission."""
+        try:
+            # Check if cash transfer is enabled
+            settings = frappe.get_cached_doc("Fateh POS Settings", "Fateh POS Settings")
+            if not settings.get("enable_cash_transfer"):
+                return
+            
+            # Check if transfer amount is specified
+            transfer_amount = flt(self.get("cash_transfer_amount") or 0)
+            if transfer_amount <= 0:
+                return
+            
+            # Get POS Profile to access payments table
+            pos_profile_doc = frappe.get_cached_doc("POS Profile", self.pos_profile)
+            
+            # Find cash mode of payment from payments table
+            cash_mode_of_payment = None
+            payment_type = None
+            
+            # First, try to find a payment method with type "Cash"
+            for payment in pos_profile_doc.get("payments", []):
+                mode_of_payment = payment.mode_of_payment
+                if mode_of_payment:
+                    mop_type = frappe.get_cached_value("Mode of Payment", mode_of_payment, "type")
+                    if mop_type == "Cash":
+                        cash_mode_of_payment = mode_of_payment
+                        payment_type = "Cash"
+                        break
+            
+            # If no Cash type found, try to find Bank type
+            if not cash_mode_of_payment:
+                for payment in pos_profile_doc.get("payments", []):
+                    mode_of_payment = payment.mode_of_payment
+                    if mode_of_payment:
+                        mop_type = frappe.get_cached_value("Mode of Payment", mode_of_payment, "type")
+                        if mop_type == "Bank":
+                            cash_mode_of_payment = mode_of_payment
+                            payment_type = "Bank"
+                            break
+            
+            # Fallback to old method if no payment found
+            if not cash_mode_of_payment:
+                cash_mode_of_payment = (
+                    frappe.db.get_value("POS Profile", self.pos_profile, "posa_cash_mode_of_payment") or "Cash"
+                )
+                payment_type = "Cash"
+            
+            # If payment_type is still None, get it from the mode of payment
+            if not payment_type:
+                payment_type = frappe.get_cached_value("Mode of Payment", cash_mode_of_payment, "type") or "Cash"
+            
+            # Get cash account from mode of payment
+            from erpnext.accounts.doctype.journal_entry.journal_entry import (
+                get_default_bank_cash_account,
+            )
+            cash_account_info = get_default_bank_cash_account(
+                self.company, payment_type, mode_of_payment=cash_mode_of_payment
+            )
+            
+            if not cash_account_info:
+                frappe.log_error(
+                    f"Cash account not found for mode of payment {cash_mode_of_payment} with type {payment_type}",
+                    "POS Cash Transfer Error"
+                )
+                return
+            
+            cash_account = cash_account_info.get("account")
+            transfer_account = settings.get("cash_transfer_account")
+            
+            if not transfer_account:
+                frappe.log_error(
+                    "Cash transfer account not configured in Fateh POS Settings",
+                    "POS Cash Transfer Error"
+                )
+                return
+            
+            # Get account currencies
+            company_currency = frappe.get_cached_value("Company", self.company, "default_currency")
+            cash_account_currency = frappe.get_cached_value("Account", cash_account, "account_currency") or company_currency
+            transfer_account_currency = frappe.get_cached_value("Account", transfer_account, "account_currency") or company_currency
+            
+            # Create payment entry
+            pe = frappe.new_doc("Payment Entry")
+            pe.payment_type = "Internal Transfer"
+            pe.company = self.company
+            pe.posting_date = self.posting_date
+            pe.paid_from = cash_account
+            pe.paid_to = transfer_account
+            pe.paid_from_account_currency = cash_account_currency
+            pe.paid_to_account_currency = transfer_account_currency
+            pe.paid_amount = transfer_amount
+            pe.received_amount = transfer_amount
+            pe.mode_of_payment = cash_mode_of_payment
+            
+            # Set exchange rate if currencies differ
+            if cash_account_currency != transfer_account_currency:
+                from erpnext.setup.utils import get_exchange_rate
+                pe.source_exchange_rate = get_exchange_rate(
+                    cash_account_currency, transfer_account_currency, self.posting_date
+                )
+                pe.target_exchange_rate = pe.source_exchange_rate
+            else:
+                pe.source_exchange_rate = 1
+                pe.target_exchange_rate = 1
+            
+            # Set required fields
+            pe.setup_party_account_field()
+            pe.set_missing_values()
+            pe.set_amounts()
+            
+            
+            pe.posa_pos_closing_shift = self.name
+            pe.remarks = f"Cash transfer from POS Closing Shift {self.name}"
+            
+            # Insert in draft status (not submitted)
+            pe.insert(ignore_permissions=True)
+            
+            
+        except Exception as e:
+            frappe.log_error(
+                f"Error creating cash transfer payment entry: {str(e)}",
+                "POS Cash Transfer Error"
+            )
+            # Don't throw error to prevent blocking closing shift submission
+            frappe.msgprint(
+                _("Warning: Could not create cash transfer payment entry. Please create manually."),
+                indicator="orange"
+            )
+    
 
     def on_cancel(self):
         if frappe.db.exists("POS Opening Shift", self.pos_opening_shift):
@@ -611,3 +745,4 @@ def submit_printed_invoices(pos_opening_shift, doctype):
     for invoice in invoices_list:
         invoice_doc = frappe.get_doc(doctype, invoice.name)
         invoice_doc.submit()
+
