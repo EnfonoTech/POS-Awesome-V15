@@ -8,10 +8,13 @@ import frappe
 from frappe.utils import nowdate, flt
 from frappe import _
 from erpnext.accounts.party import get_party_bank_account
+from erpnext.accounts.utils import get_account_currency
+from erpnext.setup.utils import get_exchange_rate
 from erpnext.accounts.doctype.payment_request.payment_request import (
     get_dummy_message,
     get_existing_payment_request_amount,
 )
+from erpnext.accounts.doctype.sales_invoice.sales_invoice import get_bank_cash_account
 from posawesome.posawesome.api.utilities import ensure_child_doctype
 
 
@@ -277,6 +280,44 @@ def redeeming_customer_credit(invoice_doc, data, is_payment_entry, total_cash, c
         for payment in payments:
             if not payment.amount:
                 continue
+            
+            # Get paid_to account - use payment.account if available, otherwise get from mode of payment
+            paid_to_account = None
+            if hasattr(payment, 'account') and payment.account:
+                paid_to_account = payment.account
+            elif cash_account and cash_account.get("account"):
+                paid_to_account = cash_account["account"]
+            else:
+                # Get account from mode of payment
+                bank_cash_account = get_bank_cash_account(payment.mode_of_payment, invoice_doc.company)
+                if bank_cash_account:
+                    paid_to_account = bank_cash_account.get("account")
+            
+            if not paid_to_account:
+                frappe.throw(_("Unable to determine payment account for mode of payment {0}").format(payment.mode_of_payment))
+            
+            # Get account currencies
+            company_currency = frappe.get_cached_value("Company", invoice_doc.company, "default_currency")
+            paid_from_account_currency = get_account_currency(invoice_doc.debit_to) or company_currency
+            paid_to_account_currency = get_account_currency(paid_to_account) or company_currency
+            
+            # Get exchange rates
+            if paid_from_account_currency == company_currency:
+                source_exchange_rate = 1
+            else:
+                source_exchange_rate = get_exchange_rate(
+                    paid_from_account_currency, company_currency, today
+                )
+            
+            if paid_from_account_currency == paid_to_account_currency:
+                target_exchange_rate = source_exchange_rate
+            elif paid_to_account_currency == company_currency:
+                target_exchange_rate = 1
+            else:
+                target_exchange_rate = get_exchange_rate(
+                    paid_to_account_currency, company_currency, today
+                )
+            
             payment_entry_doc = frappe.get_doc(
                 {
                     "doctype": "Payment Entry",
@@ -287,7 +328,11 @@ def redeeming_customer_credit(invoice_doc, data, is_payment_entry, total_cash, c
                     "paid_amount": payment.amount,
                     "received_amount": payment.amount,
                     "paid_from": invoice_doc.debit_to,
-                    "paid_to": payment.account,
+                    "paid_to": paid_to_account,
+                    "paid_from_account_currency": paid_from_account_currency,
+                    "paid_to_account_currency": paid_to_account_currency,
+                    "source_exchange_rate": source_exchange_rate,
+                    "target_exchange_rate": target_exchange_rate,
                     "company": invoice_doc.company,
                     "mode_of_payment": payment.mode_of_payment,
                     "reference_no": invoice_doc.posa_pos_opening_shift,
@@ -305,6 +350,12 @@ def redeeming_customer_credit(invoice_doc, data, is_payment_entry, total_cash, c
             ref_row = payment_entry_doc.append("references", {})
             ref_row.update(payment_reference)
             ensure_child_doctype(payment_entry_doc, "references", "Payment Entry Reference")
+            
+            # Set required fields before saving
+            payment_entry_doc.setup_party_account_field()
+            payment_entry_doc.set_missing_values()
+            payment_entry_doc.set_amounts()
+            
             payment_entry_doc.flags.ignore_permissions = True
             frappe.flags.ignore_account_permission = True
             payment_entry_doc.save()

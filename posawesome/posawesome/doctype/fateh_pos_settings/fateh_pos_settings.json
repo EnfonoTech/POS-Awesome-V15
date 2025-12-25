@@ -20,7 +20,13 @@
   "warehouse_stock_warehouses",
   "section_break_cash_transfer",
   "enable_cash_transfer",
-  "cash_transfer_account"
+  "cash_transfer_account",
+  "section_break_minimal_sales_order",
+  "enable_minimal_sales_order",
+  "column_break_minimal_defaults",
+  "default_item_group",
+  "default_uom",
+  "default_item"
  ],
  "fields": [
   {
@@ -119,6 +125,46 @@
    "label": "Cash Transfer Account",
    "link_filters": "[[\"Account\",\"is_group\",\"=\",0]]",
    "options": "Account"
+  },
+  {
+   "fieldname": "section_break_minimal_sales_order",
+   "fieldtype": "Section Break",
+   "label": "Minimal Sales Order Settings"
+  },
+  {
+   "default": "0",
+   "description": "When enabled, allows creating sales orders with minimal details (customer name, phone, items) and converting them to invoices later",
+   "fieldname": "enable_minimal_sales_order",
+   "fieldtype": "Check",
+   "label": "Enable Minimal Sales Order"
+  },
+  {
+   "fieldname": "column_break_minimal_defaults",
+   "fieldtype": "Column Break"
+  },
+  {
+   "depends_on": "eval:doc.enable_minimal_sales_order==1",
+   "description": "Default item group to use when creating new items in minimal sales order",
+   "fieldname": "default_item_group",
+   "fieldtype": "Link",
+   "label": "Default Item Group",
+   "options": "Item Group"
+  },
+  {
+   "depends_on": "eval:doc.enable_minimal_sales_order==1",
+   "description": "Default unit of measurement (UOM) to use when creating new items in minimal sales order",
+   "fieldname": "default_uom",
+   "fieldtype": "Link",
+   "label": "Default UOM",
+   "options": "UOM"
+  },
+  {
+   "depends_on": "eval:doc.enable_minimal_sales_order==1",
+   "description": "Default item to pre-fill in minimal sales order items",
+   "fieldname": "default_item",
+   "fieldtype": "Link",
+   "label": "Default Item",
+   "options": "Item"
   }
  ],
  "grid_page_length": 50,

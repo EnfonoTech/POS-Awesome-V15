@@ -389,6 +389,8 @@
 			@print-draft="print_draft_invoice"
 			@apply-offers="apply_offers_and_reload"
 			@show-payment="show_payment"
+			@create-minimal-order="open_minimal_sales_order"
+			@list-minimal-orders="open_minimal_sales_order_list"
 		/>
 	</div>
 </template>
@@ -445,6 +447,8 @@ export default {
 			allItems: [], // All items for offer logic
 			discount_percentage_offer_name: null, // Track which offer is applied
 			invoiceTypes: ["Invoice", "Order", "Quotation"], // Types of invoices
+			sales_order_name: null, // Sales order reference when loading from sales order
+			sales_order_advance_paid: 0, // Advance amount paid for sales order
 			invoiceType: "Invoice", // Current invoice type
 			itemsPerPage: 1000, // Items per page in table
 			itemSearch: "", // Search query for added items
@@ -1898,6 +1902,9 @@ export default {
                         this.new_order(data);
                         // this.eventBus.emit("set_pos_coupons", data.posa_coupons);
                 },
+                async handleLoadSalesOrderToInvoice(data) {
+                        await this.load_sales_order_to_invoice(data);
+                },
                 handleSetOffers(data) {
                         this.posOffers = data;
                 },
@@ -2220,6 +2227,7 @@ export default {
                         clear_invoice: this.handleClearInvoice,
                         load_invoice: this.handleLoadInvoice,
                         load_order: this.handleLoadOrder,
+                        load_sales_order_to_invoice: this.handleLoadSalesOrderToInvoice,
                         set_offers: this.handleSetOffers,
                         update_invoice_offers: this.handleUpdateInvoiceOffers,
                         update_invoice_coupons: this.handleUpdateInvoiceCoupons,

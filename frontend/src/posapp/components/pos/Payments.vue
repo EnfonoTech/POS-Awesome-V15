@@ -78,6 +78,42 @@
 							"
 						></v-text-field>
 					</v-col>
+
+					<!-- Sales Order Advance Amount (if applicable) -->
+					<v-col cols="7" v-if="
+						invoice_doc &&
+						!invoice_doc.is_return &&
+						has_sales_order
+					">
+						<v-text-field
+							density="compact"
+							variant="solo"
+							color="primary"
+							:label="frappe._('Advance Amount Applied')"
+							class="sleek-field pos-themed-input"
+							hide-details
+							:model-value="formatCurrency(total_advance)"
+							readonly
+							:prefix="currencySymbol(invoice_doc.currency)"
+						></v-text-field>
+					</v-col>
+					<v-col cols="5" v-if="
+						invoice_doc &&
+						!invoice_doc.is_return &&
+						has_sales_order
+					">
+						<v-text-field
+							density="compact"
+							variant="solo"
+							color="primary"
+							:label="frappe._('Balance Amount')"
+							class="sleek-field pos-themed-input"
+							hide-details
+							:model-value="formatCurrency(balance_after_advance)"
+							readonly
+							:prefix="currencySymbol(invoice_doc.currency)"
+						></v-text-field>
+					</v-col>
 				</v-row>
 
 				<v-divider></v-divider>
@@ -321,6 +357,29 @@
 							class="sleek-field pos-themed-input"
 							hide-details
 							:model-value="formatCurrency(invoice_doc.rounded_total)"
+							readonly
+							:prefix="currencySymbol(invoice_doc.currency)"
+							persistent-placeholder
+						></v-text-field>
+					</v-col>
+
+					<!-- Sales Order Advance Amount (if applicable) - Always show if sales_order exists -->
+					<v-col 
+						cols="6" 
+						v-if="
+							invoice_doc &&
+							!invoice_doc.is_return &&
+							has_sales_order
+						"
+					>
+						<v-text-field
+							density="compact"
+							variant="solo"
+							color="primary"
+							:label="frappe._('Advance Amount')"
+							class="sleek-field pos-themed-input"
+							hide-details
+							:model-value="formatCurrency(total_advance || 0)"
 							readonly
 							:prefix="currencySymbol(invoice_doc.currency)"
 							persistent-placeholder
@@ -815,6 +874,37 @@ export default {
 		};
 	},
 	computed: {
+		// Check if invoice has sales order (from invoice_doc or items)
+		has_sales_order() {
+			if (!this.invoice_doc) return false;
+			if (this.invoice_doc.sales_order) return true;
+			// Check if any item has sales_order
+			if (this.invoice_doc.items && Array.isArray(this.invoice_doc.items)) {
+				return this.invoice_doc.items.some(item => item.sales_order);
+			}
+			return false;
+		},
+		total_advance() {
+			if (!this.invoice_doc) return 0;
+			// Check if advances array exists and is valid
+			if (!this.invoice_doc.advances || !Array.isArray(this.invoice_doc.advances)) {
+				// If sales_order exists but no advances yet, return 0 (will be set later)
+				return 0;
+			}
+			const total = this.invoice_doc.advances.reduce((sum, advance) => {
+				return sum + (parseFloat(advance.allocated_amount) || 0);
+			}, 0);
+			return this.flt(total, this.currency_precision);
+		},
+		// Calculate balance amount after advance (amount customer needs to pay)
+		balance_after_advance() {
+			if (!this.invoice_doc || !this.total_advance) return 0;
+			const invoice_total = this.flt(
+				this.invoice_doc.rounded_total || this.invoice_doc.grand_total,
+				this.currency_precision
+			);
+			return this.flt(invoice_total - this.total_advance, this.currency_precision);
+		},
 		invoice_doc: {
 			get() {
 				return this.invoiceStore.invoiceDoc;
@@ -904,8 +994,12 @@ export default {
 				);
 			}
 
+			// Subtract advance amount (from sales order) from invoice total
+			// This is similar to how customer credit is handled
+			const invoice_total_after_advance = invoice_total - this.total_advance;
+
 			// Calculate difference (all amounts are in selected currency)
-			let diff = this.flt(invoice_total - this.total_payments, this.currency_precision);
+			let diff = this.flt(invoice_total_after_advance - this.total_payments, this.currency_precision);
 
 			// For returns, ensure difference is not negative
                         if (this.invoice_doc.is_return) {

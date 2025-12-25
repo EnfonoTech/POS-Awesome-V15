@@ -171,6 +171,32 @@
 							{{ __("Print Draft") }}
 						</v-btn>
 					</v-col>
+					<v-col cols="6" v-if="minimalSalesOrderEnabled">
+						<v-btn
+							block
+							color="success"
+							theme="dark"
+							prepend-icon="mdi-file-document-edit"
+							@click="handleCreateMinimalOrder"
+							class="summary-btn"
+							:loading="minimalOrderLoading"
+						>
+							{{ __("Minimal Order") }}
+						</v-btn>
+					</v-col>
+					<v-col cols="6" v-if="minimalSalesOrderEnabled">
+						<v-btn
+							block
+							color="info"
+							theme="dark"
+							prepend-icon="mdi-format-list-bulleted"
+							@click="handleListMinimalOrders"
+							class="summary-btn"
+							:loading="minimalListLoading"
+						>
+							{{ __("Orders List") }}
+						</v-btn>
+					</v-col>
 					<v-col cols="6">
 						<v-btn
 							block
@@ -205,6 +231,7 @@
 </template>
 
 <script>
+/* global frappe */
 export default {
 	props: {
 		pos_profile: Object,
@@ -231,6 +258,9 @@ export default {
 			printLoading: false,
 			applyOffersLoading: false,
 			paymentLoading: false,
+			minimalOrderLoading: false,
+			minimalListLoading: false,
+			minimalSalesOrderEnabled: false,
 		};
 	},
 	emits: [
@@ -245,6 +275,8 @@ export default {
 		"print-draft",
 		"apply-offers",
 		"show-payment",
+		"create-minimal-order",
+		"list-minimal-orders",
 	],
 	computed: {
 		hide_qty_decimals() {
@@ -341,6 +373,36 @@ export default {
 				this.paymentLoading = false;
 			}
 		},
+
+		async handleCreateMinimalOrder() {
+			this.minimalOrderLoading = true;
+			try {
+				await this.$emit("create-minimal-order");
+			} finally {
+				this.minimalOrderLoading = false;
+			}
+		},
+
+		async handleListMinimalOrders() {
+			this.minimalListLoading = true;
+			try {
+				await this.$emit("list-minimal-orders");
+			} finally {
+				this.minimalListLoading = false;
+			}
+		},
+	},
+	async mounted() {
+		// Check if minimal sales order is enabled
+		try {
+			const { message } = await frappe.call({
+				method: "posawesome.posawesome.api.minimal_sales_orders.get_minimal_sales_order_defaults",
+			});
+			this.minimalSalesOrderEnabled = message?.enabled || false;
+		} catch (error) {
+			console.error("Failed to check minimal sales order settings:", error);
+			this.minimalSalesOrderEnabled = false;
+		}
 	},
 };
 </script>

@@ -7,6 +7,9 @@
 		<ClosingDialog></ClosingDialog>
 		<Drafts></Drafts>
 		<SalesOrders></SalesOrders>
+		<MinimalSalesOrderDialog></MinimalSalesOrderDialog>
+		<MinimalSalesOrderList></MinimalSalesOrderList>
+		<MinimalSalesOrderInvoiceDialog></MinimalSalesOrderInvoiceDialog>
 		<Returns></Returns>
 		<NewAddress></NewAddress>
 		<MpesaPayments></MpesaPayments>
@@ -61,6 +64,9 @@ import PosOffers from "./PosOffers.vue";
 import PosCoupons from "./PosCoupons.vue";
 import Drafts from "./Drafts.vue";
 import SalesOrders from "./SalesOrders.vue";
+import MinimalSalesOrderDialog from "./MinimalSalesOrderDialog.vue";
+import MinimalSalesOrderList from "./MinimalSalesOrderList.vue";
+import MinimalSalesOrderInvoiceDialog from "./MinimalSalesOrderInvoiceDialog.vue";
 import ClosingDialog from "./ClosingDialog.vue";
 import NewAddress from "./NewAddress.vue";
 import Variants from "./Variants.vue";
@@ -125,6 +131,9 @@ export default {
 		Variants,
 		MpesaPayments,
 		SalesOrders,
+		MinimalSalesOrderDialog,
+		MinimalSalesOrderList,
+		MinimalSalesOrderInvoiceDialog,
 	},
 
 	methods: {

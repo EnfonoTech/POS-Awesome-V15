@@ -343,6 +343,21 @@ export default {
 		}
 
 		this.invoice_doc = data;
+		// Preserve sales_order if it exists in items but not in invoice_doc
+		if (!this.invoice_doc.sales_order && this.items && this.items.length > 0) {
+			const firstItemWithSO = this.items.find(item => item.sales_order);
+			if (firstItemWithSO && firstItemWithSO.sales_order) {
+				this.invoice_doc.sales_order = firstItemWithSO.sales_order;
+			}
+		}
+		
+		// Ensure advances array is reactive if it exists
+		if (this.invoice_doc.advances && Array.isArray(this.invoice_doc.advances)) {
+			// Make sure it's reactive
+			if (this.$set) {
+				this.$set(this.invoice_doc, 'advances', [...this.invoice_doc.advances]);
+			}
+		}
 		this.items = data.items || [];
 		this.packed_items = data.packed_items || [];
 		console.log("Items set:", this.items.length, "items");
@@ -423,6 +438,46 @@ export default {
 		this.discount_amount = data.discount_amount;
 		this.additional_discount_percentage = data.additional_discount_percentage;
 		this.additional_discount = data.discount_amount;
+		
+		// If invoice has sales_order but no advances, fetch them
+		// This handles the case when invoice is reloaded from backend
+		// Check multiple sources for sales_order: invoice_doc, items, or stored sales_order_name
+		let sales_order_to_check = this.invoice_doc.sales_order;
+		if (!sales_order_to_check && this.items && this.items.length > 0) {
+			const firstItemWithSO = this.items.find(item => item.sales_order);
+			if (firstItemWithSO && firstItemWithSO.sales_order) {
+				sales_order_to_check = firstItemWithSO.sales_order;
+			}
+		}
+		if (!sales_order_to_check && this.sales_order_name) {
+			sales_order_to_check = this.sales_order_name;
+		}
+		
+		if (sales_order_to_check && (!this.invoice_doc.advances || this.invoice_doc.advances.length === 0)) {
+			// Store sales_order_name for later use
+			this.sales_order_name = sales_order_to_check;
+			// Ensure sales_order is set on invoice_doc
+			if (!this.invoice_doc.sales_order) {
+				if (this.$set) {
+					this.$set(this.invoice_doc, 'sales_order', sales_order_to_check);
+				} else {
+					this.invoice_doc.sales_order = sales_order_to_check;
+				}
+			}
+			console.log("load_invoice: Found sales_order, will fetch advances", sales_order_to_check);
+			// Wait a bit for invoice to be fully loaded, then fetch advances
+			this.$nextTick(() => {
+				setTimeout(() => {
+					this.fetch_and_set_advances(sales_order_to_check);
+				}, 500);
+			});
+		} else {
+			console.log("load_invoice: No sales_order or advances already exist", {
+				sales_order_to_check,
+				has_advances: !!this.invoice_doc.advances,
+				advances_length: this.invoice_doc.advances?.length || 0
+			});
+		}
 
 		if (this.items.length > 0) {
 			this.items.forEach((item) => {
@@ -483,6 +538,120 @@ export default {
 			this.eventBus.emit("focus_item_search");
 			return old_invoice;
 		}
+	},
+
+	// Load sales order data into invoice
+	async load_sales_order_to_invoice(data = {}) {
+		// Clear current invoice first
+		this.clear_invoice();
+		
+		// Set customer
+		if (data.customer) {
+			this.customer = data.customer;
+			if (this.customersStore && data.customer) {
+				this.customersStore.setSelectedCustomer(data.customer);
+			}
+		}
+		
+		// Set invoice type
+		this.invoiceType = "Invoice";
+		this.invoiceTypes = ["Invoice", "Order", "Quotation"];
+		
+		// Store sales order reference and advance paid
+		this.sales_order_name = data.sales_order || null;
+		this.sales_order_advance_paid = flt(data.advance_paid || 0);
+		
+		// Initialize invoice doc properly (like load_invoice does)
+		// Start with a proper structure that will be updated by add_item
+		this.invoice_doc = {
+			sales_order: data.sales_order,
+			advances: [],  // Initialize advances array
+		};
+		
+		// Load items from sales order using normal item addition
+		if (data.items && data.items.length > 0) {
+			this.items = [];
+			for (const itemData of data.items) {
+				// Prepare item data for add_item
+				const item = {
+					item_code: itemData.item_code,
+					item_name: itemData.item_name,
+					qty: itemData.qty || 1,
+					rate: itemData.rate || 0,
+					uom: itemData.uom || itemData.stock_uom || "Nos",
+					stock_uom: itemData.stock_uom || itemData.uom || "Nos",
+					warehouse: itemData.warehouse || this.pos_profile.warehouse,
+					sales_order: itemData.sales_order || data.sales_order,
+					so_detail: itemData.so_detail,  // Store so_detail for linking
+				};
+				// add_item will fetch full item details automatically
+				await this.add_item(item);
+			}
+		}
+		
+		// Ensure sales_order and advances are set on invoice_doc after items are added
+		// Use Vue.set for reactivity if available
+		if (data.sales_order && this.invoice_doc) {
+			if (this.$set) {
+				this.$set(this.invoice_doc, 'sales_order', data.sales_order);
+				if (!this.invoice_doc.advances) {
+					this.$set(this.invoice_doc, 'advances', []);
+				}
+			} else {
+				this.invoice_doc.sales_order = data.sales_order;
+				if (!this.invoice_doc.advances) {
+					this.invoice_doc.advances = [];
+				}
+			}
+		}
+		
+		// Set advances in invoice_doc if sales order exists (always check, like customer credit)
+		// Wait for invoice to be fully calculated before setting advances
+		if (data.sales_order) {
+			// Wait for invoice calculation to complete (items added, totals calculated)
+			await new Promise(resolve => setTimeout(resolve, 500));
+			await this.$nextTick();
+			
+			// Fetch advance payment entries for this sales order
+			frappe.call({
+				method: "posawesome.posawesome.api.minimal_sales_orders.get_advance_payments_for_sales_order",
+				args: {
+					sales_order_name: data.sales_order,
+				},
+				callback: (r) => {
+					if (r.message && r.message.length > 0 && this.invoice_doc) {
+						// Wait for invoice total to be calculated
+						this.$nextTick(() => {
+							// Try to get invoice total, if not available yet, wait a bit more
+							let invoice_total = flt(this.invoice_doc.grand_total || this.invoice_doc.rounded_total || 0);
+							
+							// If total is still 0, wait a bit more for calculation
+							if (invoice_total === 0) {
+								setTimeout(() => {
+									invoice_total = flt(this.invoice_doc.grand_total || this.invoice_doc.rounded_total || 0);
+									if (invoice_total > 0) {
+										this.set_advances_and_adjust_payments(r.message, invoice_total);
+									}
+								}, 500);
+							} else {
+								this.set_advances_and_adjust_payments(r.message, invoice_total);
+							}
+						});
+					}
+				},
+			});
+		}
+		
+		// Show notification about advance amount
+		if (this.sales_order_advance_paid > 0) {
+			frappe.show_alert({
+				message: __("Sales Order loaded. Advance paid: {0} will be deducted from payment", [this.formatCurrency(this.sales_order_advance_paid)]),
+				indicator: "blue",
+			}, 5);
+		}
+		
+		// Focus on item search
+		this.eventBus.emit("focus_item_search");
 	},
 
 	// Start a new order (or return order) with provided data
@@ -739,6 +908,13 @@ export default {
 
 		// Add POS specific fields
 		doc.posa_pos_opening_shift = this.pos_opening_shift.name;
+		
+		// Add sales order reference and advance paid if loading from sales order
+		if (this.sales_order_name) {
+			doc.sales_order = this.sales_order_name;
+			doc.advance_paid = this.sales_order_advance_paid || 0;
+		}
+		
 		doc.payments = this.get_payments();
 
 		// Handle return specific fields
@@ -975,6 +1151,14 @@ export default {
 				new_item.base_amount = -Math.abs(new_item.base_amount);
 				new_item.discount_amount = -Math.abs(new_item.discount_amount);
 				new_item.base_discount_amount = -Math.abs(new_item.base_discount_amount);
+			}
+			
+			// Add sales order linking if available
+			if (item.sales_order) {
+				new_item.sales_order = item.sales_order;
+			}
+			if (item.so_detail) {
+				new_item.so_detail = item.so_detail;
 			}
 
 			items_list.push(new_item);
@@ -1938,6 +2122,32 @@ export default {
 		this.eventBus.emit("open_returns", this.pos_profile.company);
 	},
 
+	// Open minimal sales order dialog
+	async open_minimal_sales_order() {
+		try {
+			const { message } = await frappe.call({
+				method: "posawesome.posawesome.api.minimal_sales_orders.get_minimal_sales_order_defaults",
+			});
+			this.eventBus.emit("open_minimal_sales_order", {
+				pos_profile: this.pos_profile,
+				default_item: message?.default_item || null,
+			});
+		} catch (error) {
+			console.error("Failed to open minimal sales order:", error);
+			this.eventBus.emit("show_message", {
+				title: __("Unable to open minimal sales order"),
+				color: "error",
+			});
+		}
+	},
+
+	// Open minimal sales order list
+	open_minimal_sales_order_list() {
+		this.eventBus.emit("open_minimal_sales_order_list", {
+			pos_profile: this.pos_profile,
+		});
+	},
+
 	// Close payment dialog
 	close_payments() {
 		if (this._suppressClosePayments) {
@@ -2754,6 +2964,190 @@ export default {
 	// Calculate item price and discount fields
 	calc_item_price(item) {
 		return calcItemPrice(item, this);
+	},
+
+	// Fetch and set advances for a sales order
+	fetch_and_set_advances(sales_order_name) {
+		if (!sales_order_name || !this.invoice_doc) {
+			console.log("fetch_and_set_advances: Missing sales_order_name or invoice_doc", {
+				sales_order_name,
+				has_invoice_doc: !!this.invoice_doc
+			});
+			return;
+		}
+		
+		console.log("fetch_and_set_advances: Fetching advances for", sales_order_name);
+		
+		// Fetch advance payment entries for this sales order
+		frappe.call({
+			method: "posawesome.posawesome.api.minimal_sales_orders.get_advance_payments_for_sales_order",
+			args: {
+				sales_order_name: sales_order_name,
+			},
+			callback: (r) => {
+				console.log("fetch_and_set_advances: Received advance data", r.message);
+				if (r.message && r.message.length > 0 && this.invoice_doc) {
+					// Wait for invoice total to be calculated
+					this.$nextTick(() => {
+						let invoice_total = flt(this.invoice_doc.grand_total || this.invoice_doc.rounded_total || 0);
+						console.log("fetch_and_set_advances: Invoice total", invoice_total);
+						
+						// If total is still 0, wait a bit more
+						if (invoice_total === 0) {
+							setTimeout(() => {
+								invoice_total = flt(this.invoice_doc.grand_total || this.invoice_doc.rounded_total || 0);
+								console.log("fetch_and_set_advances: Invoice total after wait", invoice_total);
+								if (invoice_total > 0) {
+									this.set_advances_and_adjust_payments(r.message, invoice_total);
+								}
+							}, 500);
+						} else {
+							this.set_advances_and_adjust_payments(r.message, invoice_total);
+						}
+					});
+				} else {
+					console.log("fetch_and_set_advances: No advances found or invoice_doc missing", {
+						has_message: !!r.message,
+						message_length: r.message?.length || 0,
+						has_invoice_doc: !!this.invoice_doc
+					});
+				}
+			},
+		});
+	},
+
+	// Set advances and adjust payments
+	set_advances_and_adjust_payments(advance_list, invoice_total) {
+		if (!this.invoice_doc || !advance_list || advance_list.length === 0) {
+			console.log("set_advances_and_adjust_payments: Missing data", {
+				has_invoice_doc: !!this.invoice_doc,
+				has_advance_list: !!advance_list,
+				advance_list_length: advance_list?.length || 0
+			});
+			return;
+		}
+		
+		console.log("set_advances_and_adjust_payments: Setting advances", {
+			advance_list,
+			invoice_total
+		});
+		
+		// Ensure advances array exists and is reactive
+		if (!this.invoice_doc.advances) {
+			// Use Vue.set for reactivity in Vue 2, or direct assignment in Vue 3
+			if (this.$set) {
+				this.$set(this.invoice_doc, 'advances', []);
+			} else {
+				this.invoice_doc.advances = [];
+			}
+		} else {
+			// Clear existing advances
+			this.invoice_doc.advances = [];
+		}
+		
+		let total_allocated = 0;
+		
+		for (const advance of advance_list) {
+			const remaining = invoice_total - total_allocated;
+			if (remaining > 0) {
+				// Use allocated_amount from sales order as advance_amount (like customer credit uses unallocated_amount)
+				// allocated_amount is the amount allocated to the Sales Order
+				const allocated_to_so = flt(advance.allocated_amount || advance.advance_amount);
+				// Allocate to this invoice (up to invoice total)
+				const allocated = Math.min(allocated_to_so, remaining);
+				
+				console.log("set_advances_and_adjust_payments: Adding advance", {
+					payment_entry: advance.payment_entry,
+					allocated_to_so,
+					allocated,
+					remaining
+				});
+				
+				// Push advance reactively
+				this.invoice_doc.advances.push({
+					reference_type: "Payment Entry",
+					reference_name: advance.payment_entry,
+					reference_row: "",
+					remarks: advance.remarks || "",
+					advance_amount: allocated_to_so,  // Amount allocated to Sales Order
+					allocated_amount: allocated,  // Amount to allocate to this invoice
+				});
+				total_allocated += allocated;
+			}
+		}
+		
+		console.log("set_advances_and_adjust_payments: Total allocated", total_allocated);
+		
+		// Ensure sales_order is set on invoice_doc reactively
+		if (this.sales_order_name && this.invoice_doc) {
+			// Use Vue.set for reactivity if available
+			if (this.$set) {
+				this.$set(this.invoice_doc, 'sales_order', this.sales_order_name);
+			} else {
+				this.invoice_doc.sales_order = this.sales_order_name;
+			}
+			
+			// Also update the store if available
+			if (this.invoiceStore && this.invoiceStore.mergeInvoiceDoc) {
+				this.invoiceStore.mergeInvoiceDoc({
+					sales_order: this.sales_order_name,
+					advances: this.invoice_doc.advances
+				});
+			}
+		}
+		
+		// Adjust payments to match outstanding amount
+		this.$nextTick(() => {
+			this.adjust_payments_for_advance(total_allocated);
+			// Force update to show advances in UI
+			this.$forceUpdate();
+			// Emit event to refresh payment panel
+			if (this.eventBus) {
+				this.eventBus.emit('invoice_doc_updated');
+			}
+		});
+	},
+
+	// Adjust payment amounts to match outstanding after advance deduction
+	adjust_payments_for_advance(total_advance) {
+		if (!this.invoice_doc || !this.invoice_doc.payments || total_advance <= 0) {
+			return;
+		}
+		
+		// Calculate outstanding amount (grand_total - advance)
+		const invoice_total = flt(this.invoice_doc.grand_total || this.invoice_doc.rounded_total || 0);
+		const outstanding = flt(invoice_total - total_advance);
+		
+		// Calculate current total payments
+		let total_payment = 0;
+		if (this.invoice_doc.payments) {
+			this.invoice_doc.payments.forEach((payment) => {
+				total_payment += flt(payment.amount) || 0;
+			});
+		}
+		
+		// If total payment is greater than outstanding, adjust it
+		if (total_payment > outstanding) {
+			const diff = total_payment - outstanding;
+			
+			// Reduce payments starting from the first one
+			if (this.invoice_doc.payments && this.invoice_doc.payments.length > 0) {
+				let remaining_diff = diff;
+				for (const payment of this.invoice_doc.payments) {
+					if (remaining_diff > 0 && payment.amount > 0) {
+						const reduction = Math.min(remaining_diff, flt(payment.amount));
+						payment.amount = flt(payment.amount - reduction);
+						if (payment.base_amount !== undefined) {
+							payment.base_amount = flt(payment.base_amount - reduction);
+						}
+						remaining_diff -= reduction;
+					}
+				}
+			}
+		}
+		
+		// Force update to reflect changes
+		this.$forceUpdate();
 	},
 
 	// Update UOM (unit of measure) for an item and recalculate prices

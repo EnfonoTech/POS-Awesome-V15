@@ -530,6 +530,9 @@ export function useItemAddition() {
 		context.additional_discount_percentage = 0;
 		context.delivery_charges_rate = 0;
 		context.selected_delivery_charge = "";
+		// Clear sales order references
+		if (context.sales_order_name !== undefined) context.sales_order_name = null;
+		if (context.sales_order_advance_paid !== undefined) context.sales_order_advance_paid = 0;
 		// Reset posting date to today
 		context.posting_date = frappe.datetime.nowdate();
 
