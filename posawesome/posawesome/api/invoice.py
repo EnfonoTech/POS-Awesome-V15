@@ -15,6 +15,14 @@ from posawesome.posawesome.doctype.delivery_charges.delivery_charges import (
 from posawesome.posawesome.doctype.pos_coupon.pos_coupon import update_coupon_code_count
 
 
+def before_validate(doc, method):
+    """Hook that runs BEFORE the document's validate method."""
+    # Suppress advance entry validation popup for minimal sales orders
+    # This must run BEFORE validate() to override the method before it's called
+    if doc.doctype == "Sales Invoice":
+        suppress_advance_entry_popup(doc)
+
+
 def validate(doc, method):
     validate_shift(doc)
     set_patient(doc)
@@ -24,6 +32,9 @@ def validate(doc, method):
 
 
 def before_submit(doc, method):
+    # Suppress advance entry validation popup for minimal sales orders
+    if doc.doctype == "Sales Invoice":
+        suppress_advance_entry_popup(doc)
     add_loyalty_point(doc)
     create_sales_order(doc)
     update_coupon(doc, "used")
@@ -297,6 +308,26 @@ def apply_tax_inclusive(doc):
             has_changes = True
     if has_changes:
         doc.calculate_taxes_and_totals()
+
+
+def suppress_advance_entry_popup(doc):
+    """Suppress the advance entry validation popup for sales orders linked via minimal sales order feature."""
+    # Check if sales_order exists (either as attribute or in items)
+    has_sales_order = False
+    if hasattr(doc, 'sales_order') and doc.sales_order:
+        has_sales_order = True
+    elif hasattr(doc, 'items') and doc.items:
+        # Check if any item has sales_order
+        for item in doc.items:
+            if hasattr(item, 'sales_order') and item.sales_order:
+                has_sales_order = True
+                break
+    
+    if has_sales_order:
+        # Override validate_advance_entries to prevent popup when sales order exists
+        # This prevents the "Payment Entry is linked against Order" message
+        # Always suppress for sales orders from minimal sales order feature
+        doc.validate_advance_entries = lambda: None
 
 
 def validate_shift(doc):

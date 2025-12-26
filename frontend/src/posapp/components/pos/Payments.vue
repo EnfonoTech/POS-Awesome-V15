@@ -89,7 +89,7 @@
 							density="compact"
 							variant="solo"
 							color="primary"
-							:label="frappe._('Advance Amount Applied')"
+							:label="frappe._('Advance Amount')"
 							class="sleek-field pos-themed-input"
 							hide-details
 							:model-value="formatCurrency(total_advance)"
@@ -357,29 +357,6 @@
 							class="sleek-field pos-themed-input"
 							hide-details
 							:model-value="formatCurrency(invoice_doc.rounded_total)"
-							readonly
-							:prefix="currencySymbol(invoice_doc.currency)"
-							persistent-placeholder
-						></v-text-field>
-					</v-col>
-
-					<!-- Sales Order Advance Amount (if applicable) - Always show if sales_order exists -->
-					<v-col 
-						cols="6" 
-						v-if="
-							invoice_doc &&
-							!invoice_doc.is_return &&
-							has_sales_order
-						"
-					>
-						<v-text-field
-							density="compact"
-							variant="solo"
-							color="primary"
-							:label="frappe._('Advance Amount')"
-							class="sleek-field pos-themed-input"
-							hide-details
-							:model-value="formatCurrency(total_advance || 0)"
 							readonly
 							:prefix="currencySymbol(invoice_doc.currency)"
 							persistent-placeholder
@@ -2311,10 +2288,14 @@ export default {
 					}
 				} else if (default_payment) {
 					// For regular invoices, set positive amount
-					default_payment.amount = this.flt(
-						invoice_doc.rounded_total || invoice_doc.grand_total,
-						this.currency_precision,
-					);
+					// If payment amount is already set (e.g., adjusted for advances), keep it
+					// Otherwise, use full invoice total
+					if (!default_payment.amount || default_payment.amount === 0) {
+						default_payment.amount = this.flt(
+							invoice_doc.rounded_total || invoice_doc.grand_total,
+							this.currency_precision,
+						);
+					}
 					this.is_credit_return = false;
 				}
 				this.loyalty_amount = 0;

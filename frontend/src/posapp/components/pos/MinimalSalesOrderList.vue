@@ -183,11 +183,6 @@ export default {
 				this.eventBus.emit("load_sales_order_to_invoice", invoiceData);
 				
 				this.closeDialog();
-				
-				frappe.show_alert({
-					message: __("Sales order loaded. Advance amount: {0}", [this.formatCurrency(message.advance_paid || 0)]),
-					indicator: "green",
-				}, 3);
 			} catch (error) {
 				console.error("Failed to load sales order:", error);
 				this.errorMessage = error.message || __("Failed to load sales order");

@@ -175,4 +175,40 @@ export default {
 			},
 		];
 	},
+	// Sales Order Advance Amount - calculated from invoice_doc.advances
+	total_advance() {
+		if (!this.invoice_doc) return 0;
+		// Access advances from invoice_doc (which comes from store)
+		// Force reactivity by accessing the property
+		const advances = this.invoice_doc.advances;
+		if (!advances || !Array.isArray(advances) || advances.length === 0) {
+			return 0;
+		}
+		// Calculate total from advances array
+		const total = advances.reduce((sum, advance) => {
+			// Use allocated_amount (amount allocated to this invoice) not advance_amount
+			const amount = parseFloat(advance.allocated_amount) || 0;
+			return sum + amount;
+		}, 0);
+		return this.flt(total, this.currency_precision);
+	},
+	// Balance after advance
+	balance_after_advance() {
+		if (!this.invoice_doc) return 0;
+		const invoice_total = this.flt(
+			this.invoice_doc.rounded_total || this.invoice_doc.grand_total || 0,
+			this.currency_precision
+		);
+		const advance = this.total_advance;
+		return this.flt(invoice_total - advance, this.currency_precision);
+	},
+	// Check if has sales order
+	has_sales_order() {
+		if (!this.invoice_doc) return false;
+		if (this.invoice_doc.sales_order) return true;
+		if (this.invoice_doc.items && Array.isArray(this.invoice_doc.items)) {
+			return this.invoice_doc.items.some(item => item.sales_order);
+		}
+		return false;
+	},
 };

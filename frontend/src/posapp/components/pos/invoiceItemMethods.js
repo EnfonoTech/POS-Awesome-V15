@@ -464,18 +464,10 @@ export default {
 					this.invoice_doc.sales_order = sales_order_to_check;
 				}
 			}
-			console.log("load_invoice: Found sales_order, will fetch advances", sales_order_to_check);
-			// Wait a bit for invoice to be fully loaded, then fetch advances
 			this.$nextTick(() => {
 				setTimeout(() => {
 					this.fetch_and_set_advances(sales_order_to_check);
 				}, 500);
-			});
-		} else {
-			console.log("load_invoice: No sales_order or advances already exist", {
-				sales_order_to_check,
-				has_advances: !!this.invoice_doc.advances,
-				advances_length: this.invoice_doc.advances?.length || 0
 			});
 		}
 
@@ -500,12 +492,6 @@ export default {
 			this.eventBus.emit("set_pos_coupons", data.posa_coupons);
 		}
 
-		console.log("load_invoice completed, invoice state:", {
-			invoiceType: this.invoiceType,
-			is_return: this.invoice_doc.is_return,
-			items: this.items.length,
-			customer: this.customer,
-		});
 	},
 
 	// Save and clear the current invoice (draft logic)
@@ -542,6 +528,9 @@ export default {
 
 	// Load sales order data into invoice
 	async load_sales_order_to_invoice(data = {}) {
+		console.log("=== LOAD SALES ORDER TO INVOICE ===");
+		console.log("Data received:", data);
+		
 		// Clear current invoice first
 		this.clear_invoice();
 		
@@ -564,6 +553,9 @@ export default {
 		// Initialize invoice doc properly (like load_invoice does)
 		// Start with a proper structure that will be updated by add_item
 		this.invoice_doc = {
+			company: data.company || this.pos_profile.company,
+			customer: data.customer,
+			currency: data.currency || this.pos_profile.currency,
 			sales_order: data.sales_order,
 			advances: [],  // Initialize advances array
 		};
@@ -587,6 +579,31 @@ export default {
 				// add_item will fetch full item details automatically
 				await this.add_item(item);
 			}
+			
+			// After all items added, wait for rendering
+			await this.$nextTick();
+			
+			// Get the complete invoice doc with all items
+			const doc = this.get_invoice_doc();
+			
+			// Ensure doc has all required fields before calling update_invoice
+			doc.sales_order = data.sales_order;
+			doc.company = data.company || this.pos_profile.company;
+			doc.customer = data.customer;
+			doc.currency = data.currency || this.pos_profile.currency;
+			
+			// Call update_invoice to calculate totals in backend
+			// Pass the doc with items to get proper calculations
+			await this.update_invoice(doc);
+			
+			// Update store to ensure reactivity
+			if (this.invoiceStore && this.invoiceStore.setInvoiceDoc) {
+				this.invoiceStore.setInvoiceDoc({
+					...this.invoice_doc,
+					sales_order: data.sales_order,
+					advances: []
+				});
+			}
 		}
 		
 		// Ensure sales_order and advances are set on invoice_doc after items are added
@@ -608,46 +625,24 @@ export default {
 		// Set advances in invoice_doc if sales order exists (always check, like customer credit)
 		// Wait for invoice to be fully calculated before setting advances
 		if (data.sales_order) {
+			console.log("=== WILL FETCH ADVANCES ===");
+			console.log("Sales order:", data.sales_order);
+			console.log("Invoice doc grand_total:", this.invoice_doc.grand_total);
+			
 			// Wait for invoice calculation to complete (items added, totals calculated)
-			await new Promise(resolve => setTimeout(resolve, 500));
 			await this.$nextTick();
 			
 			// Fetch advance payment entries for this sales order
-			frappe.call({
-				method: "posawesome.posawesome.api.minimal_sales_orders.get_advance_payments_for_sales_order",
-				args: {
-					sales_order_name: data.sales_order,
-				},
-				callback: (r) => {
-					if (r.message && r.message.length > 0 && this.invoice_doc) {
-						// Wait for invoice total to be calculated
-						this.$nextTick(() => {
-							// Try to get invoice total, if not available yet, wait a bit more
-							let invoice_total = flt(this.invoice_doc.grand_total || this.invoice_doc.rounded_total || 0);
-							
-							// If total is still 0, wait a bit more for calculation
-							if (invoice_total === 0) {
-								setTimeout(() => {
-									invoice_total = flt(this.invoice_doc.grand_total || this.invoice_doc.rounded_total || 0);
-									if (invoice_total > 0) {
-										this.set_advances_and_adjust_payments(r.message, invoice_total);
-									}
-								}, 500);
-							} else {
-								this.set_advances_and_adjust_payments(r.message, invoice_total);
-							}
-						});
-					}
-				},
+			this.fetch_and_set_advances(data.sales_order);
+			
+			// Force update to ensure UI reflects changes
+			this.$nextTick(() => {
+				this.$forceUpdate();
+				// Emit event to ensure summary panel updates
+				if (this.eventBus) {
+					this.eventBus.emit('invoice_doc_updated');
+				}
 			});
-		}
-		
-		// Show notification about advance amount
-		if (this.sales_order_advance_paid > 0) {
-			frappe.show_alert({
-				message: __("Sales Order loaded. Advance paid: {0} will be deducted from payment", [this.formatCurrency(this.sales_order_advance_paid)]),
-				indicator: "blue",
-			}, 5);
 		}
 		
 		// Focus on item search
@@ -1778,48 +1773,88 @@ export default {
 			const isValid = this.validate();
 			console.log("Main validation result:", isValid);
 
-			if (!isValid) {
-				console.log("Main validation failed");
-				return;
-			}
+		if (!isValid) {
+			console.log("Main validation failed");
+			return;
+		}
 
-			let invoice_doc;
-			if (
-				this.invoiceType === "Order" &&
-				this.pos_profile.posa_create_only_sales_order &&
-				!this.new_delivery_date &&
-				!(this.invoice_doc && this.invoice_doc.posa_delivery_date)
-			) {
-				console.log("Building local Sales Order doc for payment");
-				invoice_doc = this.get_invoice_doc();
-			} else if (
-				this.invoice_doc &&
-				this.invoice_doc.doctype === "Sales Order" &&
-				this.invoiceType === "Invoice"
-			) {
-				console.log("Processing Sales Order payment");
-				invoice_doc = await this.process_invoice_from_order();
-			} else {
-				console.log("Processing regular invoice");
-				invoice_doc = await this.process_invoice();
-			}
+		// Save advances and sales_order BEFORE processing (from this.invoice_doc)
+		const savedAdvances = this.invoice_doc && this.invoice_doc.advances ? [...this.invoice_doc.advances] : [];
+		const savedSalesOrder = this.invoice_doc ? this.invoice_doc.sales_order : null;
+		console.log("=== SAVING ADVANCE CONTEXT BEFORE PROCESSING ===");
+		console.log("Saved advances before processing:", savedAdvances);
+		console.log("Saved sales_order before processing:", savedSalesOrder);
 
-			if (!invoice_doc) {
-				console.log("Failed to process invoice");
-				return;
-			}
+		let invoice_doc;
+		if (
+			this.invoiceType === "Order" &&
+			this.pos_profile.posa_create_only_sales_order &&
+			!this.new_delivery_date &&
+			!(this.invoice_doc && this.invoice_doc.posa_delivery_date)
+		) {
+			console.log("Building local Sales Order doc for payment");
+			invoice_doc = this.get_invoice_doc();
+		} else if (
+			this.invoice_doc &&
+			this.invoice_doc.doctype === "Sales Order" &&
+			this.invoiceType === "Invoice"
+		) {
+			console.log("Processing Sales Order payment");
+			invoice_doc = await this.process_invoice_from_order();
+		} else {
+			console.log("Processing regular invoice");
+			invoice_doc = await this.process_invoice();
+		}
 
-			// Reload current invoice from backend (no selection dialog) to ensure items/totals are up-to-date
-			if (!isOffline() && invoice_doc.name) {
-				console.log("Reloading current invoice from backend");
-				const refreshed = await this.reload_current_invoice_from_backend();
-				if (refreshed) {
-					invoice_doc = refreshed;
-					console.log("Refreshed invoice:", invoice_doc);
-				} else {
-					console.log("Failed to refresh invoice");
+		if (!invoice_doc) {
+			console.log("Failed to process invoice");
+			return;
+		}
+
+	// Reload current invoice from backend (no selection dialog) to ensure items/totals are up-to-date
+	if (!isOffline() && invoice_doc.name) {
+		console.log("=== RELOADING INVOICE FROM BACKEND ===");
+			
+			const refreshed = await this.reload_current_invoice_from_backend();
+			if (refreshed) {
+				invoice_doc = refreshed;
+			}
+		}
+		
+	// Restore advances and sales_order after reload (using saved values from before processing)
+	if (savedAdvances.length > 0) {
+		invoice_doc.advances = savedAdvances;
+		if (savedSalesOrder) {
+			invoice_doc.sales_order = savedSalesOrder;
+		}
+		console.log("=== RESTORED ADVANCE CONTEXT AFTER RELOAD ===");
+		console.log("Restored advances:", invoice_doc.advances);
+		console.log("Restored sales_order:", invoice_doc.sales_order);
+		
+		// Calculate total advance amount
+		let total_advance = 0;
+		for (const adv of savedAdvances) {
+			total_advance += flt(adv.allocated_amount || 0);
+		}
+		
+		// Update invoice_doc with restored advances and adjust payments
+		this.invoice_doc = invoice_doc;
+		
+		// Adjust payment amount to show outstanding balance (invoice_total - advance)
+		if (total_advance > 0) {
+			const invoice_total = flt(invoice_doc.grand_total || invoice_doc.rounded_total || 0);
+			const outstanding = flt(invoice_total - total_advance);
+			console.log("Adjusting payment after reload - Invoice total:", invoice_total, "Advance:", total_advance, "Outstanding:", outstanding);
+			
+			// Set payment to outstanding balance
+			if (invoice_doc.payments && invoice_doc.payments.length > 0) {
+				invoice_doc.payments[0].amount = outstanding;
+				if (invoice_doc.payments[0].base_amount !== undefined) {
+					invoice_doc.payments[0].base_amount = outstanding;
 				}
 			}
+		}
+	}
 
 			// Update invoice_doc with current currency info
 			invoice_doc.currency = this.selected_currency || this.pos_profile.currency;
@@ -1884,20 +1919,49 @@ export default {
 				}
 			}
 
-			// Get payments with correct sign (positive/negative)
-			invoice_doc.payments = this.get_payments();
-			console.log("Final payment data:", invoice_doc.payments);
+		// Get payments with correct sign (positive/negative)
+		invoice_doc.payments = this.get_payments();
+		console.log("Final payment data (before advance adjustment):", invoice_doc.payments);
 
-			// Double-check return invoice payments are negative
-			if ((this.isReturnInvoice || invoice_doc.is_return) && invoice_doc.payments.length) {
-				invoice_doc.payments.forEach((payment) => {
-					if (payment.amount > 0) payment.amount = -Math.abs(payment.amount);
-					if (payment.base_amount > 0) payment.base_amount = -Math.abs(payment.base_amount);
-				});
-				console.log("Ensured negative payment amounts for return:", invoice_doc.payments);
+		// Double-check return invoice payments are negative
+		if ((this.isReturnInvoice || invoice_doc.is_return) && invoice_doc.payments.length) {
+			invoice_doc.payments.forEach((payment) => {
+				if (payment.amount > 0) payment.amount = -Math.abs(payment.amount);
+				if (payment.base_amount > 0) payment.base_amount = -Math.abs(payment.base_amount);
+			});
+			console.log("Ensured negative payment amounts for return:", invoice_doc.payments);
+		}
+		
+		// Adjust payments for advances (must happen AFTER get_payments() to avoid being overwritten)
+		if (invoice_doc.advances && invoice_doc.advances.length > 0) {
+			let total_advance = 0;
+			for (const adv of invoice_doc.advances) {
+				total_advance += flt(adv.allocated_amount || 0);
 			}
+			
+			if (total_advance > 0) {
+				const invoice_total = flt(invoice_doc.grand_total || invoice_doc.rounded_total || 0);
+				const outstanding = flt(invoice_total - total_advance);
+				console.log("=== FINAL PAYMENT ADJUSTMENT FOR ADVANCES ===");
+				console.log("Invoice total:", invoice_total, "Advance:", total_advance, "Outstanding:", outstanding);
+				
+				// Adjust first payment to outstanding balance
+				if (invoice_doc.payments && invoice_doc.payments.length > 0) {
+					invoice_doc.payments[0].amount = outstanding;
+					if (invoice_doc.payments[0].base_amount !== undefined) {
+						invoice_doc.payments[0].base_amount = outstanding;
+					}
+					console.log("Adjusted payment amount to:", outstanding);
+					console.log("Payment object after adjustment:", JSON.parse(JSON.stringify(invoice_doc.payments[0])));
+				}
+			}
+		}
 
-			console.log("Showing payment dialog with currency:", invoice_doc.currency);
+		console.log("=== FINAL INVOICE_DOC BEING SENT TO PAYMENT DIALOG ===");
+		console.log("Advances:", invoice_doc.advances ? invoice_doc.advances.length : 0);
+		console.log("Sales Order:", invoice_doc.sales_order);
+		console.log("Payments:", invoice_doc.payments ? invoice_doc.payments.map(p => ({mode: p.mode_of_payment, amount: p.amount})) : []);
+		console.log("Showing payment dialog with currency:", invoice_doc.currency);
 			if (typeof this.paymentVisible !== "undefined") {
 				this.paymentVisible = true;
 			}
@@ -2968,149 +3032,145 @@ export default {
 
 	// Fetch and set advances for a sales order
 	fetch_and_set_advances(sales_order_name) {
+		console.log("=== FETCH AND SET ADVANCES ===");
+		console.log("Sales order name:", sales_order_name);
+		console.log("Has invoice_doc:", !!this.invoice_doc);
+		
 		if (!sales_order_name || !this.invoice_doc) {
-			console.log("fetch_and_set_advances: Missing sales_order_name or invoice_doc", {
-				sales_order_name,
-				has_invoice_doc: !!this.invoice_doc
-			});
+			console.warn("Missing sales_order_name or invoice_doc, skipping");
 			return;
 		}
 		
-		console.log("fetch_and_set_advances: Fetching advances for", sales_order_name);
-		
-		// Fetch advance payment entries for this sales order
 		frappe.call({
 			method: "posawesome.posawesome.api.minimal_sales_orders.get_advance_payments_for_sales_order",
 			args: {
 				sales_order_name: sales_order_name,
 			},
 			callback: (r) => {
-				console.log("fetch_and_set_advances: Received advance data", r.message);
+				console.log("=== FETCH ADVANCES RESPONSE ===");
+				console.log("Response:", r.message);
+				
 				if (r.message && r.message.length > 0 && this.invoice_doc) {
-					// Wait for invoice total to be calculated
+					console.log("Advances found:", r.message.length);
+					// Wait for next tick to ensure invoice_doc is fully updated
 					this.$nextTick(() => {
-						let invoice_total = flt(this.invoice_doc.grand_total || this.invoice_doc.rounded_total || 0);
-						console.log("fetch_and_set_advances: Invoice total", invoice_total);
+						const invoice_total = flt(this.invoice_doc.grand_total || this.invoice_doc.rounded_total || 0);
+						console.log("Invoice total:", invoice_total);
 						
-						// If total is still 0, wait a bit more
-						if (invoice_total === 0) {
-							setTimeout(() => {
-								invoice_total = flt(this.invoice_doc.grand_total || this.invoice_doc.rounded_total || 0);
-								console.log("fetch_and_set_advances: Invoice total after wait", invoice_total);
-								if (invoice_total > 0) {
-									this.set_advances_and_adjust_payments(r.message, invoice_total);
-								}
-							}, 500);
+						if (invoice_total > 0) {
+							this.set_advances_and_adjust_payments(r.message, invoice_total, sales_order_name);
 						} else {
-							this.set_advances_and_adjust_payments(r.message, invoice_total);
+							console.warn("Invoice total is 0, cannot set advances");
 						}
 					});
 				} else {
-					console.log("fetch_and_set_advances: No advances found or invoice_doc missing", {
-						has_message: !!r.message,
-						message_length: r.message?.length || 0,
-						has_invoice_doc: !!this.invoice_doc
-					});
+					console.warn("No advances found or no invoice_doc");
 				}
 			},
 		});
 	},
 
-	// Set advances and adjust payments
-	set_advances_and_adjust_payments(advance_list, invoice_total) {
+	set_advances_and_adjust_payments(advance_list, invoice_total, sales_order_name) {
+		console.log("=== SET ADVANCES AND ADJUST PAYMENTS ===");
+		console.log("Advance list:", advance_list);
+		console.log("Invoice total:", invoice_total);
+		console.log("Sales order name:", sales_order_name);
+		
 		if (!this.invoice_doc || !advance_list || advance_list.length === 0) {
-			console.log("set_advances_and_adjust_payments: Missing data", {
-				has_invoice_doc: !!this.invoice_doc,
-				has_advance_list: !!advance_list,
-				advance_list_length: advance_list?.length || 0
-			});
+			console.warn("Missing required data");
 			return;
 		}
 		
-		console.log("set_advances_and_adjust_payments: Setting advances", {
-			advance_list,
-			invoice_total
-		});
-		
-		// Ensure advances array exists and is reactive
-		if (!this.invoice_doc.advances) {
-			// Use Vue.set for reactivity in Vue 2, or direct assignment in Vue 3
-			if (this.$set) {
-				this.$set(this.invoice_doc, 'advances', []);
-			} else {
-				this.invoice_doc.advances = [];
-			}
-		} else {
-			// Clear existing advances
-			this.invoice_doc.advances = [];
-		}
-		
+		// Create new advances array for reactivity
+		const new_advances = [];
 		let total_allocated = 0;
 		
 		for (const advance of advance_list) {
 			const remaining = invoice_total - total_allocated;
 			if (remaining > 0) {
-				// Use allocated_amount from sales order as advance_amount (like customer credit uses unallocated_amount)
-				// allocated_amount is the amount allocated to the Sales Order
 				const allocated_to_so = flt(advance.allocated_amount || advance.advance_amount);
-				// Allocate to this invoice (up to invoice total)
 				const allocated = Math.min(allocated_to_so, remaining);
 				
-				console.log("set_advances_and_adjust_payments: Adding advance", {
-					payment_entry: advance.payment_entry,
-					allocated_to_so,
-					allocated,
-					remaining
-				});
-				
-				// Push advance reactively
-				this.invoice_doc.advances.push({
+				new_advances.push({
 					reference_type: "Payment Entry",
 					reference_name: advance.payment_entry,
 					reference_row: "",
 					remarks: advance.remarks || "",
-					advance_amount: allocated_to_so,  // Amount allocated to Sales Order
-					allocated_amount: allocated,  // Amount to allocate to this invoice
+					advance_amount: allocated_to_so,
+					allocated_amount: allocated,
 				});
 				total_allocated += allocated;
 			}
 		}
 		
-		console.log("set_advances_and_adjust_payments: Total allocated", total_allocated);
+		// Use Vue.set for reactivity
+		if (this.$set) {
+			this.$set(this.invoice_doc, 'advances', new_advances);
+		} else {
+			this.invoice_doc.advances = new_advances;
+		}
 		
-		// Ensure sales_order is set on invoice_doc reactively
-		if (this.sales_order_name && this.invoice_doc) {
-			// Use Vue.set for reactivity if available
+		// Set sales_order on invoice_doc (use passed parameter, not this.sales_order_name)
+		if (sales_order_name && this.invoice_doc) {
 			if (this.$set) {
-				this.$set(this.invoice_doc, 'sales_order', this.sales_order_name);
+				this.$set(this.invoice_doc, 'sales_order', sales_order_name);
 			} else {
-				this.invoice_doc.sales_order = this.sales_order_name;
-			}
-			
-			// Also update the store if available
-			if (this.invoiceStore && this.invoiceStore.mergeInvoiceDoc) {
-				this.invoiceStore.mergeInvoiceDoc({
-					sales_order: this.sales_order_name,
-					advances: this.invoice_doc.advances
-				});
+				this.invoice_doc.sales_order = sales_order_name;
 			}
 		}
+		
+		// Update invoice store IMMEDIATELY to trigger reactive updates in computed properties
+		// This must happen BEFORE $nextTick to ensure computed properties update immediately
+		if (this.invoiceStore) {
+			// Create new object with new array reference to trigger reactivity
+			const updatedDoc = {
+				...this.invoice_doc,
+				advances: [...new_advances], // New array reference for reactivity
+				sales_order: sales_order_name || this.invoice_doc.sales_order
+			};
+			
+			// Update store - this should trigger computed properties to recalculate
+			if (this.invoiceStore.setInvoiceDoc) {
+				this.invoiceStore.setInvoiceDoc(updatedDoc);
+			}
+			
+			// Also update local invoice_doc reference using Vue.set for reactivity
+			if (this.$set) {
+				this.$set(this.invoice_doc, 'advances', [...new_advances]);
+				if (sales_order_name) {
+					this.$set(this.invoice_doc, 'sales_order', sales_order_name);
+				}
+			} else {
+				this.invoice_doc.advances = [...new_advances];
+				if (sales_order_name) {
+					this.invoice_doc.sales_order = sales_order_name;
+				}
+			}
+		}
+		
+		// Force immediate update to trigger computed properties BEFORE $nextTick
+		this.$forceUpdate();
+		
+		console.log("=== ADVANCES SET ON INVOICE_DOC ===");
+		console.log("invoice_doc.advances:", this.invoice_doc.advances);
+		console.log("invoice_doc.sales_order:", this.invoice_doc.sales_order);
 		
 		// Adjust payments to match outstanding amount
 		this.$nextTick(() => {
 			this.adjust_payments_for_advance(total_allocated);
-			// Force update to show advances in UI
+			// Force update again after payment adjustment
 			this.$forceUpdate();
-			// Emit event to refresh payment panel
+			// Emit event to refresh payment panel and summary
 			if (this.eventBus) {
 				this.eventBus.emit('invoice_doc_updated');
+				this.eventBus.emit('advances_updated');
 			}
 		});
 	},
 
 	// Adjust payment amounts to match outstanding after advance deduction
 	adjust_payments_for_advance(total_advance) {
-		if (!this.invoice_doc || !this.invoice_doc.payments || total_advance <= 0) {
+		if (!this.invoice_doc || total_advance <= 0) {
 			return;
 		}
 		
@@ -3118,35 +3178,20 @@ export default {
 		const invoice_total = flt(this.invoice_doc.grand_total || this.invoice_doc.rounded_total || 0);
 		const outstanding = flt(invoice_total - total_advance);
 		
-		// Calculate current total payments
-		let total_payment = 0;
-		if (this.invoice_doc.payments) {
-			this.invoice_doc.payments.forEach((payment) => {
-				total_payment += flt(payment.amount) || 0;
-			});
-		}
-		
-		// If total payment is greater than outstanding, adjust it
-		if (total_payment > outstanding) {
-			const diff = total_payment - outstanding;
-			
-			// Reduce payments starting from the first one
-			if (this.invoice_doc.payments && this.invoice_doc.payments.length > 0) {
-				let remaining_diff = diff;
-				for (const payment of this.invoice_doc.payments) {
-					if (remaining_diff > 0 && payment.amount > 0) {
-						const reduction = Math.min(remaining_diff, flt(payment.amount));
-						payment.amount = flt(payment.amount - reduction);
-						if (payment.base_amount !== undefined) {
-							payment.base_amount = flt(payment.base_amount - reduction);
-						}
-						remaining_diff -= reduction;
-					}
-				}
+		// Set payment as a SUGGESTION (user can still edit to enter actual cash tendered)
+		if (this.invoice_doc.payments && this.invoice_doc.payments.length > 0) {
+			// Set suggested amount = outstanding (minimum to pay)
+			// User can increase this if customer pays more (e.g., 100 when outstanding is 50)
+			this.invoice_doc.payments[0].amount = outstanding;
+			if (this.invoice_doc.payments[0].base_amount !== undefined) {
+				this.invoice_doc.payments[0].base_amount = outstanding;
 			}
 		}
 		
-		// Force update to reflect changes
+		// Update store
+		if (this.invoiceStore && this.invoiceStore.setInvoiceDoc) {
+			this.invoiceStore.setInvoiceDoc({...this.invoice_doc});
+		}
 		this.$forceUpdate();
 	},
 

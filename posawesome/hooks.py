@@ -98,11 +98,13 @@ after_uninstall = "posawesome.uninstall.after_uninstall"
 
 doc_events = {
     "Sales Invoice": {
+        "before_validate": "posawesome.posawesome.api.invoice.before_validate",
         "validate": "posawesome.posawesome.api.invoice.validate",
         "before_submit": "posawesome.posawesome.api.invoice.before_submit",
         "before_cancel": "posawesome.posawesome.api.invoice.before_cancel",
     },
     "POS Invoice": {
+        "before_validate": "posawesome.posawesome.api.invoice.before_validate",
         "validate": "posawesome.posawesome.api.invoice.validate",
         "before_submit": "posawesome.posawesome.api.invoice.before_submit",
         "before_cancel": "posawesome.posawesome.api.invoice.before_cancel",

@@ -87,6 +87,36 @@
 							class="summary-field"
 						/>
 					</v-col>
+
+					<!-- Advance Amount (if sales order exists) -->
+					<v-col cols="6" v-if="has_sales_order">
+						<v-text-field
+							:model-value="formatCurrency(advance_amount || 0)"
+							:prefix="currencySymbol(displayCurrency)"
+							:label="frappe._('Advance Amount')"
+							prepend-inner-icon="mdi-cash-check"
+							variant="solo"
+							density="compact"
+							readonly
+							color="info"
+							class="summary-field"
+						/>
+					</v-col>
+
+					<!-- Balance After Advance (if sales order exists) -->
+					<v-col cols="6" v-if="has_sales_order">
+						<v-text-field
+							:model-value="formatCurrency(balance_after_advance || 0)"
+							:prefix="currencySymbol(displayCurrency)"
+							:label="frappe._('Balance')"
+							prepend-inner-icon="mdi-cash-multiple"
+							variant="solo"
+							density="compact"
+							readonly
+							color="primary"
+							class="summary-field"
+						/>
+					</v-col>
 				</v-row>
 			</v-col>
 
@@ -246,6 +276,9 @@ export default {
 		currencySymbol: Function,
 		discount_percentage_offer_name: [String, Number],
 		isNumber: Function,
+		advance_amount: Number,
+		balance_after_advance: Number,
+		has_sales_order: Boolean,
 	},
 	data() {
 		return {

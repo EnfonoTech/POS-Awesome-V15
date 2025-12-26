@@ -474,10 +474,6 @@ def submit_invoice(invoice, data):
         doctype = "POS Invoice"
 
     invoice_name = invoice.get("name")
-    has_advances = bool(invoice.get('advances') and len(invoice.get('advances', [])) > 0)
-    frappe.log_error(f"SO Advance: submit_invoice. Invoice: {invoice_name}, SO: {invoice.get('sales_order')}, Has advances: {has_advances}", "SO Advance")
-    if has_advances:
-        frappe.log_error(f"SO Advance: Count={len(invoice.get('advances', []))}, First: {invoice.get('advances', [{}])[0].get('reference_name', 'N/A')}", "SO Advance")
     
     if not invoice_name or not frappe.db.exists(doctype, invoice_name):
         created = update_invoice(json.dumps(invoice))
@@ -485,50 +481,35 @@ def submit_invoice(invoice, data):
         invoice_doc = frappe.get_doc(doctype, invoice_name)
     else:
         invoice_doc = frappe.get_doc(doctype, invoice_name)
-        # Don't preserve advances from frontend - we'll fetch from backend if sales order exists
-        # But preserve payments - they need to be added to the invoice
-        # Clear advances from invoice dict before update
         invoice_without_advances = invoice.copy()
         invoice_without_advances.pop("advances", None)
         invoice_doc.update(invoice_without_advances)
-        # Clear any existing advances (will be re-added from backend if sales order exists)
         invoice_doc.set("advances", [])
-        # Ensure payments are preserved from invoice object
+        
         if invoice.get("payments") and isinstance(invoice.get("payments"), list):
-            # Clear existing payments and set new ones
             invoice_doc.set("payments", [])
             for payment in invoice.get("payments"):
                 payment_row = invoice_doc.append("payments", {})
                 payment_row.update(payment)
     
-    # Handle advance paid from sales order - link invoice to sales order
+    # Handle advance paid from sales order
     if invoice.get("sales_order"):
         sales_order_name = invoice.get("sales_order")
-        frappe.log_error(f"SO Advance: Sales order found: {sales_order_name}", "SO Advance")
-        # Set sales order reference on invoice
         invoice_doc.sales_order = sales_order_name
         
-        # Fetch advance payment entry linked to sales order and add to advances
-        # Similar to customer credit approach (lines 707-728)
         if invoice_doc.doctype == "Sales Invoice":
-            # Clear any existing advances first (from frontend or previous attempts)
             invoice_doc.set("advances", [])
-            
-            # First, ensure invoice totals are calculated before adding advance
             invoice_doc.calculate_taxes_and_totals()
             
-            # Get invoice total (after taxes calculation, considering write_off and currency)
             grand_total = flt(invoice_doc.grand_total or invoice_doc.rounded_total or 0)
             write_off = flt(invoice_doc.write_off_amount or 0)
             
-            # Calculate invoice total the same way ERPNext does in validation
             if invoice_doc.party_account_currency == invoice_doc.currency:
                 invoice_total = flt(grand_total - write_off)
             else:
                 base_write_off = flt(write_off * invoice_doc.conversion_rate) if invoice_doc.conversion_rate else write_off
                 invoice_total = flt(grand_total * invoice_doc.conversion_rate - base_write_off) if invoice_doc.conversion_rate else grand_total
             
-            # Get Payment Entry Reference linked to this sales order
             advance_ref = frappe.get_all(
                 "Payment Entry Reference",
                 filters={
@@ -539,55 +520,37 @@ def submit_invoice(invoice, data):
                 limit=1,
             )
             
-            # If found, fetch the Payment Entry and add to advances
             if advance_ref:
                 advance_ref = advance_ref[0]
-                # Get Payment Entry document
                 advance = frappe.get_doc("Payment Entry", advance_ref.parent)
                 
-                if advance.docstatus == 1:  # Only submitted payment entries
-                    # Get the allocated amount from the payment entry reference to Sales Order
+                if advance.docstatus == 1:
                     allocated_amount_so = flt(advance_ref.allocated_amount)
-                    
-                    # Calculate allocated amount - don't allocate more than invoice total
                     allocated_amount = min(allocated_amount_so, invoice_total) if invoice_total > 0 else 0
                     
-                    # Only add advance if there's an amount to allocate
                     if allocated_amount > 0:
-                        # Create advance payment dict (same pattern as customer credit)
                         advance_payment = {
                             "reference_type": "Payment Entry",
                             "reference_name": advance.name,
                             "reference_row": advance_ref.name,
                             "remarks": advance.remarks or "",
-                            "advance_amount": allocated_amount_so,  # Amount allocated to Sales Order (total available)
-                            "allocated_amount": allocated_amount,  # Amount to allocate to this invoice (min of available and invoice total)
+                            "advance_amount": allocated_amount_so,
+                            "allocated_amount": allocated_amount,
                         }
                         
-                        # Append and update (same pattern as customer credit)
                         advance_row = invoice_doc.append("advances", {})
                         advance_row.update(advance_payment)
                         
-                        # Set exchange rate if multi-currency
                         if advance.source_exchange_rate:
                             advance_row.ref_exchange_rate = advance.source_exchange_rate
                         
-                        # Ensure correct child doctype
                         child_dt = (
                             "POS Invoice Advance" if invoice_doc.doctype == "POS Invoice" 
                             else "Sales Invoice Advance"
                         )
                         ensure_child_doctype(invoice_doc, "advances", child_dt)
-                        
-                        # Set flags (same as customer credit)
                         invoice_doc.is_pos = 0
-                        
-                        # Recalculate totals with advances (this calculates outstanding_amount)
                         invoice_doc.calculate_taxes_and_totals()
-                    
-                    # The outstanding_amount will be automatically calculated as:
-                    # outstanding_amount = grand_total - total_advance
-                    # The payments in the invoice will be adjusted to match outstanding_amount
 
     # Ensure item name overrides are respected on submit
     _apply_item_name_overrides(invoice_doc)
@@ -697,49 +660,27 @@ def submit_invoice(invoice, data):
     invoice_doc.flags.ignore_permissions = True
     frappe.flags.ignore_account_permission = True
     invoice_doc.posa_is_printed = 1
-    
-    # Log advances before save
-    adv_count = len(invoice_doc.advances) if invoice_doc.advances else 0
-    frappe.log_error(f"SO Advance: Before save - Count: {adv_count}", "SO Advance")
-    if adv_count > 0 and invoice_doc.advances:
-        first_adv = invoice_doc.advances[0]
-        ref_name = first_adv.reference_name if hasattr(first_adv, 'reference_name') else first_adv.get('reference_name', 'N/A')
-        frappe.log_error(f"SO Advance: First advance ref: {ref_name}, amount: {first_adv.allocated_amount if hasattr(first_adv, 'allocated_amount') else first_adv.get('allocated_amount', 0)}", "SO Advance")
-    
     invoice_doc.save()
     
-    # Log advances after save
-    adv_count_after = len(invoice_doc.advances) if invoice_doc.advances else 0
-    frappe.log_error(f"SO Advance: After save - Count: {adv_count_after}", "SO Advance")
-    
-    # Store payment info for creating Payment Entry after invoice submission
     payment_entry_data = None
-    if invoice_doc.doctype == "Sales Invoice" and invoice_doc.sales_order:
-        # Recalculate to get correct outstanding_amount after advances
+    if invoice_doc.doctype == "Sales Invoice" and hasattr(invoice_doc, 'sales_order') and invoice_doc.sales_order:
         invoice_doc.calculate_taxes_and_totals()
         outstanding = flt(invoice_doc.outstanding_amount or 0)
-        
-        # Get payments from invoice object (from frontend)
         payments_from_frontend = invoice.get("payments", [])
+        
         if payments_from_frontend and outstanding > 0:
-            # Calculate total payment amount
             total_payment = sum(flt(p.get("amount", 0)) for p in payments_from_frontend)
             
-            # Only create Payment Entry if there's a payment amount
             if total_payment > 0:
-                # Use the first payment's mode of payment, or default to Cash
                 first_payment = payments_from_frontend[0]
                 mode_of_payment = first_payment.get("mode_of_payment") or "Cash"
                 
-                # Get account for mode of payment
                 try:
                     payment_account = get_bank_cash_account(mode_of_payment, invoice_doc.company)
                     paid_to_account = payment_account.get("account")
                 except:
-                    # Fallback to default cash account
                     paid_to_account = frappe.get_value("Company", invoice_doc.company, "default_cash_account")
                 
-                # Store payment entry data to create after invoice submission
                 payment_entry_data = {
                     "mode_of_payment": mode_of_payment,
                     "paid_to_account": paid_to_account,
@@ -789,10 +730,18 @@ def submit_invoice(invoice, data):
     else:
         invoice_doc.submit()
         
-        # Create Payment Entry for balance amount AFTER invoice is submitted
-        # (Payment Entry can only reference submitted invoices)
         if payment_entry_data and invoice_doc.doctype == "Sales Invoice":
             posting_date = invoice_doc.get("posting_date") or nowdate()
+            
+            # Use OUTSTANDING amount, not total_payment
+            # This ensures we only create Payment Entry for the balance
+            # If customer pays 100 cash and outstanding is 50, only record 50
+            # The 50 change is returned to customer (not recorded)
+            amount_to_record = min(
+                flt(payment_entry_data["total_payment"]), 
+                flt(payment_entry_data["outstanding"])
+            )
+            
             payment_entry = frappe.get_doc({
                 "doctype": "Payment Entry",
                 "mode_of_payment": payment_entry_data["mode_of_payment"],
@@ -800,20 +749,18 @@ def submit_invoice(invoice, data):
                 "payment_type": "Receive",
                 "party_type": "Customer",
                 "party": invoice_doc.customer,
-                "paid_amount": payment_entry_data["total_payment"],
-                "received_amount": payment_entry_data["total_payment"],
+                "paid_amount": amount_to_record,
+                "received_amount": amount_to_record,
                 "company": invoice_doc.company,
                 "posting_date": posting_date,
             })
             
-            # Add reference to Sales Invoice (now it's submitted)
             payment_entry.append("references", {
                 "reference_doctype": "Sales Invoice",
                 "reference_name": invoice_doc.name,
-                "allocated_amount": payment_entry_data["total_payment"],
+                "allocated_amount": amount_to_record,
             })
             
-            # Set reference if available
             if invoice_doc.get("posa_pos_opening_shift"):
                 payment_entry.reference_no = invoice_doc.posa_pos_opening_shift
                 payment_entry.reference_date = posting_date
@@ -822,8 +769,6 @@ def submit_invoice(invoice, data):
             frappe.flags.ignore_account_permission = True
             payment_entry.save()
             payment_entry.submit()
-            
-            frappe.log_error(f"SO Advance: Created Payment Entry {payment_entry.name} for balance {payment_entry_data['total_payment']}", "SO Advance")
         
         redeeming_customer_credit(invoice_doc, data, is_payment_entry, total_cash, cash_account, payments)
 
