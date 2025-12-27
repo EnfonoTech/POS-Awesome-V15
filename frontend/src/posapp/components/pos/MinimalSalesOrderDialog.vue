@@ -101,6 +101,11 @@
 											:placeholder="__('Rate')"
 										></v-text-field>
 									</template>
+									<template v-slot:item.amount="{ item }">
+										<div class="text-right font-weight-medium">
+											{{ currencySymbolValue }}{{ formatPrice(calculateItemAmount(item)) }}
+										</div>
+									</template>
 									<template v-slot:item.actions="{ item }">
 										<v-btn
 											icon="mdi-delete"
@@ -120,6 +125,24 @@
 								>
 									{{ __("Add Item") }}
 								</v-btn>
+								
+								<!-- Total Amount Display -->
+								<div class="d-flex justify-end mt-3">
+									<v-card variant="outlined" style="min-width: 280px;">
+										<v-card-text class="py-2 px-3">
+											<v-row dense align="center" no-gutters>
+												<v-col cols="6" class="text-right font-weight-medium">
+													{{ __("Total Amount") }}:
+												</v-col>
+												<v-col cols="6" class="text-right">
+													<span class="text-h6 font-weight-bold primary--text">
+														{{ currencySymbolValue }}{{ formatPrice(totalAmount) }}
+													</span>
+												</v-col>
+											</v-row>
+										</v-card-text>
+									</v-card>
+								</div>
 							</v-col>
 						</v-row>
 						
@@ -208,7 +231,8 @@ export default {
 			itemHeaders: [
 				{ title: __("Item"), key: "item_name", sortable: false },
 				{ title: __("Qty"), key: "qty", sortable: false, width: "100px" },
-				{ title: __("Rate"), key: "rate", sortable: false, width: "150px" },
+				{ title: __("Rate"), key: "rate", sortable: false, width: "180px" },
+				{ title: __("Amount"), key: "amount", sortable: false, width: "150px", align: "end" },
 				{ title: __("Actions"), key: "actions", sortable: false, width: "80px" },
 			],
 			itemCounter: 0,
@@ -219,6 +243,11 @@ export default {
 	computed: {
 		currencySymbolValue() {
 			return this.pos_profile?.currency ? this.currencySymbol(this.pos_profile.currency) : "";
+		},
+		totalAmount() {
+			return this.items.reduce((total, item) => {
+				return total + this.calculateItemAmount(item);
+			}, 0);
 		},
 		canSubmit() {
 			return (
@@ -231,6 +260,20 @@ export default {
 				}) &&
 				(this.advance_amount === 0 || (this.advance_amount > 0 && this.mode_of_payment))
 			);
+		},
+	},
+	watch: {
+		advance_amount(newVal) {
+			// Auto-select default payment mode when advance amount is entered
+			if (newVal > 0 && !this.mode_of_payment) {
+				const defaultPayment = this.payment_modes.find(p => p.default === 1);
+				if (defaultPayment) {
+					this.mode_of_payment = defaultPayment.mode_of_payment;
+				} else if (this.payment_modes.length > 0) {
+					// If no default, select first available
+					this.mode_of_payment = this.payment_modes[0].mode_of_payment;
+				}
+			}
 		},
 	},
 	methods: {
@@ -386,8 +429,13 @@ export default {
 				// Keep item_name if it was manually entered
 			}
 		},
+		calculateItemAmount(item) {
+			const qty = parseFloat(item.qty) || 0;
+			const rate = parseFloat(item.rate) || 0;
+			return qty * rate;
+		},
 		formatPrice(price) {
-			return parseFloat(price).toFixed(2);
+			return parseFloat(price || 0).toFixed(2);
 		},
 		async loadPaymentModes() {
 			if (!this.pos_profile) return;
@@ -397,7 +445,14 @@ export default {
 				this.payment_modes = this.pos_profile.payments.map(p => ({
 					mode_of_payment: p.mode_of_payment || p.mode_of_payment,
 					type: p.type || null,
+					default: p.default || 0,
 				})).filter(p => p.mode_of_payment); // Filter out any null/undefined
+				
+				// Set default mode of payment from POS Profile
+				const defaultPayment = this.payment_modes.find(p => p.default === 1);
+				if (defaultPayment && !this.mode_of_payment) {
+					this.mode_of_payment = defaultPayment.mode_of_payment;
+				}
 				return;
 			}
 			
@@ -410,6 +465,12 @@ export default {
 					},
 				});
 				this.payment_modes = message || [];
+				
+				// Set default mode of payment
+				const defaultPayment = this.payment_modes.find(p => p.default === 1);
+				if (defaultPayment && !this.mode_of_payment) {
+					this.mode_of_payment = defaultPayment.mode_of_payment;
+				}
 			} catch (error) {
 				console.error("Failed to load payment modes:", error);
 				this.payment_modes = [];
@@ -446,7 +507,7 @@ export default {
 				this.closeDialog();
 				this.eventBus.emit("minimal_sales_order_created", message);
 				
-				// Open print dialog for the sales order
+				// Auto-print the sales order without leaving POS
 				if (message && message.name) {
 					let url =
 						frappe.urllib.get_base_url() +
@@ -461,7 +522,24 @@ export default {
 						url += "&format=" + encodeURIComponent(this.fatehPosSettings.sales_order_print_format);
 					}
 					
-					window.open(url, "Print");
+					// Open print in new window, auto-print, then close
+					const printWindow = window.open(url, "_blank");
+					if (printWindow) {
+						// Wait for print dialog to finish, then close the window
+						printWindow.addEventListener("afterprint", function() {
+							printWindow.close();
+						});
+						// Fallback: close after a delay if afterprint doesn't fire
+						setTimeout(() => {
+							try {
+								if (printWindow && !printWindow.closed) {
+									printWindow.close();
+								}
+							} catch (e) {
+								console.log("Print window already closed");
+							}
+						}, 2000);
+					}
 				}
 			} catch (error) {
 				console.error("Failed to create sales order:", error);
@@ -478,7 +556,8 @@ export default {
 		this.eventBus.on("open_minimal_sales_order", async (data) => {
 			this.pos_profile = data?.pos_profile;
 			this.dialog = true;
-			await this.loadPaymentModes();
+			await this.loadPaymentModes(); // This will set default mode of payment
+			
 			// Add default item if available
 			if (data?.default_item) {
 				this.items.push({
