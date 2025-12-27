@@ -228,18 +228,20 @@
 				</div>
 			</template>
 
-			<!-- Offer toggle -->
-			<template v-slot:item.posa_is_offer="{ item }">
-				<v-btn
-					size="x-small"
-					color="primary"
-					variant="tonal"
-					class="ma-0 pa-0"
-					@click.stop="toggleOffer(item)"
-				>
-					{{ item.posa_offer_applied ? __("Remove Offer") : __("Apply Offer") }}
-				</v-btn>
-			</template>
+		<!-- Offer toggle -->
+		<template v-slot:item.posa_is_offer="{ item }">
+			<v-btn
+				v-if="!fatehPosSettings?.hide_apply_offer_column"
+				size="x-small"
+				color="primary"
+				variant="tonal"
+				class="ma-0 pa-0"
+				@click.stop="toggleOffer(item)"
+			>
+				{{ item.posa_offer_applied ? __("Remove Offer") : __("Apply Offer") }}
+			</v-btn>
+			<span v-else class="text-caption text-grey">{{ __("N/A") }}</span>
+		</template>
 
 			<!-- Actions -->
 			<template v-slot:item.actions="{ item }">
@@ -331,6 +333,31 @@
 											"
 											prepend-inner-icon="mdi-weight"
 										></v-select>
+									</div>
+								</div>
+								
+								<!-- Additional Warehouse Stock Display -->
+								<div v-if="fatehPosSettings?.warehouse_stock_warehouses && 
+									Array.isArray(fatehPosSettings.warehouse_stock_warehouses) && 
+									fatehPosSettings.warehouse_stock_warehouses.length > 0" 
+									class="form-row mt-2">
+									<div class="form-field" style="width: 100%;">
+										<div class="text-caption text-grey mb-2 font-weight-medium">{{ __("Additional Warehouse Stock") }}</div>
+										<div class="warehouse-stock-grid">
+											<div v-for="warehouseRow in fatehPosSettings.warehouse_stock_warehouses" 
+												:key="warehouseRow.warehouse" 
+												class="warehouse-stock-item">
+												<span class="warehouse-stock-label">{{ warehouseRow.warehouse }}:</span>
+												<span class="warehouse-stock-value">
+													{{ formatFloat(
+														getWarehouseStock && getWarehouseStock(item, warehouseRow.warehouse) !== null
+															? getWarehouseStock(item, warehouseRow.warehouse)
+															: '-',
+														hide_qty_decimals ? 0 : undefined
+													) }}
+												</span>
+											</div>
+										</div>
 									</div>
 								</div>
 							</div>
@@ -545,43 +572,18 @@
 											disabled
 											prepend-inner-icon="mdi-folder-outline"
 										></v-text-field>
-									</div>
-									<div class="form-field" v-if="item.posa_offer_applied">
-										<v-checkbox
-											density="compact"
-											:label="frappe._('Offer Applied')"
-											v-model="item.posa_offer_applied"
-											readonly
-											hide-details
-											class="mt-1"
-											color="success"
-										></v-checkbox>
-									</div>
 								</div>
-								
-								<!-- Additional Warehouse Stock Display -->
-								<div v-if="fatehPosSettings?.warehouse_stock_warehouses && 
-									Array.isArray(fatehPosSettings.warehouse_stock_warehouses) && 
-									fatehPosSettings.warehouse_stock_warehouses.length > 0" 
-									class="form-row mt-2">
-									<div class="form-field" style="width: 100%;">
-										<div class="text-caption text-grey mb-2 font-weight-medium">{{ __("Additional Warehouse Stock") }}</div>
-										<div class="warehouse-stock-grid">
-											<div v-for="warehouseRow in fatehPosSettings.warehouse_stock_warehouses" 
-												:key="warehouseRow.warehouse" 
-												class="warehouse-stock-item">
-												<span class="warehouse-stock-label">{{ warehouseRow.warehouse }}:</span>
-												<span class="warehouse-stock-value">
-													{{ formatFloat(
-														getWarehouseStock && getWarehouseStock(item, warehouseRow.warehouse) !== null
-															? getWarehouseStock(item, warehouseRow.warehouse)
-															: '-',
-														hide_qty_decimals ? 0 : undefined
-													) }}
-												</span>
-											</div>
-										</div>
-									</div>
+								<div class="form-field" v-if="item.posa_offer_applied && !fatehPosSettings?.hide_apply_offer_column">
+									<v-checkbox
+										density="compact"
+										:label="frappe._('Offer Applied')"
+										v-model="item.posa_offer_applied"
+										readonly
+										hide-details
+										class="mt-1"
+										color="success"
+									></v-checkbox>
+								</div>
 								</div>
 							</div>
 

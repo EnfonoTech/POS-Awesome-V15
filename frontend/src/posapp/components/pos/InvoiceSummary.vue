@@ -211,7 +211,7 @@
 							class="summary-btn"
 							:loading="minimalOrderLoading"
 						>
-							{{ __("Minimal Order") }}
+							{{ __("New Order") }}
 						</v-btn>
 					</v-col>
 					<v-col cols="6" v-if="minimalSalesOrderEnabled">
@@ -227,7 +227,7 @@
 							{{ __("Orders List") }}
 						</v-btn>
 					</v-col>
-					<v-col cols="6">
+					<v-col cols="6" v-if="!fatehPosSettings?.hide_apply_offer_column">
 						<v-btn
 							block
 							color="info"
@@ -279,6 +279,7 @@ export default {
 		advance_amount: Number,
 		balance_after_advance: Number,
 		has_sales_order: Boolean,
+		fatehPosSettings: Object,
 	},
 	data() {
 		return {

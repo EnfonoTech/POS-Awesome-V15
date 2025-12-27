@@ -120,9 +120,14 @@ def create_minimal_sales_order(data):
     # Get customer
     customer_name = data.get("customer_name")
     mobile_no = data.get("mobile_no") or data.get("customer_number")
+    additional_notes = data.get("additional_notes", "")
+    
+    # If customer name is not provided but phone number is, use phone number as customer name
+    if not customer_name and mobile_no:
+        customer_name = mobile_no
     
     if not customer_name:
-        frappe.throw(_("Customer name is required"))
+        frappe.throw(_("Customer name or mobile number is required"))
     
     # Find or create customer
     customer = None
@@ -168,6 +173,11 @@ def create_minimal_sales_order(data):
         "delivery_date": nowdate(),
         "pos_profile": pos_profile,
     })
+    
+    # Add additional notes if provided
+    if additional_notes:
+        # Add notes to the posa_notes custom field
+        so_doc.posa_notes = additional_notes
     
     # Add items
     items = data.get("items", [])
@@ -444,21 +454,8 @@ def get_pos_profile_payment_modes(pos_profile_data):
 
 
 @frappe.whitelist()
-def search_items(search_term, limit=20):
-    """Search for items by name or code."""
-    # Validate and clean search_term
-    if not search_term:
-        return []
-    
-    # Handle string input
-    if isinstance(search_term, str):
-        search_term = search_term.strip()
-        # Check for invalid values like "undefined"
-        if not search_term or search_term.lower() in ["undefined", "null", "none", ""] or len(search_term) < 2:
-            return []
-    else:
-        return []
-    
+def search_items(search_term=None, limit=20, pos_profile=None):
+    """Search for items by name or code with price list rates."""
     # Ensure limit is an integer and safe
     try:
         limit = int(limit) if limit else 20
@@ -469,25 +466,63 @@ def search_items(search_term, limit=20):
     except (ValueError, TypeError):
         limit = 20
     
-    search_pattern = f"%{search_term}%"
-    exact_start_pattern = f"{search_term}%"
+    # Get price list from POS Profile
+    price_list = None
+    if pos_profile:
+        price_list = frappe.db.get_value("POS Profile", pos_profile, "selling_price_list")
     
-    # LIMIT cannot use parameter placeholder in MySQL/MariaDB, so format it directly
-    # But we've validated limit is a safe integer, so this is safe
-    items = frappe.db.sql("""
-        SELECT name as item_code, item_name, item_group, stock_uom
-        FROM `tabItem`
-        WHERE (item_name LIKE %s OR name LIKE %s)
-        AND disabled = 0
-        ORDER BY 
-            CASE 
-                WHEN name LIKE %s THEN 1
-                WHEN item_name LIKE %s THEN 2
-                ELSE 3
-            END,
-            item_name
-        LIMIT {limit}
-    """.format(limit=limit), (search_pattern, search_pattern, exact_start_pattern, exact_start_pattern), as_dict=True)
+    # Clean and validate search term
+    if search_term:
+        if isinstance(search_term, str):
+            search_term = search_term.strip()
+            # Check for invalid values
+            if search_term.lower() in ["undefined", "null", "none"]:
+                search_term = None
+    
+    # Build the query based on whether we have a search term
+    if search_term and len(search_term) >= 2:
+        # Search with term
+        search_pattern = f"%{search_term}%"
+        exact_start_pattern = f"{search_term}%"
+        
+        items = frappe.db.sql("""
+            SELECT name as item_code, item_name, item_group, stock_uom
+            FROM `tabItem`
+            WHERE (item_name LIKE %s OR name LIKE %s)
+            AND disabled = 0
+            ORDER BY 
+                CASE 
+                    WHEN name LIKE %s THEN 1
+                    WHEN item_name LIKE %s THEN 2
+                    ELSE 3
+                END,
+                item_name
+            LIMIT {limit}
+        """.format(limit=limit), (search_pattern, search_pattern, exact_start_pattern, exact_start_pattern), as_dict=True)
+    else:
+        # Return default items (most recent or popular items)
+        items = frappe.db.sql("""
+            SELECT name as item_code, item_name, item_group, stock_uom
+            FROM `tabItem`
+            WHERE disabled = 0
+            ORDER BY modified DESC
+            LIMIT {limit}
+        """.format(limit=limit), as_dict=True)
+    
+    # Fetch price list rates if price list is available
+    if price_list and items:
+        for item in items:
+            # Get price list rate
+            price_list_rate = frappe.db.get_value(
+                "Item Price",
+                {
+                    "item_code": item.item_code,
+                    "price_list": price_list,
+                    "selling": 1
+                },
+                "price_list_rate"
+            )
+            item["price_list_rate"] = flt(price_list_rate) if price_list_rate else 0
     
     return items
 

@@ -381,6 +381,7 @@
 			:advance_amount="total_advance"
 			:balance_after_advance="balance_after_advance"
 			:has_sales_order="has_sales_order"
+			:fatehPosSettings="fatehPosSettings"
 			@update:additional_discount="(val) => (additional_discount = val)"
 			@update:additional_discount_percentage="(val) => (additional_discount_percentage = val)"
 			@update_discount_umount="update_discount_umount"

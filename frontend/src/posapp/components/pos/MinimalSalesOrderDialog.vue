@@ -1,9 +1,9 @@
 <template>
 	<v-row justify="center">
-		<v-dialog v-model="dialog" persistent max-width="800px">
+		<v-dialog v-model="dialog" persistent max-width="1200px">
 			<v-card>
 				<v-card-title class="text-h5 text-primary">
-					{{ __("Create Minimal Sales Order") }}
+					{{ __("Create New Order") }}
 				</v-card-title>
 				<v-card-text>
 					<v-container>
@@ -12,7 +12,6 @@
 								<v-text-field
 									v-model="customer_name"
 									:label="__('Customer Name')"
-									required
 									variant="outlined"
 									density="compact"
 									prepend-inner-icon="mdi-account"
@@ -41,22 +40,23 @@
 								>
 									<template v-slot:item.item_name="{ item }">
 										<div style="display: flex; gap: 8px;">
-											<v-autocomplete
-												v-model="item.selected_item"
-												:items="item.searchResults"
-												:item-title="item => item.item_name ? `${item.item_name} (${item.item_code})` : item.item_code"
-												:item-value="item => item.item_code"
-												:search="item.searchTerm"
-												@update:search="(val) => searchItem(val, item.temp_id)"
-												@update:model-value="(val) => selectItem(val, item.temp_id)"
-												variant="outlined"
-												density="compact"
-												hide-details
-												:placeholder="__('Search Item')"
-												clearable
-												no-data-text="No items found"
-												style="flex: 1;"
-											>
+									<v-autocomplete
+										v-model="item.selected_item"
+										:items="item.searchResults"
+										:item-title="item => item.item_name ? `${item.item_name} (${item.item_code})` : item.item_code"
+										:item-value="item => item.item_code"
+										:search="item.searchTerm"
+										@update:search="(val) => searchItem(val, item.temp_id)"
+										@update:model-value="(val) => selectItem(val, item.temp_id)"
+										@focus="loadDefaultItems(item.temp_id)"
+										variant="outlined"
+										density="compact"
+										hide-details
+										:placeholder="__('Search Item')"
+										clearable
+										no-data-text="No items found"
+										style="flex: 1;"
+									>
 												<template v-slot:item="{ props, item: itemData }">
 													<v-list-item v-bind="props">
 														<template v-slot:title>
@@ -64,6 +64,7 @@
 														</template>
 														<template v-slot:subtitle>
 															{{ __("Code") }}: {{ itemData.raw.item_code }} | {{ __("Group") }}: {{ itemData.raw.item_group }}
+															<span v-if="itemData.raw.price_list_rate"> | {{ __("Price") }}: {{ currencySymbolValue }}{{ formatPrice(itemData.raw.price_list_rate) }}</span>
 														</template>
 													</v-list-item>
 												</template>
@@ -149,6 +150,20 @@
 							</v-col>
 						</v-row>
 						
+						<v-row>
+							<v-col cols="12">
+								<v-textarea
+									v-model="additional_notes"
+									:label="__('Additional Notes')"
+									variant="outlined"
+									density="compact"
+									rows="3"
+									prepend-inner-icon="mdi-note-text"
+									:placeholder="__('Enter any additional notes or remarks')"
+								></v-textarea>
+							</v-col>
+						</v-row>
+						
 						<v-alert v-if="errorMessage" type="error" dense class="mt-2">
 							{{ errorMessage }}
 						</v-alert>
@@ -185,6 +200,7 @@ export default {
 			items: [],
 			advance_amount: 0,
 			mode_of_payment: "",
+			additional_notes: "",
 			payment_modes: [],
 			pos_profile: null,
 			isSubmitting: false,
@@ -197,6 +213,7 @@ export default {
 			],
 			itemCounter: 0,
 			itemSearchCache: {}, // Cache for item search results
+			fatehPosSettings: {}, // Fateh POS Settings data
 		};
 	},
 	computed: {
@@ -205,7 +222,7 @@ export default {
 		},
 		canSubmit() {
 			return (
-				this.customer_name &&
+				(this.customer_name || this.mobile_no) &&
 				this.items.length > 0 &&
 				this.items.every(item => {
 					// Either item is selected (item_code) or new item name is entered
@@ -217,6 +234,21 @@ export default {
 		},
 	},
 	methods: {
+		async loadFatehPosSettings() {
+			try {
+				const res = await frappe.call({
+					method: "frappe.client.get",
+					args: {
+						doctype: "Fateh POS Settings",
+						name: "Fateh POS Settings",
+					},
+				});
+				this.fatehPosSettings = res?.message || {};
+			} catch (error) {
+				console.warn("Could not load Fateh POS Settings:", error);
+				this.fatehPosSettings = {};
+			}
+		},
 		closeDialog() {
 			this.dialog = false;
 			this.resetForm();
@@ -227,6 +259,7 @@ export default {
 			this.items = [];
 			this.advance_amount = 0;
 			this.mode_of_payment = "";
+			this.additional_notes = "";
 			this.errorMessage = "";
 			this.itemCounter = 0;
 			this.itemSearchCache = {};
@@ -250,20 +283,39 @@ export default {
 			// Clean up search cache
 			delete this.itemSearchCache[temp_id];
 		},
-		async searchItem(searchTerm, tempId) {
+		async loadDefaultItems(tempId) {
+			// Load default items when autocomplete is focused (if not already loaded)
+			const item = this.items.find(i => i.temp_id === tempId);
+			if (!item) return;
+			
+			// If already has results, don't reload
+			if (item.searchResults && item.searchResults.length > 0) return;
+			
+			// Load default items (empty search returns top items)
+			await this.searchItem("", tempId, true);
+		},
+		async searchItem(searchTerm, tempId, forceLoad = false) {
 			// Validate search term
 			if (!searchTerm || typeof searchTerm !== 'string') {
 				const item = this.items.find(i => i.temp_id === tempId);
 				if (item) {
-					item.searchResults = [];
-					item.searchTerm = "";
+					// If forceLoad is true, fetch default items
+					if (forceLoad) {
+						searchTerm = "";
+					} else {
+						item.searchResults = [];
+						item.searchTerm = "";
+						return;
+					}
+				} else {
+					return;
 				}
-				return;
 			}
 			
 			searchTerm = searchTerm.trim();
 			
-			if (searchTerm.length < 2) {
+			// Allow empty search term when forceLoad is true to get default items
+			if (searchTerm.length < 2 && !forceLoad) {
 				const item = this.items.find(i => i.temp_id === tempId);
 				if (item) {
 					item.searchResults = [];
@@ -287,8 +339,9 @@ export default {
 				const { message } = await frappe.call({
 					method: "posawesome.posawesome.api.minimal_sales_orders.search_items",
 					args: {
-						search_term: searchTerm,
+						search_term: searchTerm || "",
 						limit: 20,
+						pos_profile: this.pos_profile?.name,
 					},
 				});
 				
@@ -321,6 +374,10 @@ export default {
 					item.item_group = selectedItem.item_group;
 					item.stock_uom = selectedItem.stock_uom;
 					item.selected_item = itemCode;
+					// Set the price list rate if available
+					if (selectedItem.price_list_rate) {
+						item.rate = selectedItem.price_list_rate;
+					}
 				}
 			} else {
 				// User cleared the selection - allow manual entry
@@ -328,6 +385,9 @@ export default {
 				item.selected_item = null;
 				// Keep item_name if it was manually entered
 			}
+		},
+		formatPrice(price) {
+			return parseFloat(price).toFixed(2);
 		},
 		async loadPaymentModes() {
 			if (!this.pos_profile) return;
@@ -371,6 +431,7 @@ export default {
 							items: this.items,
 							advance_amount: this.advance_amount,
 							mode_of_payment: this.mode_of_payment,
+							additional_notes: this.additional_notes,
 							company: this.pos_profile?.company,
 							pos_profile: this.pos_profile?.name,
 						},
@@ -384,6 +445,24 @@ export default {
 				
 				this.closeDialog();
 				this.eventBus.emit("minimal_sales_order_created", message);
+				
+				// Open print dialog for the sales order
+				if (message && message.name) {
+					let url =
+						frappe.urllib.get_base_url() +
+						"/printview?doctype=" +
+						encodeURIComponent("Sales Order") +
+						"&name=" +
+						encodeURIComponent(message.name) +
+						"&trigger_print=1";
+					
+					// Add print format if configured in Fateh POS Settings
+					if (this.fatehPosSettings?.sales_order_print_format) {
+						url += "&format=" + encodeURIComponent(this.fatehPosSettings.sales_order_print_format);
+					}
+					
+					window.open(url, "Print");
+				}
 			} catch (error) {
 				console.error("Failed to create sales order:", error);
 				this.errorMessage = error.message || __("Failed to create sales order");
@@ -392,7 +471,10 @@ export default {
 			}
 		},
 	},
-	created() {
+	async created() {
+		// Load Fateh POS Settings on component creation
+		await this.loadFatehPosSettings();
+		
 		this.eventBus.on("open_minimal_sales_order", async (data) => {
 			this.pos_profile = data?.pos_profile;
 			this.dialog = true;

@@ -195,10 +195,9 @@ export default {
 	// Balance after advance
 	balance_after_advance() {
 		if (!this.invoice_doc) return 0;
-		const invoice_total = this.flt(
-			this.invoice_doc.rounded_total || this.invoice_doc.grand_total || 0,
-			this.currency_precision
-		);
+		// Use real-time calculated subtotal instead of saved grand_total
+		// This ensures balance updates when items are added/removed
+		const invoice_total = this.flt(this.subtotal, this.currency_precision);
 		const advance = this.total_advance;
 		return this.flt(invoice_total - advance, this.currency_precision);
 	},

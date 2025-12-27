@@ -516,35 +516,85 @@ export function useItemAddition() {
 	};
 
 	// Reset all invoice fields to default/empty values
-	const clearInvoice = (context) => {
-		context.items = [];
-		context.packed_items = [];
-		context.posa_offers = [];
-		context.expanded = [];
-		context.eventBus.emit("set_pos_coupons", []);
-		context.posa_coupons = [];
-		context.invoice_doc = "";
-		context.return_doc = "";
-		context.discount_amount = 0;
-		context.additional_discount = 0;
-		context.additional_discount_percentage = 0;
-		context.delivery_charges_rate = 0;
-		context.selected_delivery_charge = "";
-		// Clear sales order references
-		if (context.sales_order_name !== undefined) context.sales_order_name = null;
-		if (context.sales_order_advance_paid !== undefined) context.sales_order_advance_paid = 0;
-		// Reset posting date to today
-		context.posting_date = frappe.datetime.nowdate();
+const clearInvoice = (context) => {
+	// Check if this is a return invoice - if so, NEVER change the customer
+	const isReturnInvoice = context.invoiceType === "Return" || 
+		(context.invoice_doc && (context.invoice_doc.is_return || context.invoice_doc.return_against));
+	
+	// Check if this is a saved invoice (has been submitted/saved to backend)
+	// Use the persistent flag first, then check invoice_doc
+	const savedInvoiceCustomer = context._savedInvoiceCustomer || 
+		(context.invoice_doc && context.invoice_doc.name ? context.invoice_doc.customer : null);
+	
+	// Check if customer should be preserved using the flag set when loading from SO
+	const customerFromSalesOrder = context._customerFromSalesOrder;
+	
+	// Also check if current customer is different from default (means manually selected)
+	const currentCustomer = context.customer;
+	const isNonDefaultCustomer = currentCustomer && 
+		currentCustomer !== context.pos_profile.customer;
+	
+	context.items = [];
+	context.packed_items = [];
+	context.posa_offers = [];
+	context.expanded = [];
+	context.eventBus.emit("set_pos_coupons", []);
+	context.posa_coupons = [];
+	context.invoice_doc = "";
+	context.return_doc = "";
+	context.discount_amount = 0;
+	context.additional_discount = 0;
+	context.additional_discount_percentage = 0;
+	context.delivery_charges_rate = 0;
+	context.selected_delivery_charge = "";
+	// Clear sales order references
+	if (context.sales_order_name !== undefined) context.sales_order_name = null;
+	if (context.sales_order_advance_paid !== undefined) context.sales_order_advance_paid = 0;
+	// Reset posting date to today
+	context.posting_date = frappe.datetime.nowdate();
 
-		// Reset price list to default
-		if (context.update_price_list) context.update_price_list();
+	// Reset price list to default
+	if (context.update_price_list) context.update_price_list();
 
-		// Always reset to default customer after invoice
+	// Preserve customer based on priority:
+	// 1. If return invoice - ALWAYS preserve customer (must match original)
+	// 2. If saved invoice - preserve customer from saved invoice (readonly controlled by load_invoice)
+	// 3. If from sales order (flag set) - use that customer
+	// 4. If manually selected (non-default) - keep current customer
+	// 5. Otherwise - reset to default
+	if (isReturnInvoice) {
+		// Return invoice - customer MUST be preserved (matches original invoice)
+		// Don't change context.customer at all
+		// Readonly is controlled by load_invoice/new_order
+	} else if (savedInvoiceCustomer) {
+		// Saved invoice - preserve the customer from the saved invoice
+		// Cannot change customer on an already saved invoice
+		// But don't set readonly here - let load_invoice handle that
+		context.customer = savedInvoiceCustomer;
+	} else if (customerFromSalesOrder) {
+		// Customer came from sales order - keep it
+		context.customer = customerFromSalesOrder;
+	} else if (isNonDefaultCustomer) {
+		// Customer was manually selected (not default) - keep it
+		// Don't change context.customer
+	} else {
+		// Customer is default or not set - reset to default (standard behavior)
 		context.customer = context.pos_profile.customer;
+		// Clear all customer preservation flags since we're resetting
+		if (context._customerFromSalesOrder !== undefined) {
+			context._customerFromSalesOrder = null;
+		}
+		if (context._savedInvoiceCustomer !== undefined) {
+			context._savedInvoiceCustomer = null;
+		}
+	}
 
-		context.eventBus.emit("set_customer_readonly", false);
+	// Reset invoice type for non-return, non-saved invoices
+	// Don't change invoice type for return invoices or saved invoices being continued
+	if (!isReturnInvoice && !savedInvoiceCustomer) {
 		context.invoiceType = context.pos_profile.posa_default_sales_order ? "Order" : "Invoice";
 		context.invoiceTypes = ["Invoice", "Order", "Quotation"];
+	}
 
 		if (Object.prototype.hasOwnProperty.call(context, "itemSearch")) {
 			context.itemSearch = "";

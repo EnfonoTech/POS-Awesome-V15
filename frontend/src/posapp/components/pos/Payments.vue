@@ -2291,10 +2291,10 @@ export default {
 					// If payment amount is already set (e.g., adjusted for advances), keep it
 					// Otherwise, use full invoice total
 					if (!default_payment.amount || default_payment.amount === 0) {
-						default_payment.amount = this.flt(
-							invoice_doc.rounded_total || invoice_doc.grand_total,
-							this.currency_precision,
-						);
+					default_payment.amount = this.flt(
+						invoice_doc.rounded_total || invoice_doc.grand_total,
+						this.currency_precision,
+					);
 					}
 					this.is_credit_return = false;
 				}

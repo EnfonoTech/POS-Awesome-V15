@@ -328,16 +328,6 @@ export default {
 		this.clear_invoice();
 		if (data.is_return) {
 			console.log("Processing return invoice");
-			// For return without invoice case, check if there's a return_against
-			// Only set customer readonly if this is a return with reference to an invoice
-			if (data.return_against) {
-				console.log("Return has reference to invoice:", data.return_against);
-				this.eventBus.emit("set_customer_readonly", true);
-			} else {
-				console.log("Return without invoice reference, customer can be selected");
-				// Allow customer selection for returns without invoice
-				this.eventBus.emit("set_customer_readonly", false);
-			}
 			this.invoiceType = "Return";
 			this.invoiceTypes = ["Return"];
 		}
@@ -402,39 +392,49 @@ export default {
 			console.log("Warning: No items in return invoice");
 		}
 
-		if (this.packed_items.length > 0) {
-			this.update_items_details(this.packed_items);
-			this.packed_items.forEach((pi) => {
-				if (!pi.posa_row_id) {
-					pi.posa_row_id = this.makeid(20);
-				}
-			});
-		}
+	if (this.packed_items.length > 0) {
+		this.update_items_details(this.packed_items);
+		this.packed_items.forEach((pi) => {
+			if (!pi.posa_row_id) {
+				pi.posa_row_id = this.makeid(20);
+			}
+		});
+	}
 
-		// When loading an invoice from backend (has name), always use the invoice's customer
-		// When creating a new invoice (no name), preserve the selected customer from store
-		if (data.name) {
-			// Existing invoice from backend - use invoice's customer
-			this.customer = data.customer || this.customer;
-			if (this.customersStore && data.customer) {
+	// When loading an invoice from backend (has name), always use the invoice's customer
+	// When creating a new invoice (no name), preserve the selected customer from store
+	// Exception: Return invoices ALWAYS use data.customer (from original invoice)
+	if (data.is_return && data.customer) {
+		// Return invoice - ALWAYS use the customer from the original invoice
+		this.customer = data.customer;
+		if (this.customersStore) {
+			this.customersStore.setSelectedCustomer(data.customer);
+		}
+	} else if (data.name) {
+		// Existing invoice from backend - ALWAYS use invoice's customer (no fallback)
+		// A saved invoice must have a customer, so trust data.customer completely
+		this.customer = data.customer;
+		// Set persistent flag to preserve this customer through clearInvoice calls
+		this._savedInvoiceCustomer = data.customer;
+		if (this.customersStore && data.customer) {
+			this.customersStore.setSelectedCustomer(data.customer);
+		}
+	} else {
+		// New invoice - preserve selected customer from store if available
+		const currentCustomer = this.customersStore?.selectedCustomer || this.customer;
+		if (data.customer && !currentCustomer) {
+			this.customer = data.customer;
+			if (this.customersStore) {
 				this.customersStore.setSelectedCustomer(data.customer);
 			}
+		} else if (currentCustomer) {
+			// Preserve the current customer from store
+			this.customer = currentCustomer;
 		} else {
-			// New invoice - preserve selected customer from store if available
-			const currentCustomer = this.customersStore?.selectedCustomer || this.customer;
-			if (data.customer && !currentCustomer) {
-				this.customer = data.customer;
-				if (this.customersStore) {
-					this.customersStore.setSelectedCustomer(data.customer);
-				}
-			} else if (currentCustomer) {
-				// Preserve the current customer from store
-				this.customer = currentCustomer;
-			} else {
-				this.customer = data.customer;
-			}
+			this.customer = data.customer;
 		}
-		this.posting_date = this.formatDateForBackend(data.posting_date || frappe.datetime.nowdate());
+	}
+	this.posting_date = this.formatDateForBackend(data.posting_date || frappe.datetime.nowdate());
 		this.discount_amount = data.discount_amount;
 		this.additional_discount_percentage = data.additional_discount_percentage;
 		this.additional_discount = data.discount_amount;
@@ -528,15 +528,14 @@ export default {
 
 	// Load sales order data into invoice
 	async load_sales_order_to_invoice(data = {}) {
-		console.log("=== LOAD SALES ORDER TO INVOICE ===");
-		console.log("Data received:", data);
-		
 		// Clear current invoice first
 		this.clear_invoice();
 		
-		// Set customer
+		// Set customer and mark it as from sales order (should be preserved)
 		if (data.customer) {
 			this.customer = data.customer;
+			// Flag to preserve this customer (from sales order)
+			this._customerFromSalesOrder = data.customer;
 			if (this.customersStore && data.customer) {
 				this.customersStore.setSelectedCustomer(data.customer);
 			}
@@ -623,13 +622,9 @@ export default {
 		}
 		
 		// Set advances in invoice_doc if sales order exists (always check, like customer credit)
-		// Wait for invoice to be fully calculated before setting advances
-		if (data.sales_order) {
-			console.log("=== WILL FETCH ADVANCES ===");
-			console.log("Sales order:", data.sales_order);
-			console.log("Invoice doc grand_total:", this.invoice_doc.grand_total);
-			
-			// Wait for invoice calculation to complete (items added, totals calculated)
+	// Wait for invoice to be fully calculated before setting advances
+	if (data.sales_order) {
+		// Wait for invoice calculation to complete (items added, totals calculated)
 			await this.$nextTick();
 			
 			// Fetch advance payment entries for this sales order
@@ -652,7 +647,6 @@ export default {
 	// Start a new order (or return order) with provided data
 	async new_order(data = {}) {
 		let old_invoice = null;
-		this.eventBus.emit("set_customer_readonly", false);
 		this.expanded = [];
 		this.posa_offers = [];
 		this.eventBus.emit("set_pos_coupons", []);
@@ -661,6 +655,9 @@ export default {
 		if (!data.name && !data.is_return) {
 			this.items = [];
 			this.customer = this.pos_profile.customer;
+			// Clear all customer preservation flags when starting fresh invoice
+			this._customerFromSalesOrder = null;
+			this._savedInvoiceCustomer = null;
 			this.invoice_doc = "";
 			this.discount_amount = 0;
 			this.additional_discount_percentage = 0;
@@ -668,16 +665,11 @@ export default {
 			this.invoiceTypes = ["Invoice", "Order", "Quotation"];
 		} else {
 			if (data.is_return) {
-				// For return without invoice case, check if there's a return_against
-				// Only set customer readonly if this is a return with reference to an invoice
-				if (data.return_against) {
-					this.eventBus.emit("set_customer_readonly", true);
-				} else {
-					// Allow customer selection for returns without invoice
-					this.eventBus.emit("set_customer_readonly", false);
-				}
 				this.invoiceType = "Return";
 				this.invoiceTypes = ["Return"];
+				// Clear customer preservation flags for return invoices
+				this._customerFromSalesOrder = null;
+				this._savedInvoiceCustomer = null;
 			}
 			this.invoice_doc = data;
 			this.items = data.items;
@@ -698,9 +690,18 @@ export default {
 			});
 			// When loading an invoice from backend (has name), always use the invoice's customer
 			// When creating a new invoice (no name), preserve the selected customer from store
-			if (data.name) {
-				// Existing invoice from backend - use invoice's customer
-				this.customer = data.customer || this.customer;
+			// Exception: Return invoices ALWAYS use data.customer (from original invoice)
+			if (data.is_return && data.customer) {
+				// Return invoice - ALWAYS use the customer from the original invoice
+				this.customer = data.customer;
+				if (this.customersStore) {
+					this.customersStore.setSelectedCustomer(data.customer);
+				}
+			} else if (data.name) {
+				// Existing invoice from backend - use invoice's customer directly
+				this.customer = data.customer;
+				// Set persistent flag to preserve this customer through clearInvoice calls
+				this._savedInvoiceCustomer = data.customer;
 				if (this.customersStore && data.customer) {
 					this.customersStore.setSelectedCustomer(data.customer);
 				}
@@ -1778,12 +1779,9 @@ export default {
 			return;
 		}
 
-		// Save advances and sales_order BEFORE processing (from this.invoice_doc)
-		const savedAdvances = this.invoice_doc && this.invoice_doc.advances ? [...this.invoice_doc.advances] : [];
-		const savedSalesOrder = this.invoice_doc ? this.invoice_doc.sales_order : null;
-		console.log("=== SAVING ADVANCE CONTEXT BEFORE PROCESSING ===");
-		console.log("Saved advances before processing:", savedAdvances);
-		console.log("Saved sales_order before processing:", savedSalesOrder);
+	// Save advances and sales_order BEFORE processing (from this.invoice_doc)
+	const savedAdvances = this.invoice_doc && this.invoice_doc.advances ? [...this.invoice_doc.advances] : [];
+	const savedSalesOrder = this.invoice_doc ? this.invoice_doc.sales_order : null;
 
 		let invoice_doc;
 		if (
@@ -1813,23 +1811,18 @@ export default {
 
 	// Reload current invoice from backend (no selection dialog) to ensure items/totals are up-to-date
 	if (!isOffline() && invoice_doc.name) {
-		console.log("=== RELOADING INVOICE FROM BACKEND ===");
-			
-			const refreshed = await this.reload_current_invoice_from_backend();
-			if (refreshed) {
-				invoice_doc = refreshed;
-			}
+		const refreshed = await this.reload_current_invoice_from_backend();
+		if (refreshed) {
+			invoice_doc = refreshed;
 		}
-		
+	}
+	
 	// Restore advances and sales_order after reload (using saved values from before processing)
 	if (savedAdvances.length > 0) {
 		invoice_doc.advances = savedAdvances;
 		if (savedSalesOrder) {
 			invoice_doc.sales_order = savedSalesOrder;
 		}
-		console.log("=== RESTORED ADVANCE CONTEXT AFTER RELOAD ===");
-		console.log("Restored advances:", invoice_doc.advances);
-		console.log("Restored sales_order:", invoice_doc.sales_order);
 		
 		// Calculate total advance amount
 		let total_advance = 0;
@@ -1844,7 +1837,6 @@ export default {
 		if (total_advance > 0) {
 			const invoice_total = flt(invoice_doc.grand_total || invoice_doc.rounded_total || 0);
 			const outstanding = flt(invoice_total - total_advance);
-			console.log("Adjusting payment after reload - Invoice total:", invoice_total, "Advance:", total_advance, "Outstanding:", outstanding);
 			
 			// Set payment to outstanding balance
 			if (invoice_doc.payments && invoice_doc.payments.length > 0) {
@@ -1921,7 +1913,6 @@ export default {
 
 		// Get payments with correct sign (positive/negative)
 		invoice_doc.payments = this.get_payments();
-		console.log("Final payment data (before advance adjustment):", invoice_doc.payments);
 
 		// Double-check return invoice payments are negative
 		if ((this.isReturnInvoice || invoice_doc.is_return) && invoice_doc.payments.length) {
@@ -1929,7 +1920,6 @@ export default {
 				if (payment.amount > 0) payment.amount = -Math.abs(payment.amount);
 				if (payment.base_amount > 0) payment.base_amount = -Math.abs(payment.base_amount);
 			});
-			console.log("Ensured negative payment amounts for return:", invoice_doc.payments);
 		}
 		
 		// Adjust payments for advances (must happen AFTER get_payments() to avoid being overwritten)
@@ -1942,8 +1932,6 @@ export default {
 			if (total_advance > 0) {
 				const invoice_total = flt(invoice_doc.grand_total || invoice_doc.rounded_total || 0);
 				const outstanding = flt(invoice_total - total_advance);
-				console.log("=== FINAL PAYMENT ADJUSTMENT FOR ADVANCES ===");
-				console.log("Invoice total:", invoice_total, "Advance:", total_advance, "Outstanding:", outstanding);
 				
 				// Adjust first payment to outstanding balance
 				if (invoice_doc.payments && invoice_doc.payments.length > 0) {
@@ -1951,17 +1939,9 @@ export default {
 					if (invoice_doc.payments[0].base_amount !== undefined) {
 						invoice_doc.payments[0].base_amount = outstanding;
 					}
-					console.log("Adjusted payment amount to:", outstanding);
-					console.log("Payment object after adjustment:", JSON.parse(JSON.stringify(invoice_doc.payments[0])));
 				}
 			}
 		}
-
-		console.log("=== FINAL INVOICE_DOC BEING SENT TO PAYMENT DIALOG ===");
-		console.log("Advances:", invoice_doc.advances ? invoice_doc.advances.length : 0);
-		console.log("Sales Order:", invoice_doc.sales_order);
-		console.log("Payments:", invoice_doc.payments ? invoice_doc.payments.map(p => ({mode: p.mode_of_payment, amount: p.amount})) : []);
-		console.log("Showing payment dialog with currency:", invoice_doc.currency);
 			if (typeof this.paymentVisible !== "undefined") {
 				this.paymentVisible = true;
 			}
@@ -3032,12 +3012,7 @@ export default {
 
 	// Fetch and set advances for a sales order
 	fetch_and_set_advances(sales_order_name) {
-		console.log("=== FETCH AND SET ADVANCES ===");
-		console.log("Sales order name:", sales_order_name);
-		console.log("Has invoice_doc:", !!this.invoice_doc);
-		
 		if (!sales_order_name || !this.invoice_doc) {
-			console.warn("Missing sales_order_name or invoice_doc, skipping");
 			return;
 		}
 		
@@ -3047,37 +3022,22 @@ export default {
 				sales_order_name: sales_order_name,
 			},
 			callback: (r) => {
-				console.log("=== FETCH ADVANCES RESPONSE ===");
-				console.log("Response:", r.message);
-				
 				if (r.message && r.message.length > 0 && this.invoice_doc) {
-					console.log("Advances found:", r.message.length);
 					// Wait for next tick to ensure invoice_doc is fully updated
 					this.$nextTick(() => {
 						const invoice_total = flt(this.invoice_doc.grand_total || this.invoice_doc.rounded_total || 0);
-						console.log("Invoice total:", invoice_total);
 						
 						if (invoice_total > 0) {
 							this.set_advances_and_adjust_payments(r.message, invoice_total, sales_order_name);
-						} else {
-							console.warn("Invoice total is 0, cannot set advances");
 						}
 					});
-				} else {
-					console.warn("No advances found or no invoice_doc");
 				}
 			},
 		});
 	},
 
 	set_advances_and_adjust_payments(advance_list, invoice_total, sales_order_name) {
-		console.log("=== SET ADVANCES AND ADJUST PAYMENTS ===");
-		console.log("Advance list:", advance_list);
-		console.log("Invoice total:", invoice_total);
-		console.log("Sales order name:", sales_order_name);
-		
 		if (!this.invoice_doc || !advance_list || advance_list.length === 0) {
-			console.warn("Missing required data");
 			return;
 		}
 		
@@ -3150,10 +3110,6 @@ export default {
 		
 		// Force immediate update to trigger computed properties BEFORE $nextTick
 		this.$forceUpdate();
-		
-		console.log("=== ADVANCES SET ON INVOICE_DOC ===");
-		console.log("invoice_doc.advances:", this.invoice_doc.advances);
-		console.log("invoice_doc.sales_order:", this.invoice_doc.sales_order);
 		
 		// Adjust payments to match outstanding amount
 		this.$nextTick(() => {
