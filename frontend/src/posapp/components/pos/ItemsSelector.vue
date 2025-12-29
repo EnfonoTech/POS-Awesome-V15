@@ -1822,7 +1822,14 @@ export default {
 			}
 
 			// Apply global UOM if enabled and the UOM exists for this item
-			if (this.useGlobalUom && this.globalUom && item.item_uoms && item.item_uoms.length > 0) {
+			// Skip global UOM if UOM was already set from barcode scanning
+			if (
+				!item._barcode_uom_applied &&
+				this.useGlobalUom &&
+				this.globalUom &&
+				item.item_uoms &&
+				item.item_uoms.length > 0
+			) {
 				// Check if the global UOM exists in item's UOMs
 				const uomExists = item.item_uoms.some((u) => u.uom === this.globalUom);
 				if (uomExists) {
@@ -1924,6 +1931,8 @@ export default {
 				new_item.item_barcode.forEach((element) => {
 					if (search === element.barcode) {
 						new_item.uom = element.posa_uom;
+						// Mark that UOM was set from barcode to prevent global UOM override
+						new_item._barcode_uom_applied = true;
 						match = true;
 					}
 				});
@@ -3329,6 +3338,8 @@ export default {
 				const barcodeMatch = newItem.item_barcode.find((b) => b.barcode === scannedCode);
 				if (barcodeMatch && barcodeMatch.posa_uom) {
 					newItem.uom = barcodeMatch.posa_uom;
+					// Mark that UOM was set from barcode to prevent global UOM override
+					newItem._barcode_uom_applied = true;
 
 					// Try fetching the rate for this UOM from the active price list
 					try {
