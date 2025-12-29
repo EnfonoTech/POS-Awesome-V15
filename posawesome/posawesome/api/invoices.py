@@ -657,6 +657,10 @@ def submit_invoice(invoice, data):
 
     _validate_stock_on_invoice(invoice_doc)
 
+    # Save custom_customer_number from data if provided
+    if data.get("custom_customer_number"):
+        invoice_doc.custom_customer_number = data.get("custom_customer_number")
+
     invoice_doc.flags.ignore_permissions = True
     frappe.flags.ignore_account_permission = True
     invoice_doc.posa_is_printed = 1

@@ -12,6 +12,7 @@
   "barcode_scanner_on_right",
   "enable_quick_item_search",
   "hide_apply_offer_column",
+  "show_custom_customer_number",
   "section_break_minimal_sales_order",
   "enable_minimal_sales_order",
   "default_item_group",
@@ -73,6 +74,13 @@
    "fieldname": "hide_apply_offer_column",
    "fieldtype": "Check",
    "label": "Hide Apply Offer Column"
+  },
+  {
+   "default": "0",
+   "description": "Show custom customer number field in payment section",
+   "fieldname": "show_custom_customer_number",
+   "fieldtype": "Check",
+   "label": "Show Custom Customer Number in Payments"
   },
   {
    "fieldname": "section_break_minimal_sales_order",
@@ -179,7 +187,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-12-24 20:16:16.476897",
+ "modified": "2025-12-28 16:54:51.089544",
  "modified_by": "Administrator",
  "module": "POSAwesome",
  "name": "Fateh POS Settings",
@@ -192,6 +200,46 @@
    "print": 1,
    "read": 1,
    "role": "System Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Accounts User",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Accounts Manager",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Sales User",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Sales Manager",
    "share": 1,
    "write": 1
   }

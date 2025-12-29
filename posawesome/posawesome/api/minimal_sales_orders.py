@@ -163,6 +163,9 @@ def create_minimal_sales_order(data):
     company = pos_profile_doc.company
     currency = pos_profile_doc.currency
     
+    # Get warehouse from data or POS profile
+    set_warehouse = data.get("set_warehouse") or (pos_profile_doc.warehouse if hasattr(pos_profile_doc, "warehouse") else None)
+    
     # Create sales order
     so_doc = frappe.get_doc({
         "doctype": "Sales Order",
@@ -173,6 +176,10 @@ def create_minimal_sales_order(data):
         "delivery_date": nowdate(),
         "pos_profile": pos_profile,
     })
+    
+    # Set warehouse if provided
+    if set_warehouse:
+        so_doc.set_warehouse = set_warehouse
     
     # Add additional notes if provided
     if additional_notes:
@@ -206,7 +213,7 @@ def create_minimal_sales_order(data):
             "qty": flt(item_data.get("qty", 1)),
             "rate": flt(item_data.get("rate", 0)),
             "uom": item_data.get("uom") or item_doc.stock_uom,
-            "warehouse": pos_profile_doc.warehouse if hasattr(pos_profile_doc, "warehouse") else None,
+            "warehouse": set_warehouse,
         })
     
     so_doc.flags.ignore_permissions = True

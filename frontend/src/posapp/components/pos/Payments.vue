@@ -142,12 +142,20 @@
 										'Cash payment cannot be less than invoice total when credit sale is off',
 								]"
 								:prefix="currencySymbol(invoice_doc.currency)"
-								@focus="set_rest_amount(payment.idx)"
-								:readonly="invoice_doc.is_return"
+								@focus="!is_credit_sale && set_rest_amount(payment.idx)"
+								:readonly="invoice_doc.is_return || is_credit_sale"
+								:disabled="is_credit_sale"
 							></v-text-field>
 						</v-col>
 						<v-col cols="6" v-if="!is_mpesa_c2b_payment(payment)">
-							<v-btn block color="primary" theme="dark" class="mode-payment-btn" @click="set_full_amount(payment.idx)">
+							<v-btn 
+								block 
+								color="primary" 
+								theme="dark" 
+								class="mode-payment-btn" 
+								@click="set_full_amount(payment.idx)"
+								:disabled="is_credit_sale"
+							>
 								{{ payment.mode_of_payment }}
 							</v-btn>
 						</v-col>
@@ -363,6 +371,21 @@
 						></v-text-field>
 					</v-col>
 
+					<!-- Custom Customer Number -->
+					<v-col cols="6" v-if="showCustomCustomerNumber">
+						<v-text-field
+							density="compact"
+							variant="solo"
+							color="primary"
+							:label="frappe._('Contact Number')"
+							class="sleek-field pos-themed-input"
+							v-model="custom_customer_number"
+							prepend-inner-icon="mdi-account-card-details"
+							:placeholder="__('Enter contact number')"
+							hide-details
+						></v-text-field>
+					</v-col>
+
 					<!-- Delivery Date and Address (if applicable) -->
 					<v-col cols="6" v-if="pos_profile.posa_allow_sales_order && invoiceType === 'Order'">
 						<VueDatePicker
@@ -529,7 +552,11 @@
 						cols="6"
 						v-if="invoice_doc && pos_profile.posa_allow_credit_sale && !invoice_doc.is_return"
 					>
-						<v-switch v-model="is_credit_sale" :label="frappe._('Credit Sale?')"></v-switch>
+						<v-switch 
+							v-model="is_credit_sale" 
+							:label="frappe._('Credit Sale?')"
+							:color="is_credit_sale ? 'warning' : 'primary'"
+						></v-switch>
 					</v-col>
 					<v-col cols="6" v-if="invoice_doc && invoice_doc.is_return && pos_profile.use_cashback">
 						<v-switch
@@ -819,6 +846,7 @@ export default {
 			pos_profile: "", // POS profile settings
 			pos_settings: "", // POS settings
 			stock_settings: "", // Stock settings
+			fatehPosSettings: {}, // Fateh POS settings
 			invoiceType: "Invoice", // Type of invoice
 			is_return: false, // Is this a return invoice?
 			loyalty_amount: 0, // Loyalty points to redeem
@@ -841,6 +869,7 @@ export default {
 			credit_due_days: null, // Number of days until due
 			credit_due_presets: [7, 14, 30], // Preset options for due days
 			customer_info: "", // Customer info
+			custom_customer_number: "", // Custom customer number
 			mpesa_modes: [], // List of available M-Pesa modes
 			sales_persons: [], // List of sales persons
 			sales_person: "", // Selected sales person
@@ -907,6 +936,17 @@ export default {
 			}
 			const allowNegative = parseBooleanSetting(this.stock_settings?.allow_negative_stock);
 			return !allowNegative && Boolean(this.pos_profile?.posa_block_sale_beyond_available_qty);
+		},
+		// Check if custom customer number field should be shown
+		showCustomCustomerNumber() {
+			if (!this.fatehPosSettings) {
+				console.log("showCustomCustomerNumber: fatehPosSettings is not loaded");
+				return false;
+			}
+			const value = this.fatehPosSettings.show_custom_customer_number;
+			const shouldShow = value === 1 || value === true || value === "1" || value === "true";
+			console.log("showCustomCustomerNumber:", { value, shouldShow, fatehPosSettings: this.fatehPosSettings });
+			return shouldShow;
 		},
 		// Calculate total payments (all methods, loyalty, credit)
 		total_payments() {
@@ -1229,6 +1269,23 @@ export default {
 		},
 	},
 	methods: {
+		async loadFatehPosSettings() {
+			try {
+				const res = await frappe.call({
+					method: "frappe.client.get",
+					args: {
+						doctype: "Fateh POS Settings",
+						name: "Fateh POS Settings",
+					},
+				});
+				this.fatehPosSettings = res?.message || {};
+				console.log("Fateh POS Settings loaded:", this.fatehPosSettings);
+				console.log("show_custom_customer_number:", this.fatehPosSettings.show_custom_customer_number);
+			} catch (error) {
+				console.warn("Could not load Fateh POS Settings:", error);
+				this.fatehPosSettings = {};
+			}
+		},
 		// Go back to invoice view and reset customer readonly
 		back_to_invoice() {
 			this.eventBus.emit("show_payment", "false");
@@ -1238,8 +1295,10 @@ export default {
 			});
 		},
 		// Highlight and focus the submit button when payment screen opens
-		handleShowPayment(data) {
+		async handleShowPayment(data) {
 			if (data === "true") {
+				// Reload settings when payment dialog opens to ensure latest values
+				await this.loadFatehPosSettings();
 				this.$nextTick(() => {
 					setTimeout(() => {
 						const btn = this.$refs.submitButton;
@@ -1500,6 +1559,7 @@ export default {
 				redeemed_customer_credit: this.redeemed_customer_credit,
 				customer_credit_dict: this.customer_credit_dict,
 				is_cashback: this.is_cashback,
+				custom_customer_number: this.custom_customer_number,
 			};
 			const vm = this;
 
@@ -2238,13 +2298,16 @@ export default {
 		},
 	},
 	// Lifecycle hook: created
-	created() {
+	async created() {
 		// Register keyboard shortcut for payment
 		document.addEventListener("keydown", this.shortPay.bind(this));
 		this.syncPendingInvoices();
 		this.eventBus.on("network-online", this.syncPendingInvoices);
 		// Also sync when the server connection is re-established
 		this.eventBus.on("server-online", this.syncPendingInvoices);
+		
+		// Load Fateh POS Settings
+		await this.loadFatehPosSettings();
 	},
 	// Lifecycle hook: mounted
 	mounted() {

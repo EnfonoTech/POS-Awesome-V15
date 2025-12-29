@@ -54,7 +54,7 @@
 										hide-details
 										:placeholder="__('Search Item')"
 										clearable
-										no-data-text="No items found"
+										:no-data-text="__('No items found')"
 										style="flex: 1;"
 									>
 												<template v-slot:item="{ props, item: itemData }">
@@ -495,6 +495,7 @@ export default {
 							additional_notes: this.additional_notes,
 							company: this.pos_profile?.company,
 							pos_profile: this.pos_profile?.name,
+							set_warehouse: this.pos_profile?.warehouse || this.pos_profile?.set_warehouse,
 						},
 					},
 				});

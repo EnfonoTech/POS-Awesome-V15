@@ -186,7 +186,18 @@
 					>
 				</div>
 			</template>
-
+			<!-- Offer toggle -->
+            <template v-slot:item.posa_is_offer="{ item }">
+                <v-btn
+                    size="x-small"
+                    color="primary"
+                    variant="tonal"
+                    class="ma-0 pa-0"
+                    @click.stop="toggleOffer(item)"
+                >
+                    {{ item.posa_offer_applied ? __("Remove Offer") : __("Apply Offer") }}
+                </v-btn>
+            </template>
  				<!-- Batch No column -->
 			<template v-slot:item.batch_no="{ item }">
 				<div class="batch-no-display" @click.stop>
@@ -228,20 +239,6 @@
 				</div>
 			</template>
 
-		<!-- Offer toggle -->
-		<template v-slot:item.posa_is_offer="{ item }">
-			<v-btn
-				v-if="!fatehPosSettings?.hide_apply_offer_column"
-				size="x-small"
-				color="primary"
-				variant="tonal"
-				class="ma-0 pa-0"
-				@click.stop="toggleOffer(item)"
-			>
-				{{ item.posa_offer_applied ? __("Remove Offer") : __("Apply Offer") }}
-			</v-btn>
-			<span v-else class="text-caption text-grey">{{ __("N/A") }}</span>
-		</template>
 
 			<!-- Actions -->
 			<template v-slot:item.actions="{ item }">
@@ -572,18 +569,18 @@
 											disabled
 											prepend-inner-icon="mdi-folder-outline"
 										></v-text-field>
-								</div>
-								<div class="form-field" v-if="item.posa_offer_applied && !fatehPosSettings?.hide_apply_offer_column">
-									<v-checkbox
-										density="compact"
-										:label="frappe._('Offer Applied')"
-										v-model="item.posa_offer_applied"
-										readonly
-										hide-details
-										class="mt-1"
-										color="success"
-									></v-checkbox>
-								</div>
+									</div>
+									<div class="form-field" v-if="item.posa_offer_applied">
+										<v-checkbox
+											density="compact"
+											:label="frappe._('Offer Applied')"
+											v-model="item.posa_offer_applied"
+											readonly
+											hide-details
+											class="mt-1"
+											color="success"
+										></v-checkbox>
+									</div>
 								</div>
 							</div>
 

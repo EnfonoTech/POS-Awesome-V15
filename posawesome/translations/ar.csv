@@ -120,6 +120,7 @@ Sales Invoice,فاتورة مبيعات
 Sales Invoice Reference,مرجع فاتورة المبيعات
 Sales Manager,مدير المبيعات
 Sales Master Manager,مدير المبيعات الرئيسي
+Sales Orders List,قائمة أوامر المبيعات
 Sales Summary,ملخص المبيعات
 Sales User,مستخدم المبيعات
 Scale Barcode Start With,يبدأ باركود الميزان بـ
@@ -287,6 +288,7 @@ Continue Editing,متابعة التعديل
 Could not fetch latest balance from server,تعذر جلب الرصيد الأخير من الخادم
 Coupon,قسيمة
 Create Customer,إنشاء عميل
+Create New Order,إنشاء طلب جديد
 Create POS Opening Shift,إنشاء وردية فتح نقاط البيع
 Current Event Loop Lag,تأخير دورة الأحداث الحالية
 Custom Due Days,أيام استحقاق مخصصة
@@ -362,12 +364,14 @@ Mode,الوضع
 Multiple Items Found,تم العثور على عناصر متعددة
 Negative values not allowed,القيم السالبة غير مسموح بها
 New Offer Available,عرض جديد متاح
+New Order,طلب جديد
 New Price List Rate,سعر قائمة جديد
 No invoices found,لم يتم العثور على فواتير
 No offline invoices pending synchronization,لا توجد فواتير غير متصلة بانتظار المزامنة
 Nobile Number,رقم الجوال
 Offline Invoices,الفواتير في وضع عدم الاتصال
 Order,طلب
+Orders List,قائمة الطلبات
 Outstanding,مستحق
 Paid,مدفوع
 Payment ID,معرّف الدفع
