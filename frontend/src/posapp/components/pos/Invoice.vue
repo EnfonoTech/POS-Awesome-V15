@@ -38,18 +38,29 @@
 								<Customer ref="customerComponent" />
 							</div>
 							<!-- Quick Customer Buttons -->
-							<div v-if="quickCustomers.length > 0" class="d-flex align-start gap-1 flex-shrink-0">
+							<div v-if="quickCustomers.length > 0 && !paymentVisible" class="d-flex align-start gap-1 flex-shrink-0 quick-customers-container">
 								<v-btn
 									v-for="(quickCustomer, index) in quickCustomers"
 									:key="index"
 									size="small"
-									variant="tonal"
-									:color="quickCustomer.button_color || 'primary'"
+									variant="text"
+									:color="quickCustomer.image_url ? undefined : (quickCustomer.button_color || 'primary')"
 									density="compact"
 									class="quick-customer-btn"
+									:class="{ 'quick-customer-btn-image': quickCustomer.image_url }"
 									@click="selectQuickCustomer(quickCustomer.customer)"
+									:title="quickCustomer.button_label || quickCustomer.customer_name"
+									:style="quickCustomer.image_url ? { padding: 0, minWidth: 'auto', backgroundColor: 'transparent' } : {}"
 								>
-									{{ quickCustomer.button_label || quickCustomer.customer_name }}
+									<img
+										v-if="quickCustomer.image_url"
+										:src="quickCustomer.image_url"
+										:alt="quickCustomer.button_label || quickCustomer.customer_name"
+										class="quick-customer-image"
+										@error="handleImageError(quickCustomer, $event)"
+										@load="console.log('Image loaded successfully:', quickCustomer.image_url)"
+									/>
+									<span v-else>{{ quickCustomer.button_label || quickCustomer.customer_name }}</span>
 								</v-btn>
 							</div>
 						</div>
@@ -1992,6 +2003,12 @@ export default {
 				this.enableQuickItemSearch = Boolean(msg.enable_quick_item_search);
 				// Load quick customers
 				this.quickCustomers = Array.isArray(msg.quick_customers) ? msg.quick_customers : [];
+				
+				// Fetch customer images for quick customers
+				if (this.quickCustomers.length > 0) {
+					await this.loadQuickCustomerImages();
+				}
+				
 				// Store settings for use in column initialization
 				this.fatehPosSettings = msg;
 			} catch (error) {
@@ -2000,6 +2017,68 @@ export default {
 				this.quickCustomers = [];
 				this.fatehPosSettings = {};
 			}
+		},
+		async loadQuickCustomerImages() {
+			const customerNames = this.quickCustomers
+				.map(qc => qc.customer)
+				.filter(Boolean);
+			
+			if (customerNames.length === 0) return;
+			
+			try {
+				// Fetch customer images in batch
+				const imagePromises = customerNames.map(async (customerName) => {
+					try {
+						// Get customer doc to access image field
+						const customerDoc = await frappe.db.get_doc('Customer', customerName);
+						
+						if (customerDoc && customerDoc.image) {
+							let fileUrl = customerDoc.image;
+							
+							// Construct full URL from file path
+							if (fileUrl) {
+								// If it's already a full URL, use it as is
+								if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+									// Already a full URL
+								} else {
+									// It's a file path, construct full URL
+									const baseUrl = frappe.urllib.get_base_url();
+									
+									// Ensure path starts with /
+									if (!fileUrl.startsWith('/')) {
+										fileUrl = '/' + fileUrl;
+									}
+									
+									// Construct full URL
+									fileUrl = baseUrl + fileUrl;
+								}
+								
+								// Find the customer in quickCustomers and add image URL
+								const quickCustomer = this.quickCustomers.find(qc => qc.customer === customerName);
+								if (quickCustomer) {
+									// Directly assign the property - Vue 3 handles reactivity automatically
+									quickCustomer.image_url = fileUrl;
+									console.log(`Loaded image for customer ${customerName}:`, fileUrl);
+									console.log('Quick customer object:', quickCustomer);
+								}
+							}
+						}
+					} catch (error) {
+						console.warn(`Could not load image for customer ${customerName}:`, error);
+					}
+				});
+				
+				await Promise.all(imagePromises);
+				// Force Vue to update
+				this.$forceUpdate();
+			} catch (error) {
+				console.warn("Error loading quick customer images:", error);
+			}
+		},
+		handleImageError(quickCustomer, event) {
+			console.warn(`Failed to load image for customer ${quickCustomer.customer}:`, quickCustomer.image_url);
+			// Remove image_url so it falls back to text
+			quickCustomer.image_url = null;
 		},
 		selectQuickCustomer(customerName) {
 			// Set customer directly to ensure it's selected immediately
@@ -2635,6 +2714,71 @@ export default {
 	align-items: center !important;
 	justify-content: center !important;
 	text-align: center !important;
+}
+
+.quick-customers-container {
+	flex-wrap: wrap;
+	gap: 4px;
+}
+
+.quick-customer-btn-image {
+	padding: 4px 6px !important;
+	min-width: auto !important;
+	width: auto !important;
+	height: 40px !important;
+	max-width: 140px !important;
+	overflow: hidden !important;
+	aspect-ratio: auto;
+	background: transparent !important;
+	background-color: transparent !important;
+}
+
+.quick-customer-btn-image::before {
+	display: none !important;
+	opacity: 0 !important;
+	background: transparent !important;
+}
+
+.quick-customer-btn-image:hover::before,
+.quick-customer-btn-image:focus::before,
+.quick-customer-btn-image:active::before,
+.quick-customer-btn-image:hover,
+.quick-customer-btn-image:focus,
+.quick-customer-btn-image:active {
+	background: transparent !important;
+	background-color: transparent !important;
+	opacity: 1 !important;
+}
+
+.quick-customer-btn-image .v-btn__content {
+	width: 100% !important;
+	height: 100% !important;
+	padding: 0 !important;
+	display: flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	margin: 0 !important;
+	background: transparent !important;
+	background-color: transparent !important;
+}
+
+.quick-customer-btn-image .v-btn__overlay {
+	display: none !important;
+	opacity: 0 !important;
+	background: transparent !important;
+}
+
+.quick-customer-image {
+	width: 100% !important;
+	height: 100% !important;
+	max-width: 100% !important;
+	max-height: 100% !important;
+	object-fit: contain !important;
+	border-radius: 4px;
+	display: block !important;
+	background: white !important;
+	padding: 2px !important;
+	box-sizing: border-box;
 }
 
 .gap-1 {
