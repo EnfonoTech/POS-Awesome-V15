@@ -30,7 +30,9 @@
   "enable_cash_transfer",
   "cash_transfer_account",
   "section_break_return_settings",
-  "default_return_reason"
+  "default_return_reason",
+  "section_break_scale_barcode",
+  "scale_barcode_prefixes"
  ],
  "fields": [
   {
@@ -195,6 +197,17 @@
    "fieldname": "default_return_reason",
    "fieldtype": "Data",
    "label": "Default Return Reason"
+  },
+  {
+   "fieldname": "section_break_scale_barcode",
+   "fieldtype": "Section Break",
+   "label": "Scale Barcode Settings"
+  },
+  {
+   "description": "Enter comma-separated prefixes (e.g., 221,222,223). Barcodes starting with any of these will be treated as scale barcodes. If not set, will fallback to POS Profile scale barcode prefix.",
+   "fieldname": "scale_barcode_prefixes",
+   "fieldtype": "Data",
+   "label": "Scale Barcode Prefixes"
   }
  ],
  "grid_page_length": 50,

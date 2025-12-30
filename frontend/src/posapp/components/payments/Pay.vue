@@ -365,20 +365,7 @@
 					</strong>
 					<div class="pb-6 pr-6" style="position: absolute; bottom: 0; width: 100%">
 						<v-row>
-							<v-col cols="6" class="pr-1">
-								<v-btn
-									block
-									size="large"
-									color="primary"
-									theme="dark"
-									@click="submit"
-									:disabled="vaildatPayment || isSubmitting"
-									:loading="isSubmitting"
-								>
-									{{ __("Submit") }}
-								</v-btn>
-							</v-col>
-							<v-col cols="6" class="pl-1">
+							<v-col cols="12">
 								<v-btn
 									block
 									size="large"

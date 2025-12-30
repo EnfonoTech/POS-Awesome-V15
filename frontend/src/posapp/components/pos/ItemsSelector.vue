@@ -1893,9 +1893,7 @@ export default {
 
 			// Derive the searchable code and detect scale barcode
 			const search = this.get_search(this.first_search);
-			const isScaleBarcode =
-				this.pos_profile?.posa_scale_barcode_start &&
-				this.first_search.startsWith(this.pos_profile.posa_scale_barcode_start);
+			const isScaleBarcode = this.isScaleBarcodePrefix(this.first_search);
 			this.search = search;
 
 			const qty = parseFloat(this.get_item_qty(this.first_search));
@@ -2077,12 +2075,59 @@ export default {
 			}),
 			300,
 		),
+		// Check if barcode starts with any scale barcode prefix
+		isScaleBarcodePrefix(barcode) {
+			if (!barcode) return false;
+			
+			// Check Fateh POS Settings first
+			if (this.fatehPosSettings?.scale_barcode_prefixes) {
+				const prefixes = String(this.fatehPosSettings.scale_barcode_prefixes)
+					.split(',')
+					.map(p => p.trim())
+					.filter(p => p.length > 0);
+				
+				return prefixes.some(prefix => barcode.startsWith(prefix));
+			}
+			
+			// Fallback to POS Profile if Fateh POS Settings not available
+			if (this.pos_profile?.posa_scale_barcode_start) {
+				return barcode.startsWith(String(this.pos_profile.posa_scale_barcode_start));
+			}
+			
+			return false;
+		},
+
+		// Get the matching prefix for a barcode
+		getScaleBarcodePrefix(barcode) {
+			if (!barcode) return null;
+			
+			// Check Fateh POS Settings first
+			if (this.fatehPosSettings?.scale_barcode_prefixes) {
+				const prefixes = String(this.fatehPosSettings.scale_barcode_prefixes)
+					.split(',')
+					.map(p => p.trim())
+					.filter(p => p.length > 0);
+				
+				const matched = prefixes.find(prefix => barcode.startsWith(prefix));
+				if (matched) return matched;
+			}
+			
+			// Fallback to POS Profile
+			if (this.pos_profile?.posa_scale_barcode_start) {
+				const prefix = String(this.pos_profile.posa_scale_barcode_start);
+				if (barcode.startsWith(prefix)) return prefix;
+			}
+			
+			return null;
+		},
+
 		get_item_qty(first_search) {
 			const qtyVal = this.qty != null ? this.qty : 1;
 			let scal_qty = Math.abs(qtyVal);
-			const prefix_len = this.pos_profile.posa_scale_barcode_start?.length || 0;
+			const prefix = this.getScaleBarcodePrefix(first_search);
 
-			if (first_search.startsWith(this.pos_profile.posa_scale_barcode_start)) {
+			if (prefix) {
+				const prefix_len = prefix.length;
 				// Determine item code length dynamically based on EAN-13 structure:
 				// prefix + item_code + 5 qty digits + 1 check digit
 				const item_code_len = first_search.length - prefix_len - 6;
@@ -2108,10 +2153,11 @@ export default {
 		},
 		get_search(first_search) {
 			if (!first_search) return "";
-			const prefix_len = this.pos_profile.posa_scale_barcode_start?.length || 0;
-			if (!first_search.startsWith(this.pos_profile.posa_scale_barcode_start)) {
+			const prefix = this.getScaleBarcodePrefix(first_search);
+			if (!prefix) {
 				return first_search;
 			}
+			const prefix_len = prefix.length;
 			// Calculate item code length from total barcode length
 			const item_code_len = first_search.length - prefix_len - 6;
 			return first_search.substr(0, prefix_len + item_code_len);
@@ -3168,10 +3214,7 @@ export default {
 			// Handle scale barcodes by extracting the item code and quantity
 			let searchCode = scannedCode;
 			let qtyFromBarcode = null;
-			if (
-				this.pos_profile?.posa_scale_barcode_start &&
-				scannedCode.startsWith(this.pos_profile.posa_scale_barcode_start)
-			) {
+			if (this.isScaleBarcodePrefix(scannedCode)) {
 				searchCode = this.get_search(scannedCode);
 				qtyFromBarcode = parseFloat(this.get_item_qty(scannedCode));
 			}

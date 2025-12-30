@@ -699,24 +699,9 @@
 		<!-- Action Buttons -->
 		<v-card flat class="cards mb-0 mt-3 pa-0">
 			<v-row align="start" no-gutters>
-				<v-col cols="6">
+				<v-col cols="12">
 					<v-btn
 						ref="submitButton"
-						block
-						size="large"
-						color="primary"
-						theme="dark"
-						class="submit-btn"
-						@click="submit"
-						:loading="loading"
-						:disabled="loading || vaildatPayment"
-						:class="{ 'submit-highlight': highlightSubmit }"
-					>
-						{{ __("Submit") }}
-					</v-btn>
-				</v-col>
-				<v-col cols="6" class="pl-1">
-					<v-btn
 						block
 						size="large"
 						color="success"
@@ -724,6 +709,7 @@
 						@click="submit(undefined, false, true)"
 						:loading="loading"
 						:disabled="loading || vaildatPayment"
+						:class="{ 'submit-highlight': highlightSubmit }"
 					>
 						{{ __("Submit & Print") }}
 					</v-btn>
@@ -1195,16 +1181,17 @@ export default {
 				console.log("Cleared sales_team");
 			}
 		},
-		// Watch is_credit_sale to reset cash payments
+		// Watch is_credit_sale to reset all payment methods
 		is_credit_sale(newVal) {
 			if (!this.invoice_doc) {
 				return;
 			}
 			if (newVal) {
-				// If credit sale is enabled, set cash payment to 0
+				// If credit sale is enabled, set all payment methods to 0
 				this.invoice_doc.payments.forEach((payment) => {
-					if (payment.mode_of_payment.toLowerCase() === "cash") {
-						payment.amount = 0;
+					payment.amount = 0;
+					if (payment.base_amount !== undefined) {
+						payment.base_amount = 0;
 					}
 				});
 			} else {
@@ -1212,6 +1199,9 @@ export default {
 				this.invoice_doc.payments.forEach((payment) => {
 					if (payment.mode_of_payment.toLowerCase() === "cash") {
 						payment.amount = this.invoice_doc.rounded_total || this.invoice_doc.grand_total;
+						if (payment.base_amount !== undefined) {
+							payment.base_amount = payment.amount;
+						}
 					}
 				});
 			}
