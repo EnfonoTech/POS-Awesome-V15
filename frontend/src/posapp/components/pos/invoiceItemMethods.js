@@ -1986,7 +1986,7 @@ export default {
 		if (!force_update) {
 			const cachedPayload = this._getCachedItemDetail(cacheKey);
 			if (cachedPayload) {
-				this._applyItemDetailPayload(item, cachedPayload, {
+				await this._applyItemDetailPayload(item, cachedPayload, {
 					forceUpdate: force_update,
 					fromCache: true,
 				});
@@ -2041,7 +2041,7 @@ export default {
 				return;
 			}
 
-			this._applyItemDetailPayload(item, data, { forceUpdate: force_update, fromCache: false });
+			await this._applyItemDetailPayload(item, data, { forceUpdate: force_update, fromCache: false });
 			this._storeItemDetailCache(cacheKey, data);
 			item._detailSynced = true;
 			if (typeof this.$forceUpdate === "function") {
@@ -2058,7 +2058,7 @@ export default {
 		}
 	},
 
-	_applyItemDetailPayload(item, data, options = {}) {
+	async _applyItemDetailPayload(item, data, options = {}) {
 		const { forceUpdate = false } = options;
 
 		if (!item.warehouse) {
@@ -2068,9 +2068,30 @@ export default {
 			this.price_list_currency = data.price_list_currency;
 		}
 
+		// Preserve the item's UOM if it was set (e.g., from global UOM) and not from barcode
+		// Store it before data might overwrite it
+		const originalUom = item.uom;
+		const originalStockUom = item.stock_uom; // Preserve original stock UOM
+		// Preserve UOM if it was set and either:
+		// 1. It wasn't from barcode, OR
+		// 2. It was explicitly marked as global UOM
+		const preservedUom = originalUom && (!item._barcode_uom_applied || item._global_uom_applied) ? originalUom : null;
+		
 		if (data.uom) {
-			item.stock_uom = data.stock_uom;
-			item.uom = data.uom;
+			// Only update stock_uom if it wasn't already set (preserve original)
+			if (!item.stock_uom && data.stock_uom) {
+				item.stock_uom = data.stock_uom;
+			} else if (originalStockUom) {
+				// Keep the original stock UOM to ensure correct price fetching
+				item.stock_uom = originalStockUom;
+			}
+			// Only update UOM if it wasn't preserved (from global UOM)
+			if (!preservedUom) {
+				item.uom = data.uom;
+			} else {
+				// Keep the preserved UOM
+				item.uom = preservedUom;
+			}
 		}
 		if (data.conversion_factor) {
 			item.conversion_factor = data.conversion_factor;
@@ -2088,7 +2109,10 @@ export default {
 			}
 		}
 
-		if (data.uom) {
+		// Ensure preserved UOM is set on item
+		if (preservedUom) {
+			item.uom = preservedUom;
+		} else if (data.uom && !preservedUom) {
 			item.uom = data.uom;
 		}
 
@@ -2162,11 +2186,85 @@ export default {
 		}
 
 		if (!item.locked_price) {
-			if (forceUpdate || !item.base_rate) {
-				if (data.price_list_rate !== 0 || !item.base_price_list_rate) {
-					item.base_price_list_rate = data.price_list_rate;
-					if (!item.posa_offer_applied) {
-						item.base_rate = data.price_list_rate;
+			// Determine the item's UOM (preserve if set, otherwise use from data)
+			// Important: Use preservedUom first, then current item.uom, then data.uom
+			const itemUom = preservedUom || item.uom || data.uom;
+			// Get stock UOM from original stock UOM first (preserved), then from item, then from data
+			const stockUom = originalStockUom || item.stock_uom || data.stock_uom;
+			// Fetch price if:
+			// 1. Item has global UOM applied (always fetch to ensure correct price), OR
+			// 2. Item UOM is different from stock UOM
+			// AND not from barcode scanning
+			const shouldFetchUomPrice = itemUom && stockUom && !item._barcode_uom_applied && (
+				item._global_uom_applied || 
+				(itemUom !== stockUom)
+			);
+			
+			console.log(`_applyItemDetailPayload for ${item.item_code}: originalUom=${originalUom}, originalStockUom=${originalStockUom}, _global_uom_applied=${item._global_uom_applied}, _barcode_uom_applied=${item._barcode_uom_applied}, preservedUom=${preservedUom}, item.uom=${item.uom}, data.uom=${data.uom}, itemUom=${itemUom}, stockUom=${stockUom}, shouldFetchUomPrice=${shouldFetchUomPrice}`);
+			
+			if (shouldFetchUomPrice) {
+				// Always fetch price for the item's UOM if it's different from stock UOM
+				try {
+					const priceList = this.customer_price_list || this.pos_profile.selling_price_list;
+					console.log(`Fetching price for item ${item.item_code} with UOM ${itemUom} from price list ${priceList}`);
+					const res = await frappe.call({
+						method: "posawesome.posawesome.api.items.get_price_for_uom",
+						args: {
+							item_code: item.item_code,
+							price_list: priceList,
+							uom: itemUom,
+						},
+					});
+					
+					if (res && res.message !== null && res.message !== undefined) {
+						const uomPrice = parseFloat(res.message);
+						console.log(`Received price for ${item.item_code} with UOM ${itemUom}: ${uomPrice}`);
+						if (!isNaN(uomPrice) && uomPrice > 0) {
+							// Use the UOM-specific price instead of default price
+							item.base_price_list_rate = uomPrice;
+							if (!item.posa_offer_applied) {
+								item.base_rate = uomPrice;
+							}
+							// Mark as manually set to prevent overwriting
+							item._manual_rate_set = true;
+							item._uom_price_fetched = true;
+							console.log(`Set price for ${item.item_code} with UOM ${itemUom}: base_price_list_rate=${uomPrice}, base_rate=${uomPrice}`);
+						} else {
+							// Fallback to default price if UOM price not found
+							if (forceUpdate || !item.base_rate || data.price_list_rate !== 0 || !item.base_price_list_rate) {
+								item.base_price_list_rate = data.price_list_rate;
+								if (!item.posa_offer_applied) {
+									item.base_rate = data.price_list_rate;
+								}
+							}
+						}
+					} else {
+						// Fallback to default price if API call fails
+						if (forceUpdate || !item.base_rate || data.price_list_rate !== 0 || !item.base_price_list_rate) {
+							item.base_price_list_rate = data.price_list_rate;
+							if (!item.posa_offer_applied) {
+								item.base_rate = data.price_list_rate;
+							}
+						}
+					}
+				} catch (e) {
+					console.error(`Failed to fetch price for item ${item.item_code} with UOM ${itemUom}:`, e);
+					// Fallback to default price on error
+					if (forceUpdate || !item.base_rate || data.price_list_rate !== 0 || !item.base_price_list_rate) {
+						item.base_price_list_rate = data.price_list_rate;
+						if (!item.posa_offer_applied) {
+							item.base_rate = data.price_list_rate;
+						}
+					}
+				}
+			} else {
+				// Use default price for stock UOM or when UOM matches stock UOM
+				if (forceUpdate || !item.base_rate) {
+					if (data.price_list_rate !== 0 || !item.base_price_list_rate) {
+						item.base_price_list_rate = data.price_list_rate;
+						if (!item.posa_offer_applied) {
+							item.base_rate = data.price_list_rate;
+						}
 					}
 				}
 			}
@@ -2195,11 +2293,13 @@ export default {
 						this.currency_precision,
 					);
 
+					// Always apply exchange rate to base_rate
 					item.rate = this.flt(item.base_rate * exchange_rate, this.currency_precision);
 				} else {
 					item.price_list_rate = item.base_price_list_rate;
 
-					if (!item._manual_rate_set) {
+					// If UOM price was fetched, always use it (don't check _manual_rate_set)
+					if (item._uom_price_fetched || !item._manual_rate_set) {
 						item.rate = item.base_rate;
 					}
 				}

@@ -362,20 +362,26 @@
 														<span class="price-amount">
 															{{
 																format_currency(
-																	item.base_price_list_rate ??
+																	item._display_base_price_list_rate ??
+																		item._display_price_list_rate ??
+																		item._display_rate ??
+																		item.base_price_list_rate ??
 																		item.rate ??
 																		0,
 																	item.original_currency ||
 																		pos_profile.currency,
 																	ratePrecision(
-																		item.base_price_list_rate ??
+																		item._display_base_price_list_rate ??
+																			item._display_price_list_rate ??
+																			item._display_rate ??
+																			item.base_price_list_rate ??
 																			item.rate ??
 																			0,
 																	),
 																)
 															}}
 														</span>
-														<span class="card-item-uom">{{ item.stock_uom || "" }}</span>
+														<span class="card-item-uom">{{ item._display_uom || item.stock_uom || "" }}</span>
 													</div>
 													<v-btn
 														icon
@@ -401,9 +407,9 @@
 														<span class="price-amount">
 															{{
 																format_currency(
-																	item.rate,
+																	item._display_rate ?? item.rate,
 																	selected_currency,
-																	ratePrecision(item.rate),
+																	ratePrecision(item._display_rate ?? item.rate),
 																)
 															}}
 														</span>
@@ -438,13 +444,26 @@
 											}}
 											{{
 												format_currency(
-													item.base_price_list_rate ?? item.rate ?? 0,
+													item._display_base_price_list_rate ??
+														item._display_price_list_rate ??
+														item._display_rate ??
+														item.base_price_list_rate ??
+														item.rate ??
+														0,
 													item.original_currency || pos_profile.currency,
 													ratePrecision(
-														item.base_price_list_rate ?? item.rate ?? 0,
+														item._display_base_price_list_rate ??
+															item._display_price_list_rate ??
+															item._display_rate ??
+															item.base_price_list_rate ??
+															item.rate ??
+															0,
 													),
 												)
 											}}
+											<span v-if="item._display_uom" class="text-caption ml-1"
+												>{{ item._display_uom }}</span
+											>
 										</div>
 										<div
 											v-if="
@@ -456,9 +475,9 @@
 											{{ currencySymbol(selected_currency) }}
 											{{
 												format_currency(
-													item.rate,
+													item._display_rate ?? item.rate,
 													selected_currency,
-													ratePrecision(item.rate),
+													ratePrecision(item._display_rate ?? item.rate),
 												)
 											}}
 										</div>
@@ -692,6 +711,8 @@ export default {
 		temp_show_favorites_on_top: true,
 		temp_use_global_uom: false,
 		temp_global_uom: "",
+		// Map to store global UOM prices for items (item_code -> { rate, base_rate, price_list_rate, base_price_list_rate })
+		globalUomPrices: new Map(),
 	}),
 
 	watch: {
@@ -894,6 +915,12 @@ export default {
 			if (val) {
 				this.eventBus.emit("itemsLoaded");
 				this.eventBus.emit("data-loaded", "items");
+				// Update global UOM prices when items are loaded
+				if (this.useGlobalUom && this.globalUom) {
+					this.$nextTick(() => {
+						this.updateGlobalUomPrices();
+					});
+				}
 			}
 		},
 		items_view() {
@@ -905,6 +932,33 @@ export default {
 					this.isOverflowing = false;
 				}
 			});
+		},
+		// Watch for global UOM changes to update display prices
+		globalUom(newVal, oldVal) {
+			if (newVal !== oldVal && this.useGlobalUom && newVal) {
+				this.updateGlobalUomPrices();
+			} else if (!this.useGlobalUom || !newVal) {
+				// Clear prices when global UOM is disabled
+				this.globalUomPrices.clear();
+			}
+		},
+		useGlobalUom(newVal, oldVal) {
+			if (newVal !== oldVal) {
+				if (newVal && this.globalUom) {
+					this.updateGlobalUomPrices();
+				} else {
+					// Clear prices when global UOM is disabled
+					this.globalUomPrices.clear();
+				}
+			}
+		},
+		// Watch for price list changes to refresh global UOM prices
+		active_price_list(newVal, oldVal) {
+			if (newVal !== oldVal && this.useGlobalUom && this.globalUom) {
+				this.$nextTick(() => {
+					this.updateGlobalUomPrices();
+				});
+			}
 		},
 	},
 
@@ -1713,7 +1767,9 @@ export default {
 			if (target && source && this.fly) {
 				this.fly(source, target, this.flyConfig);
 			}
-			this.add_item(item);
+			// Use original item data (not display data) when adding to cart
+			const originalItem = this.getOriginalItem(item);
+			this.add_item(originalItem);
 		},
 		async click_item_row(event, { item }) {
 			const targets = document.querySelectorAll(".items-table-container");
@@ -1731,7 +1787,48 @@ export default {
 				this.fly(placeholder, target, this.flyConfig);
 				placeholder.remove();
 			}
-			await this.add_item(item);
+			// Use original item data (not display data) when adding to cart
+			const originalItem = this.getOriginalItem(item);
+			await this.add_item(originalItem);
+		},
+		// Get original item data, removing display-only properties
+		getOriginalItem(item) {
+			if (!item || !item._original_uom) {
+				// Item doesn't have display properties, return as-is
+				return { ...item };
+			}
+
+			// Restore original values
+			const originalItem = { ...item };
+			if (item._original_uom !== undefined) {
+				originalItem.uom = item._original_uom;
+			}
+			if (item._original_rate !== undefined) {
+				originalItem.rate = item._original_rate;
+			}
+			if (item._original_base_rate !== undefined) {
+				originalItem.base_rate = item._original_base_rate;
+			}
+			if (item._original_price_list_rate !== undefined) {
+				originalItem.price_list_rate = item._original_price_list_rate;
+			}
+			if (item._original_base_price_list_rate !== undefined) {
+				originalItem.base_price_list_rate = item._original_base_price_list_rate;
+			}
+
+			// Remove display properties
+			delete originalItem._original_uom;
+			delete originalItem._original_rate;
+			delete originalItem._original_base_rate;
+			delete originalItem._original_price_list_rate;
+			delete originalItem._original_base_price_list_rate;
+			delete originalItem._display_uom;
+			delete originalItem._display_rate;
+			delete originalItem._display_base_rate;
+			delete originalItem._display_price_list_rate;
+			delete originalItem._display_base_price_list_rate;
+
+			return originalItem;
 		},
 		async add_item(item, options = {}) {
 			const { suppressNegativeWarning = false } = options;
@@ -1835,6 +1932,8 @@ export default {
 				if (uomExists) {
 					const oldUom = item.uom || item.stock_uom;
 					item.uom = this.globalUom;
+					// Mark that global UOM was applied (for use in _applyItemDetailPayload)
+					item._global_uom_applied = true;
 					// Find and set conversion factor
 					const uomData = item.item_uoms.find((u) => u.uom === this.globalUom);
 					if (uomData) {
@@ -3723,6 +3822,12 @@ export default {
 					this.globalUom = "";
 				}
 			}
+			// Update prices after loading settings (defer to next tick to ensure items are loaded)
+			if (this.useGlobalUom && this.globalUom) {
+				this.$nextTick(() => {
+					this.updateGlobalUomPrices();
+				});
+			}
 		},
 		async saveGlobalUomSettings() {
 			try {
@@ -3748,6 +3853,80 @@ export default {
 				localStorage.setItem("posawesome_global_uom_settings", JSON.stringify(settings));
 			} catch (e) {
 				console.error("Failed to save global UOM settings to localStorage:", e);
+			}
+			// Update prices when global UOM settings are saved
+			if (this.useGlobalUom && this.globalUom) {
+				this.updateGlobalUomPrices();
+			}
+		},
+		async updateGlobalUomPrices() {
+			if (!this.useGlobalUom || !this.globalUom || !this.items || !this.items.length) {
+				return;
+			}
+
+			// Get the active price list
+			const priceList = this.active_price_list;
+			if (!priceList) {
+				console.warn("No active price list available for global UOM price update");
+				return;
+			}
+
+			// Clear existing prices
+			this.globalUomPrices.clear();
+
+			// Get items that have the global UOM in their item_uoms
+			const itemsToUpdate = this.items.filter((item) => {
+				if (!item.item_uoms || !Array.isArray(item.item_uoms)) {
+					return false;
+				}
+				return item.item_uoms.some((u) => u.uom === this.globalUom);
+			});
+
+			if (!itemsToUpdate.length) {
+				return;
+			}
+
+			// Fetch prices for all items in batches
+			const batchSize = 10;
+			for (let i = 0; i < itemsToUpdate.length; i += batchSize) {
+				const batch = itemsToUpdate.slice(i, i + batchSize);
+				const promises = batch.map(async (item) => {
+					try {
+						const res = await frappe.call({
+							method: "posawesome.posawesome.api.items.get_price_for_uom",
+							args: {
+								item_code: item.item_code,
+								price_list: priceList,
+								uom: this.globalUom,
+							},
+						});
+
+						if (res && res.message !== null && res.message !== undefined) {
+							const price = parseFloat(res.message);
+							if (!isNaN(price) && price > 0) {
+								const baseCurrency = this.price_list_currency || this.pos_profile.currency;
+								let basePrice = price;
+								let displayPrice = price;
+
+								// Handle currency conversion if needed
+								if (this.pos_profile.posa_allow_multi_currency && this.selected_currency !== baseCurrency) {
+									displayPrice = this.flt(price * this.exchange_rate, this.currency_precision);
+								}
+
+								this.globalUomPrices.set(item.item_code, {
+									rate: displayPrice,
+									base_rate: basePrice,
+									price_list_rate: displayPrice,
+									base_price_list_rate: basePrice,
+								});
+							}
+						}
+					} catch (e) {
+						console.error(`Failed to fetch price for item ${item.item_code} with UOM ${this.globalUom} from price list ${priceList}:`, e);
+					}
+				});
+
+				await Promise.all(promises);
 			}
 		},
 		onDragStart(event, item) {
@@ -4046,6 +4225,39 @@ export default {
 					item.actual_qty = 0;
 				}
 			});
+
+			// Apply global UOM transformation for display only (not for cart)
+			if (this.useGlobalUom && this.globalUom) {
+				filteredItems = filteredItems.map((item) => {
+					// Create a shallow copy to avoid mutating original
+					const displayItem = { ...item };
+					
+					// Check if global UOM exists in item's UOMs
+					if (item.item_uoms && item.item_uoms.length > 0) {
+						const uomExists = item.item_uoms.some((u) => u.uom === this.globalUom);
+						if (uomExists) {
+							// Get price from cache
+							const priceData = this.globalUomPrices.get(item.item_code);
+							if (priceData) {
+								// Store original values for cart usage
+								displayItem._original_uom = item.uom || item.stock_uom;
+								displayItem._original_rate = item.rate;
+								displayItem._original_base_rate = item.base_rate;
+								displayItem._original_price_list_rate = item.price_list_rate;
+								displayItem._original_base_price_list_rate = item.base_price_list_rate;
+								
+								// Set display values (only for card view)
+								displayItem._display_uom = this.globalUom;
+								displayItem._display_rate = priceData.rate;
+								displayItem._display_base_rate = priceData.base_rate;
+								displayItem._display_price_list_rate = priceData.price_list_rate;
+								displayItem._display_base_price_list_rate = priceData.base_price_list_rate;
+							}
+						}
+					}
+					return displayItem;
+				});
+			}
 
 			return filteredItems;
 		},
