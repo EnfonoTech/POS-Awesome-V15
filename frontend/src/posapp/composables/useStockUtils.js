@@ -33,9 +33,16 @@ export function useStockUtils() {
 
 		// Store old conversion factor for ratio calculation
 		const old_conversion_factor = item.conversion_factor || 1;
+		const old_uom = item.uom;
 
-		// Update conversion factor
+		// Update UOM and conversion factor
+		item.uom = new_uom.uom;
 		item.conversion_factor = new_uom.conversion_factor;
+		
+		// Mark that UOM was manually changed (not from backend data)
+		if (old_uom !== new_uom.uom) {
+			item._manual_uom_set = true;
+		}
 
 		// Calculate the ratio of new to old conversion factor
 		const conversion_ratio = item.conversion_factor / old_conversion_factor;

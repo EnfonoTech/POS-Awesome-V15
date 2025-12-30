@@ -2076,10 +2076,19 @@ export default {
 		// Store it before data might overwrite it
 		const originalUom = item.uom;
 		const originalStockUom = item.stock_uom; // Preserve original stock UOM
-		// Preserve UOM if it was set and either:
-		// 1. It wasn't from barcode, OR
-		// 2. It was explicitly marked as global UOM
-		const preservedUom = originalUom && (!item._barcode_uom_applied || item._global_uom_applied) ? originalUom : null;
+		
+		// Preserve UOM if:
+		// 1. Item has global UOM applied (always preserve), OR
+		// 2. Item has a UOM set that's different from stock UOM (indicates user selection), AND
+		// 3. It wasn't manually changed by user (manual changes take precedence), AND
+		// 4. It wasn't from barcode scanning
+		const shouldPreserveUom = originalUom && 
+			!item._manual_uom_set && 
+			!item._barcode_uom_applied &&
+			originalStockUom &&
+			(item._global_uom_applied || originalUom !== originalStockUom);
+		
+		const preservedUom = shouldPreserveUom ? originalUom : null;
 		
 		if (data.uom) {
 			// Only update stock_uom if it wasn't already set (preserve original)
@@ -2089,11 +2098,26 @@ export default {
 				// Keep the original stock UOM to ensure correct price fetching
 				item.stock_uom = originalStockUom;
 			}
-			// Only update UOM if it wasn't preserved (from global UOM)
-			if (!preservedUom) {
-				item.uom = data.uom;
-			} else {
-				// Keep the preserved UOM
+			// Update UOM from data only if:
+			// 1. UOM wasn't manually set by user, AND
+			// 2. UOM wasn't preserved (non-stock UOM that should be kept)
+			if (!item._manual_uom_set && !preservedUom) {
+				// Get current stock UOM for comparison
+				const currentStockUom = originalStockUom || item.stock_uom || data.stock_uom;
+				// If backend returns non-stock UOM and current item.uom is stock UOM,
+				// this likely means the item was added with non-stock UOM (e.g., global UOM)
+				// so we should use the backend's UOM and mark it as global UOM applied
+				if (data.uom && data.uom !== currentStockUom && originalUom === currentStockUom && item._global_uom_applied) {
+					item.uom = data.uom;
+					// Keep the _global_uom_applied flag since this was from global UOM
+				} else {
+					item.uom = data.uom;
+				}
+			} else if (item._manual_uom_set) {
+				// Keep the manually set UOM (don't overwrite from backend data)
+				// item.uom is already set by calcUom
+			} else if (preservedUom) {
+				// Keep the preserved UOM (non-stock UOM from initial add/global UOM)
 				item.uom = preservedUom;
 			}
 		}
@@ -2113,10 +2137,13 @@ export default {
 			}
 		}
 
-		// Ensure preserved UOM is set on item
-		if (preservedUom) {
+		// Ensure UOM is set on item (prioritize manually set UOM, then preserved, then from data)
+		if (item._manual_uom_set && item.uom) {
+			// Keep manually set UOM (already set by calcUom)
+			// Don't overwrite
+		} else if (preservedUom) {
 			item.uom = preservedUom;
-		} else if (data.uom && !preservedUom) {
+		} else if (data.uom && !item.uom) {
 			item.uom = data.uom;
 		}
 
@@ -2190,11 +2217,30 @@ export default {
 		}
 
 		if (!item.locked_price) {
-			// Determine the item's UOM (preserve if set, otherwise use from data)
-			// Important: Use preservedUom first, then current item.uom, then data.uom
-			const itemUom = preservedUom || item.uom || data.uom;
 			// Get stock UOM from original stock UOM first (preserved), then from item, then from data
 			const stockUom = originalStockUom || item.stock_uom || data.stock_uom;
+			
+			// Determine the item's UOM for price fetching
+			// Priority logic:
+			// 1. Preserved UOM (non-stock UOM that should be kept)
+			// 2. If data.uom is non-stock (different from stock), prefer it over item.uom (backend knows the correct UOM)
+			// 3. Current item.uom
+			// 4. data.uom as fallback
+			let itemUom;
+			if (preservedUom) {
+				// Use preserved UOM (non-stock UOM from initial add/global UOM)
+				itemUom = preservedUom;
+			} else if (data.uom && data.uom !== stockUom && !item._manual_uom_set) {
+				// Backend returned non-stock UOM, use it (likely the correct UOM the item was added with)
+				itemUom = data.uom;
+				// Update item.uom to match for consistency
+				if (item.uom !== data.uom) {
+					item.uom = data.uom;
+				}
+			} else {
+				// Use current item.uom or fallback to data.uom
+				itemUom = item.uom || data.uom;
+			}
 			// Fetch price if:
 			// 1. Item has global UOM applied (always fetch to ensure correct price), OR
 			// 2. Item UOM is different from stock UOM
@@ -2204,37 +2250,52 @@ export default {
 				(itemUom !== stockUom)
 			);
 			
-			console.log(`_applyItemDetailPayload for ${item.item_code}: originalUom=${originalUom}, originalStockUom=${originalStockUom}, _global_uom_applied=${item._global_uom_applied}, _barcode_uom_applied=${item._barcode_uom_applied}, preservedUom=${preservedUom}, item.uom=${item.uom}, data.uom=${data.uom}, itemUom=${itemUom}, stockUom=${stockUom}, shouldFetchUomPrice=${shouldFetchUomPrice}`);
+			console.log(`_applyItemDetailPayload for ${item.item_code}: originalUom=${originalUom}, originalStockUom=${originalStockUom}, _global_uom_applied=${item._global_uom_applied}, _barcode_uom_applied=${item._barcode_uom_applied}, _manual_uom_set=${item._manual_uom_set}, preservedUom=${preservedUom}, item.uom=${item.uom}, data.uom=${data.uom}, itemUom=${itemUom}, stockUom=${stockUom}, shouldFetchUomPrice=${shouldFetchUomPrice}`);
 			
 			if (shouldFetchUomPrice) {
-				// Always fetch price for the item's UOM if it's different from stock UOM
-				try {
-					const priceList = this.customer_price_list || this.pos_profile.selling_price_list;
-					console.log(`Fetching price for item ${item.item_code} with UOM ${itemUom} from price list ${priceList}`);
-					const res = await frappe.call({
-						method: "posawesome.posawesome.api.items.get_price_for_uom",
-						args: {
-							item_code: item.item_code,
-							price_list: priceList,
-							uom: itemUom,
-						},
-					});
-					
-					if (res && res.message !== null && res.message !== undefined) {
-						const uomPrice = parseFloat(res.message);
-						console.log(`Received price for ${item.item_code} with UOM ${itemUom}: ${uomPrice}`);
-						if (!isNaN(uomPrice) && uomPrice > 0) {
-							// Use the UOM-specific price instead of default price
-							item.base_price_list_rate = uomPrice;
-							if (!item.posa_offer_applied) {
-								item.base_rate = uomPrice;
+				// Check if rates were already set for global UOM (from prepareItemForCart)
+				// If so, only update if forceUpdate is true or rates are missing/zero
+				const ratesAlreadySet = item._global_uom_applied && item._manual_rate_set && 
+					item.base_price_list_rate && item.base_price_list_rate > 0;
+				
+				if (!ratesAlreadySet || forceUpdate) {
+					// Always fetch price for the item's UOM if it's different from stock UOM
+					try {
+						const priceList = this.customer_price_list || this.pos_profile.selling_price_list;
+						console.log(`Fetching price for item ${item.item_code} with UOM ${itemUom} from price list ${priceList}`);
+						const res = await frappe.call({
+							method: "posawesome.posawesome.api.items.get_price_for_uom",
+							args: {
+								item_code: item.item_code,
+								price_list: priceList,
+								uom: itemUom,
+							},
+						});
+						
+						if (res && res.message !== null && res.message !== undefined) {
+							const uomPrice = parseFloat(res.message);
+							console.log(`Received price for ${item.item_code} with UOM ${itemUom}: ${uomPrice}`);
+							if (!isNaN(uomPrice) && uomPrice > 0) {
+								// Use the UOM-specific price instead of default price
+								item.base_price_list_rate = uomPrice;
+								if (!item.posa_offer_applied) {
+									item.base_rate = uomPrice;
+								}
+								// Mark as manually set to prevent overwriting
+								item._manual_rate_set = true;
+								item._uom_price_fetched = true;
+								console.log(`Set price for ${item.item_code} with UOM ${itemUom}: base_price_list_rate=${uomPrice}, base_rate=${uomPrice}`);
+							} else {
+								// Fallback to default price if UOM price not found
+								if (forceUpdate || !item.base_rate || data.price_list_rate !== 0 || !item.base_price_list_rate) {
+									item.base_price_list_rate = data.price_list_rate;
+									if (!item.posa_offer_applied) {
+										item.base_rate = data.price_list_rate;
+									}
+								}
 							}
-							// Mark as manually set to prevent overwriting
-							item._manual_rate_set = true;
-							item._uom_price_fetched = true;
-							console.log(`Set price for ${item.item_code} with UOM ${itemUom}: base_price_list_rate=${uomPrice}, base_rate=${uomPrice}`);
 						} else {
-							// Fallback to default price if UOM price not found
+							// Fallback to default price if API call fails
 							if (forceUpdate || !item.base_rate || data.price_list_rate !== 0 || !item.base_price_list_rate) {
 								item.base_price_list_rate = data.price_list_rate;
 								if (!item.posa_offer_applied) {
@@ -2242,8 +2303,9 @@ export default {
 								}
 							}
 						}
-					} else {
-						// Fallback to default price if API call fails
+					} catch (e) {
+						console.error(`Failed to fetch price for item ${item.item_code} with UOM ${itemUom}:`, e);
+						// Fallback to default price on error
 						if (forceUpdate || !item.base_rate || data.price_list_rate !== 0 || !item.base_price_list_rate) {
 							item.base_price_list_rate = data.price_list_rate;
 							if (!item.posa_offer_applied) {
@@ -2251,15 +2313,8 @@ export default {
 							}
 						}
 					}
-				} catch (e) {
-					console.error(`Failed to fetch price for item ${item.item_code} with UOM ${itemUom}:`, e);
-					// Fallback to default price on error
-					if (forceUpdate || !item.base_rate || data.price_list_rate !== 0 || !item.base_price_list_rate) {
-						item.base_price_list_rate = data.price_list_rate;
-						if (!item.posa_offer_applied) {
-							item.base_rate = data.price_list_rate;
-						}
-					}
+				} else {
+					console.log(`Keeping existing rates for ${item.item_code} with global UOM ${itemUom}: base_price_list_rate=${item.base_price_list_rate}`);
 				}
 			} else {
 				// Use default price for stock UOM or when UOM matches stock UOM

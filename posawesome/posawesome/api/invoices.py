@@ -283,6 +283,7 @@ def get_default_return_reason():
     return default_reason
 
 
+@frappe.whitelist()
 def update_invoice(data):
     data = json.loads(data)
     # Determine doctype based on POS Profile setting

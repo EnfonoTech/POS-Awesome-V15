@@ -461,29 +461,69 @@ export function useItemAddition() {
 		new_item.discount_amount = 0;
 		new_item.discount_percentage = 0;
 		new_item.discount_amount_per_item = 0;
-		new_item.price_list_rate = item.price_list_rate ?? item.rate ?? 0;
-
-		// Setup base rates properly for multi-currency
-		const baseCurrency = context.price_list_currency || context.pos_profile.currency;
-		if (context.selected_currency !== baseCurrency) {
-			// Store original base currency values
-			new_item.base_price_list_rate =
-				item.base_price_list_rate !== undefined
-					? item.base_price_list_rate
-					: item.rate / context.exchange_rate;
-			new_item.base_rate =
-				item.base_rate !== undefined ? item.base_rate : item.rate / context.exchange_rate;
-			new_item.base_discount_amount = 0;
-		} else {
-			// In base currency, base rates = displayed rates
-			new_item.base_price_list_rate =
-				item.base_price_list_rate !== undefined ? item.base_price_list_rate : item.rate;
-			new_item.base_rate = item.base_rate !== undefined ? item.base_rate : item.rate;
-			new_item.base_discount_amount = 0;
-		}
 
 		new_item.qty = item.qty;
 		new_item.uom = item.uom ? item.uom : item.stock_uom;
+		
+		// Preserve global UOM flag, conversion factor, and rates if global UOM was applied
+		if (item._global_uom_applied) {
+			new_item._global_uom_applied = true;
+			if (item.conversion_factor) {
+				new_item.conversion_factor = item.conversion_factor;
+			}
+			// Preserve the rates that were set for the global UOM (set in prepareItemForCart)
+			// These should take precedence over default rate calculations
+			if (item.base_price_list_rate !== undefined && item.base_price_list_rate > 0) {
+				new_item.base_price_list_rate = item.base_price_list_rate;
+			}
+			if (item.base_rate !== undefined && item.base_rate > 0) {
+				new_item.base_rate = item.base_rate;
+			}
+			if (item.price_list_rate !== undefined && item.price_list_rate > 0) {
+				new_item.price_list_rate = item.price_list_rate;
+			}
+			if (item.rate !== undefined && item.rate > 0) {
+				new_item.rate = item.rate;
+			}
+			// Mark that rate was manually set for global UOM
+			if (item._manual_rate_set) {
+				new_item._manual_rate_set = true;
+			}
+		}
+		
+		// Setup base rates properly for multi-currency (only if not already set from global UOM)
+		if (!new_item.base_price_list_rate || !new_item.base_rate) {
+			const baseCurrency = context.price_list_currency || context.pos_profile.currency;
+			if (context.selected_currency !== baseCurrency) {
+				// Store original base currency values
+				if (!new_item.base_price_list_rate) {
+					new_item.base_price_list_rate =
+						item.base_price_list_rate !== undefined
+							? item.base_price_list_rate
+							: (item.rate || new_item.rate || 0) / context.exchange_rate;
+				}
+				if (!new_item.base_rate) {
+					new_item.base_rate =
+						item.base_rate !== undefined ? item.base_rate : (item.rate || new_item.rate || 0) / context.exchange_rate;
+				}
+				new_item.base_discount_amount = 0;
+			} else {
+				// In base currency, base rates = displayed rates
+				if (!new_item.base_price_list_rate) {
+					new_item.base_price_list_rate =
+						item.base_price_list_rate !== undefined ? item.base_price_list_rate : (item.rate || new_item.rate || 0);
+				}
+				if (!new_item.base_rate) {
+					new_item.base_rate = item.base_rate !== undefined ? item.base_rate : (item.rate || new_item.rate || 0);
+				}
+				new_item.base_discount_amount = 0;
+			}
+		}
+		
+		// Set price_list_rate if not already set
+		if (!new_item.price_list_rate) {
+			new_item.price_list_rate = item.price_list_rate ?? item.rate ?? new_item.rate ?? 0;
+		}
 		// Ensure item_uoms is initialized
 		new_item.item_uoms = item.item_uoms || [];
 		if (new_item.item_uoms.length === 0 && new_item.stock_uom) {
@@ -491,7 +531,10 @@ export function useItemAddition() {
 		}
 		new_item.actual_batch_qty = "";
 		new_item.batch_no_expiry_date = item.batch_no_expiry_date || null;
-		new_item.conversion_factor = 1;
+		// Only set conversion_factor to 1 if it wasn't already set (from global UOM)
+		if (!new_item.conversion_factor) {
+			new_item.conversion_factor = 1;
+		}
 		new_item.posa_offers = JSON.stringify([]);
 		new_item.posa_offer_applied = 0;
 		new_item.posa_is_offer = item.posa_is_offer;
