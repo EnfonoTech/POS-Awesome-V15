@@ -28,7 +28,9 @@
   "warehouse_stock_warehouses",
   "section_break_cash_transfer",
   "enable_cash_transfer",
-  "cash_transfer_account"
+  "cash_transfer_account",
+  "section_break_return_settings",
+  "default_return_reason"
  ],
  "fields": [
   {
@@ -181,6 +183,18 @@
    "label": "Cash Transfer Account",
    "link_filters": "[[\"Account\",\"is_group\",\"=\",0]]",
    "options": "Account"
+  },
+  {
+   "fieldname": "section_break_return_settings",
+   "fieldtype": "Section Break",
+   "label": "Return Settings"
+  },
+  {
+   "default": "Goods returned",
+   "description": "Default reason to be used when creating return invoices",
+   "fieldname": "default_return_reason",
+   "fieldtype": "Data",
+   "label": "Default Return Reason"
   }
  ],
  "grid_page_length": 50,

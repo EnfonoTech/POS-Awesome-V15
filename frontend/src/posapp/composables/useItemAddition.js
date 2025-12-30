@@ -517,14 +517,17 @@ export function useItemAddition() {
 
 	// Reset all invoice fields to default/empty values
 const clearInvoice = (context) => {
-	// Check if this is a return invoice - if so, NEVER change the customer
-	const isReturnInvoice = context.invoiceType === "Return" || 
-		(context.invoice_doc && (context.invoice_doc.is_return || context.invoice_doc.return_against));
+	// Check if this is an active return invoice being worked on (has invoice_doc with return data)
+	// Store this BEFORE clearing invoice_doc
+	const isActiveReturnInvoice = context.invoice_doc && 
+		(context.invoice_doc.is_return || context.invoice_doc.return_against);
 	
 	// Check if this is a saved invoice (has been submitted/saved to backend)
 	// Use the persistent flag first, then check invoice_doc
+	// Store this BEFORE clearing invoice_doc
 	const savedInvoiceCustomer = context._savedInvoiceCustomer || 
 		(context.invoice_doc && context.invoice_doc.name ? context.invoice_doc.customer : null);
+	const hasSavedInvoice = !!(context.invoice_doc && context.invoice_doc.name);
 	
 	// Check if customer should be preserved using the flag set when loading from SO
 	const customerFromSalesOrder = context._customerFromSalesOrder;
@@ -557,13 +560,13 @@ const clearInvoice = (context) => {
 	if (context.update_price_list) context.update_price_list();
 
 	// Preserve customer based on priority:
-	// 1. If return invoice - ALWAYS preserve customer (must match original)
+	// 1. If active return invoice - ALWAYS preserve customer (must match original)
 	// 2. If saved invoice - preserve customer from saved invoice (readonly controlled by load_invoice)
 	// 3. If from sales order (flag set) - use that customer
 	// 4. If manually selected (non-default) - keep current customer
 	// 5. Otherwise - reset to default
-	if (isReturnInvoice) {
-		// Return invoice - customer MUST be preserved (matches original invoice)
+	if (isActiveReturnInvoice) {
+		// Active return invoice - customer MUST be preserved (matches original invoice)
 		// Don't change context.customer at all
 		// Readonly is controlled by load_invoice/new_order
 	} else if (savedInvoiceCustomer) {
@@ -589,11 +592,14 @@ const clearInvoice = (context) => {
 		}
 	}
 
-	// Reset invoice type for non-return, non-saved invoices
-	// Don't change invoice type for return invoices or saved invoices being continued
-	if (!isReturnInvoice && !savedInvoiceCustomer) {
+	// Reset invoice type - ALWAYS reset unless it's a saved invoice being continued
+	// After submission, invoice_doc is cleared, so we should always reset invoiceType
+	// Only preserve invoiceType if we have a saved invoice that we're continuing to work on
+	if (!hasSavedInvoice) {
 		context.invoiceType = context.pos_profile.posa_default_sales_order ? "Order" : "Invoice";
 		context.invoiceTypes = ["Invoice", "Order", "Quotation"];
+		// Also reset customer readonly state for new invoices
+		context.eventBus.emit("set_customer_readonly", false);
 	}
 
 		if (Object.prototype.hasOwnProperty.call(context, "itemSearch")) {

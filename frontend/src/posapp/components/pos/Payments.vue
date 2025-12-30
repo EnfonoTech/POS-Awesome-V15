@@ -1224,12 +1224,14 @@ export default {
 			if (newVal) {
 				this.is_cashback = false;
 				// Clear any payment amounts
-				this.invoice_doc.payments.forEach((payment) => {
-					payment.amount = 0;
-					if (payment.base_amount !== undefined) {
-						payment.base_amount = 0;
-					}
-				});
+				if (this.invoice_doc.payments && Array.isArray(this.invoice_doc.payments)) {
+					this.invoice_doc.payments.forEach((payment) => {
+						payment.amount = 0;
+						if (payment.base_amount !== undefined) {
+							payment.base_amount = 0;
+						}
+					});
+				}
 			} else {
 				this.is_cashback = true;
 				// Ensure default negative payment for returns
@@ -1325,6 +1327,10 @@ export default {
 		// Ensure all payments are negative for return invoices
 		ensureReturnPaymentsAreNegative() {
 			if (!this.invoice_doc || !this.invoice_doc.is_return || !this.is_cashback) {
+				return;
+			}
+			// Check if payments array exists
+			if (!this.invoice_doc.payments || !Array.isArray(this.invoice_doc.payments)) {
 				return;
 			}
 			// Check if any payment amount is set
@@ -1574,6 +1580,9 @@ export default {
 					if (print) {
 						this.print_offline_invoice(this.invoice_doc);
 					}
+					// Explicitly reset invoice type before clearing to ensure proper reset
+					vm.invoiceType = vm.pos_profile.posa_default_sales_order ? "Order" : "Invoice";
+					vm.invoiceTypes = ["Invoice", "Order", "Quotation"];
 					vm.eventBus.emit("clear_invoice");
 					vm.eventBus.emit("focus_item_search");
 					vm.eventBus.emit("reset_posting_date");
@@ -1679,6 +1688,9 @@ export default {
                                                 timestamp: Date.now(),
                                         });
                                         vm.addresses = [];
+                                        // Explicitly reset invoice type before clearing to ensure proper reset
+                                        vm.invoiceType = vm.pos_profile.posa_default_sales_order ? "Order" : "Invoice";
+                                        vm.invoiceTypes = ["Invoice", "Order", "Quotation"];
                                         vm.eventBus.emit("clear_invoice");
                                         vm.eventBus.emit("focus_item_search");
                                         vm.eventBus.emit("reset_posting_date");

@@ -170,6 +170,22 @@
 						</v-btn>
 					</v-row>
 
+					<!-- Return Reason Input (only for Sales Invoice) -->
+					<v-row v-if="selected.length > 0 && selected[0].doctype === 'Sales Invoice'">
+						<v-col cols="12">
+							<v-text-field
+								color="primary"
+								:label="frappe._('Return Reason')"
+								class="pos-themed-input"
+								v-model="return_reason"
+								density="compact"
+								:placeholder="frappe._('Enter reason for return')"
+								:rules="[v => !!v || frappe._('Return reason is required')]"
+								required
+							></v-text-field>
+						</v-col>
+					</v-row>
+
 					<!-- Results -->
 					<v-row>
 						<v-col cols="12" class="pa-0 mt-1" v-if="dialog_data && dialog_data.length > 0">
@@ -261,6 +277,7 @@ export default {
 		loading_more: false,
 		searched_once: false,
 		current_search_params: null,
+		return_reason: "",
 		headers: [
 			{
 				title: __("Customer"),
@@ -409,6 +426,7 @@ export default {
 			this.page = 1;
 			this.has_more_invoices = false;
 			this.searched_once = false;
+			this.return_reason = "";
 		},
 		search_invoices_by_enter(e) {
 			if (e.keyCode === 13) {
@@ -567,8 +585,18 @@ export default {
 		},
 		submit_dialog() {
 			if (this.selected.length > 0) {
-				console.log("Starting return with invoice flow");
 				const return_doc = this.selected[0];
+				
+				// Validate return reason for Sales Invoice returns
+				if (return_doc.doctype === "Sales Invoice" && !this.return_reason) {
+					this.eventBus.emit("show_message", {
+						title: __("Return reason is required for Sales Invoice returns"),
+						color: "error",
+					});
+					return;
+				}
+				
+				console.log("Starting return with invoice flow");
 				const invoice_doc = {};
 				const items = [];
 
@@ -620,6 +648,11 @@ export default {
 				invoice_doc.pos_profile = this.pos_profile.name;
 				invoice_doc.company = this.company;
 
+				// Add return reason for Sales Invoice returns (mandatory)
+				if (return_doc.doctype === "Sales Invoice") {
+					invoice_doc.custom_return_reason = this.return_reason || "";
+				}
+
 				const data = { invoice_doc, return_doc };
 				console.log("Emitting load_return_invoice event with data:", data);
 
@@ -638,7 +671,13 @@ export default {
 			this.mobile_no = "";
 			this.tax_id = "";
 			this.from_date = null;
-			this.to_date = null;
+			// Set default to_date to today as string in dd-MM-yyyy format for VueDatePicker
+			const today = new Date();
+			const day = String(today.getDate()).padStart(2, "0");
+			const month = String(today.getMonth() + 1).padStart(2, "0");
+			const year = today.getFullYear();
+			this.to_date = `${day}-${month}-${year}`;
+			this.formatToDate();
 			this.from_date_formatted = null;
 			this.to_date_formatted = null;
 			this.min_amount = "";
@@ -648,6 +687,7 @@ export default {
 			this.page = 1;
 			this.has_more_invoices = false;
 			this.searched_once = false;
+			this.return_reason = "";
 		});
 
 		this.eventBus.on("register_pos_profile", (data) => {

@@ -291,12 +291,16 @@ export default {
 
 	// Cancel the current invoice, optionally delete from backend
 	async cancel_invoice() {
-		const doc = this.get_invoice_doc();
+		// Only get invoice doc if invoice_doc exists to avoid null reference errors
+		let doc = null;
+		if (this.invoice_doc) {
+			doc = this.get_invoice_doc();
+		}
 		this.invoiceType = this.pos_profile.posa_default_sales_order ? "Order" : "Invoice";
 		this.invoiceTypes = ["Invoice", "Order", "Quotation"];
 		this.posting_date = frappe.datetime.nowdate();
 		var vm = this;
-		if (doc.name && this.pos_profile.posa_allow_delete) {
+		if (doc && doc.name && this.pos_profile.posa_allow_delete) {
 			await frappe.call({
 				method: "posawesome.posawesome.api.invoices.delete_invoice",
 				args: { invoice: doc.name },
@@ -497,6 +501,12 @@ export default {
 	// Save and clear the current invoice (draft logic)
 	async save_and_clear_invoice() {
 		let old_invoice = null;
+		// Only get invoice doc if invoice_doc exists to avoid null reference errors
+		if (!this.invoice_doc && !this.items.length) {
+			this.clear_invoice();
+			this.eventBus.emit("focus_item_search");
+			return null;
+		}
 		const doc = this.get_invoice_doc();
 
 		try {
@@ -914,9 +924,13 @@ export default {
 		doc.payments = this.get_payments();
 
 		// Handle return specific fields
-		if (isReturn) {
+		if (isReturn && this.invoice_doc) {
 			if (this.invoice_doc.return_against) {
 				doc.return_against = this.invoice_doc.return_against;
+			}
+			// Include custom_return_reason if provided (for Sales Invoice returns)
+			if (this.invoice_doc.custom_return_reason) {
+				doc.custom_return_reason = this.invoice_doc.custom_return_reason;
 			}
 			doc.update_stock = 1;
 

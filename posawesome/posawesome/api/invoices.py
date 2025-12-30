@@ -214,6 +214,18 @@ def validate_cart_items(items, pos_profile=None):
     return errors
 
 
+def get_default_return_reason():
+    """Get default return reason from Fateh POS Settings."""
+    default_reason = "Goods returned"
+    try:
+        if frappe.db.exists("Fateh POS Settings", "Fateh POS Settings"):
+            settings = frappe.get_cached_doc("Fateh POS Settings", "Fateh POS Settings")
+            default_reason = settings.get("default_return_reason") or "Goods returned"
+    except Exception:
+        pass
+    return default_reason
+
+
 def get_latest_rate(from_currency: str, to_currency: str):
     """Return the most recent Currency Exchange rate and its date."""
     rate_doc = frappe.get_all(
@@ -329,6 +341,19 @@ def update_invoice(data):
     overrides = {d.idx: {"item_name": d.item_name} for d in invoice_doc.items}
     locked_items = {}
     if invoice_doc.is_return:
+        # Set custom_return_reason if not already set (mandatory field for returns)
+        # For Sales Invoice returns, it must be provided from frontend
+        if not invoice_doc.get("custom_return_reason"):
+            # Check if reason is provided in data (from frontend)
+            if data.get("custom_return_reason"):
+                invoice_doc.custom_return_reason = data.get("custom_return_reason")
+            else:
+                # For Sales Invoice, throw error if reason not provided
+                if doctype == "Sales Invoice":
+                    frappe.throw(_("Return reason is mandatory for Sales Invoice returns. Please provide a return reason."))
+                # For POS Invoice, use default from settings
+                invoice_doc.custom_return_reason = get_default_return_reason()
+        
         for d in invoice_doc.items:
             if d.get("locked_price"):
                 locked_items[d.idx] = {
@@ -491,6 +516,14 @@ def submit_invoice(invoice, data):
             for payment in invoice.get("payments"):
                 payment_row = invoice_doc.append("payments", {})
                 payment_row.update(payment)
+    
+    # Set custom_return_reason for return invoices if not already set
+    if invoice_doc.is_return and not invoice_doc.get("custom_return_reason"):
+        # For Sales Invoice returns, return reason is mandatory
+        if doctype == "Sales Invoice":
+            frappe.throw(_("Return reason is mandatory for Sales Invoice returns. Please provide a return reason."))
+        # For POS Invoice, use default from settings
+        invoice_doc.custom_return_reason = get_default_return_reason()
     
     # Handle advance paid from sales order
     if invoice.get("sales_order"):
@@ -883,156 +916,163 @@ def search_invoices_for_return(
         - invoices: List of invoice documents
         - has_more: Boolean indicating if there are more invoices to load
     """
-    # Start with base filters
-    filters = {
-        "company": company,
-        "docstatus": 1,
-        "is_return": 0,
-    }
+    try:
+        # Start with base filters
+        filters = {
+            "company": company,
+            "docstatus": 1,
+            "is_return": 0,
+        }
 
-    # Convert page to integer if it's a string
-    if page and isinstance(page, str):
-        page = int(page)
-    else:
-        page = 1  # Default to page 1
-
-    # Items per page - can be adjusted based on performance requirements
-    page_length = 100
-    start = (page - 1) * page_length
-
-    # Add invoice name filter if provided
-    if invoice_name:
-        filters["name"] = ["like", f"%{invoice_name}%"]
-
-    # Add date range filters if provided
-    if from_date:
-        filters["posting_date"] = [">=", from_date]
-
-    if to_date:
-        if "posting_date" in filters:
-            filters["posting_date"] = ["between", [from_date, to_date]]
+        # Convert page to integer if it's a string
+        if page and isinstance(page, str):
+            page = int(page)
         else:
-            filters["posting_date"] = ["<=", to_date]
+            page = 1  # Default to page 1
 
-    # Add amount filters if provided
-    if min_amount:
-        filters["grand_total"] = [">=", float(min_amount)]
+        # Items per page - can be adjusted based on performance requirements
+        page_length = 100
+        start = (page - 1) * page_length
 
-    if max_amount:
-        if "grand_total" in filters:
-            # If min_amount was already set, change to between
-            filters["grand_total"] = ["between", [float(min_amount), float(max_amount)]]
-        else:
-            filters["grand_total"] = ["<=", float(max_amount)]
+        # Add invoice name filter if provided
+        if invoice_name:
+            filters["name"] = ["like", f"%{invoice_name}%"]
 
-    # If any customer search criteria is provided, find matching customers
-    customer_ids = []
-    if customer_name or customer_id or mobile_no or tax_id:
-        conditions = []
-        params = {}
+        # Add date range filters if provided
+        if from_date:
+            filters["posting_date"] = [">=", from_date]
 
-        if customer_name:
-            conditions.append("customer_name LIKE %(customer_name)s")
-            params["customer_name"] = f"%{customer_name}%"
+        if to_date:
+            if "posting_date" in filters:
+                filters["posting_date"] = ["between", [from_date, to_date]]
+            else:
+                filters["posting_date"] = ["<=", to_date]
 
-        if customer_id:
-            conditions.append("name LIKE %(customer_id)s")
-            params["customer_id"] = f"%{customer_id}%"
+        # Add amount filters if provided
+        if min_amount:
+            filters["grand_total"] = [">=", float(min_amount)]
 
-        if mobile_no:
-            conditions.append("mobile_no LIKE %(mobile_no)s")
-            params["mobile_no"] = f"%{mobile_no}%"
+        if max_amount:
+            if "grand_total" in filters:
+                # If min_amount was already set, change to between
+                filters["grand_total"] = ["between", [float(min_amount), float(max_amount)]]
+            else:
+                filters["grand_total"] = ["<=", float(max_amount)]
 
-        if tax_id:
-            conditions.append("tax_id LIKE %(tax_id)s")
-            params["tax_id"] = f"%{tax_id}%"
+        # If any customer search criteria is provided, find matching customers
+        customer_ids = []
+        if customer_name or customer_id or mobile_no or tax_id:
+            conditions = []
+            params = {}
 
-        # Build the WHERE clause for the query
-        where_clause = " OR ".join(conditions)
-        customer_query = f"""
-        SELECT name
-        FROM `tabCustomer`
-        WHERE {where_clause}
-        LIMIT 100
-    """
+            if customer_name:
+                conditions.append("customer_name LIKE %(customer_name)s")
+                params["customer_name"] = f"%{customer_name}%"
 
-        customers = frappe.db.sql(customer_query, params, as_dict=True)
-        customer_ids = [c.name for c in customers]
+            if customer_id:
+                conditions.append("name LIKE %(customer_id)s")
+                params["customer_id"] = f"%{customer_id}%"
 
-        # If we found matching customers, add them to the filter
-        if customer_ids:
-            filters["customer"] = ["in", customer_ids]
-        # If customer search criteria provided but no matches found, return empty
-        elif any([customer_name, customer_id, mobile_no, tax_id]):
-            return {"invoices": [], "has_more": False}
+            if mobile_no:
+                conditions.append("mobile_no LIKE %(mobile_no)s")
+                params["mobile_no"] = f"%{mobile_no}%"
 
-    # Count total invoices matching the criteria (for has_more flag)
-    total_count_query = frappe.get_list(
-        doctype,
-        filters=filters,
-        fields=["count(name) as total_count"],
-        as_list=False,
-    )
-    total_count = total_count_query[0].total_count if total_count_query else 0
+            if tax_id:
+                conditions.append("tax_id LIKE %(tax_id)s")
+                params["tax_id"] = f"%{tax_id}%"
 
-    # Get invoices matching all criteria with pagination
-    invoices_list = frappe.get_list(
-        doctype,
-        filters=filters,
-        fields=["name"],
-        limit_start=start,
-        limit_page_length=page_length,
-        order_by="posting_date desc, name desc",
-    )
+            # Build the WHERE clause for the query
+            where_clause = " OR ".join(conditions)
+            customer_query = f"""
+            SELECT name
+            FROM `tabCustomer`
+            WHERE {where_clause}
+            LIMIT 100
+        """
 
-    # Process and return the results
-    data = []
+            customers = frappe.db.sql(customer_query, params, as_dict=True)
+            customer_ids = [c.name for c in customers]
 
-    # Process invoices and check for returns
-    for invoice in invoices_list:
-        invoice_doc = frappe.get_doc(doctype, invoice.name)
+            # If we found matching customers, add them to the filter
+            if customer_ids:
+                filters["customer"] = ["in", customer_ids]
+            # If customer search criteria provided but no matches found, return empty
+            elif any([customer_name, customer_id, mobile_no, tax_id]):
+                return {"invoices": [], "has_more": False}
 
-        # Check if any items have already been returned
-        has_returns = frappe.get_all(
+        # Count total invoices matching the criteria (for has_more flag)
+        total_count_query = frappe.get_list(
             doctype,
-            filters={"return_against": invoice.name, "docstatus": 1},
+            filters=filters,
+            fields=["count(name) as total_count"],
+            as_list=False,
+        )
+        total_count = total_count_query[0].total_count if total_count_query else 0
+
+        # Get invoices matching all criteria with pagination
+        invoices_list = frappe.get_list(
+            doctype,
+            filters=filters,
             fields=["name"],
+            limit_start=start,
+            limit_page_length=page_length,
+            order_by="posting_date desc, name desc",
         )
 
-        if has_returns:
-            # Calculate returned quantity per item_code
-            returned_qty = {}
-            for ret_inv in has_returns:
-                ret_doc = frappe.get_doc(doctype, ret_inv.name)
-                for item in ret_doc.items:
-                    returned_qty[item.item_code] = returned_qty.get(item.item_code, 0) + abs(item.qty)
+        # Process and return the results
+        data = []
 
-            # Filter items with remaining qty
-            filtered_items = []
-            for item in invoice_doc.items:
-                remaining_qty = item.qty - returned_qty.get(item.item_code, 0)
-                if remaining_qty > 0:
-                    new_item = item.as_dict().copy()
-                    new_item["qty"] = remaining_qty
-                    new_item["amount"] = remaining_qty * item.rate
-                    if item.get("stock_qty"):
-                        new_item["stock_qty"] = (
-                            item.stock_qty / item.qty * remaining_qty if item.qty else remaining_qty
-                        )
-                    filtered_items.append(frappe._dict(new_item))
+        # Process invoices and check for returns
+        for invoice in invoices_list:
+            invoice_doc = frappe.get_doc(doctype, invoice.name)
+
+            # Check if any items have already been returned
+            has_returns = frappe.get_all(
+                doctype,
+                filters={"return_against": invoice.name, "docstatus": 1},
+                fields=["name"],
+            )
+
+            filtered_items = None
+            if has_returns:
+                # Calculate returned quantity per item_code
+                returned_qty = {}
+                for ret_inv in has_returns:
+                    ret_doc = frappe.get_doc(doctype, ret_inv.name)
+                    for item in ret_doc.items:
+                        returned_qty[item.item_code] = returned_qty.get(item.item_code, 0) + abs(item.qty)
+
+                # Filter items with remaining qty
+                filtered_items = []
+                for item in invoice_doc.items:
+                    remaining_qty = item.qty - returned_qty.get(item.item_code, 0)
+                    if remaining_qty > 0:
+                        new_item = item.as_dict().copy()
+                        new_item["qty"] = remaining_qty
+                        new_item["amount"] = remaining_qty * item.rate
+                        if item.get("stock_qty"):
+                            new_item["stock_qty"] = (
+                                item.stock_qty / item.qty * remaining_qty if item.qty else remaining_qty
+                            )
+                        filtered_items.append(new_item)
 
             if filtered_items:
-                # Create a copy of invoice with filtered items
-                filtered_invoice = frappe.get_doc(doctype, invoice.name)
-                filtered_invoice.items = filtered_items
-                data.append(filtered_invoice)
-        else:
-            data.append(invoice_doc)
+                # Create a copy of invoice dict with filtered items
+                invoice_dict = frappe.get_doc(doctype, invoice.name).as_dict()
+                # Replace items with filtered items (already dictionaries)
+                invoice_dict["items"] = filtered_items
+                data.append(invoice_dict)
+            else:
+                # Convert to dict for JSON serialization
+                data.append(invoice_doc.as_dict())
 
-    # Check if there are more results
-    has_more = (start + page_length) < total_count
+        # Check if there are more results
+        has_more = (start + page_length) < total_count
 
-    return {"invoices": data, "has_more": has_more}
+        return {"invoices": data, "has_more": has_more}
+    except Exception as e:
+        frappe.log_error(f"Error in search_invoices_for_return: {str(e)}", "Search Invoices Error")
+        frappe.throw(_("Error searching invoices: {0}").format(str(e)))
 
 
 @frappe.whitelist()
