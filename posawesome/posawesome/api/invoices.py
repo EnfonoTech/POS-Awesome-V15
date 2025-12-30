@@ -271,6 +271,18 @@ def validate_return_items(original_invoice_name, return_items, doctype="Sales In
 
 
 @frappe.whitelist()
+def get_default_return_reason():
+    """Get default return reason from Fateh POS Settings"""
+    default_reason = "Goods returned"
+    try:
+        if frappe.db.exists("Fateh POS Settings", "Fateh POS Settings"):
+            settings = frappe.get_cached_doc("Fateh POS Settings", "Fateh POS Settings")
+            default_reason = settings.get("default_return_reason") or "Goods returned"
+    except Exception:
+        pass
+    return default_reason
+
+
 def update_invoice(data):
     data = json.loads(data)
     # Determine doctype based on POS Profile setting
@@ -324,6 +336,17 @@ def update_invoice(data):
             invoice_doc.customer_name = cust.customer_name
         except Exception as e:
             frappe.log_error(f"Failed to create customer {customer_name}: {e}")
+
+    # Handle custom_return_reason for return invoices
+    if invoice_doc.is_return:
+        if not invoice_doc.get("custom_return_reason"):
+            if data.get("custom_return_reason"):
+                invoice_doc.custom_return_reason = data.get("custom_return_reason")
+            else:
+                if doctype == "Sales Invoice":
+                    frappe.throw(_("Return reason is mandatory for Sales Invoice returns. Please provide a return reason."))
+                else:  # For POS Invoice, use default from settings
+                    invoice_doc.custom_return_reason = get_default_return_reason()
 
     # Preserve provided item names for manual overrides
     overrides = {d.idx: {"item_name": d.item_name} for d in invoice_doc.items}
@@ -481,6 +504,17 @@ def submit_invoice(invoice, data):
     else:
         invoice_doc = frappe.get_doc(doctype, invoice_name)
         invoice_doc.update(invoice)
+
+    # Handle custom_return_reason for return invoices
+    if invoice_doc.is_return:
+        if not invoice_doc.get("custom_return_reason"):
+            if data.get("custom_return_reason"):
+                invoice_doc.custom_return_reason = data.get("custom_return_reason")
+            else:
+                if doctype == "Sales Invoice":
+                    frappe.throw(_("Return reason is mandatory for Sales Invoice returns. Please provide a return reason."))
+                else:  # For POS Invoice, use default from settings
+                    invoice_doc.custom_return_reason = get_default_return_reason()
 
     # Ensure item name overrides are respected on submit
     _apply_item_name_overrides(invoice_doc)
@@ -849,44 +883,49 @@ def search_invoices_for_return(
 
     # Process invoices and check for returns
     for invoice in invoices_list:
-        invoice_doc = frappe.get_doc(doctype, invoice.name)
+        try:
+            invoice_doc = frappe.get_doc(doctype, invoice.name)
 
-        # Check if any items have already been returned
-        has_returns = frappe.get_all(
-            doctype,
-            filters={"return_against": invoice.name, "docstatus": 1},
-            fields=["name"],
-        )
+            # Check if any items have already been returned
+            has_returns = frappe.get_all(
+                doctype,
+                filters={"return_against": invoice.name, "docstatus": 1},
+                fields=["name"],
+            )
 
-        if has_returns:
-            # Calculate returned quantity per item_code
-            returned_qty = {}
-            for ret_inv in has_returns:
-                ret_doc = frappe.get_doc(doctype, ret_inv.name)
-                for item in ret_doc.items:
-                    returned_qty[item.item_code] = returned_qty.get(item.item_code, 0) + abs(item.qty)
+            filtered_items = None
+            if has_returns:
+                # Calculate returned quantity per item_code
+                returned_qty = {}
+                for ret_inv in has_returns:
+                    ret_doc = frappe.get_doc(doctype, ret_inv.name)
+                    for item in ret_doc.items:
+                        returned_qty[item.item_code] = returned_qty.get(item.item_code, 0) + abs(item.qty)
 
-            # Filter items with remaining qty
-            filtered_items = []
-            for item in invoice_doc.items:
-                remaining_qty = item.qty - returned_qty.get(item.item_code, 0)
-                if remaining_qty > 0:
-                    new_item = item.as_dict().copy()
-                    new_item["qty"] = remaining_qty
-                    new_item["amount"] = remaining_qty * item.rate
-                    if item.get("stock_qty"):
-                        new_item["stock_qty"] = (
-                            item.stock_qty / item.qty * remaining_qty if item.qty else remaining_qty
-                        )
-                    filtered_items.append(frappe._dict(new_item))
+                # Filter items with remaining qty
+                filtered_items = []
+                for item in invoice_doc.items:
+                    remaining_qty = item.qty - returned_qty.get(item.item_code, 0)
+                    if remaining_qty > 0:
+                        new_item = item.as_dict().copy()
+                        new_item["qty"] = remaining_qty
+                        new_item["amount"] = remaining_qty * item.rate
+                        if item.get("stock_qty"):
+                            new_item["stock_qty"] = (
+                                item.stock_qty / item.qty * remaining_qty if item.qty else remaining_qty
+                            )
+                        filtered_items.append(new_item)
 
             if filtered_items:
                 # Create a copy of invoice with filtered items
-                filtered_invoice = frappe.get_doc(doctype, invoice.name)
-                filtered_invoice.items = filtered_items
-                data.append(filtered_invoice)
-        else:
-            data.append(invoice_doc)
+                invoice_dict = frappe.get_doc(doctype, invoice.name).as_dict()
+                invoice_dict["items"] = filtered_items
+                data.append(invoice_dict)
+            else:
+                data.append(invoice_doc.as_dict())
+        except Exception as e:
+            frappe.log_error(f"Error processing invoice {invoice.name}: {str(e)}")
+            continue
 
     # Check if there are more results
     has_more = (start + page_length) < total_count

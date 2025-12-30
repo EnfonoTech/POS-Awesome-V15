@@ -692,6 +692,10 @@ export default {
 			if (this.invoice_doc.return_against) {
 				doc.return_against = this.invoice_doc.return_against;
 			}
+			// Preserve custom_return_reason if it exists
+			if (this.invoice_doc && this.invoice_doc.custom_return_reason) {
+				doc.custom_return_reason = this.invoice_doc.custom_return_reason;
+			}
 			doc.update_stock = 1;
 
 			// Double-check all values are negative

@@ -12,7 +12,9 @@
   "global_uom_section",
   "use_global_uom",
   "global_uom",
-  "show_favorites_on_top"
+  "show_favorites_on_top",
+  "return_reason_section",
+  "default_return_reason"
  ],
  "fields": [
   {
@@ -49,6 +51,18 @@
    "fieldname": "show_favorites_on_top",
    "fieldtype": "Check",
    "label": "Show Favorite Items on Top"
+  },
+  {
+   "fieldname": "return_reason_section",
+   "fieldtype": "Section Break",
+   "label": "Return Settings"
+  },
+  {
+   "default": "Goods returned",
+   "fieldname": "default_return_reason",
+   "fieldtype": "Data",
+   "label": "Default Return Reason",
+   "description": "Default reason to be used when creating return invoices"
   }
  ],
  "index_web_pages_for_search": 0,
