@@ -835,6 +835,14 @@ def get_items_details(pos_profile, items_data, price_list=None, customer=None):
 @frappe.whitelist()
 def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=None):
     item = json.loads(item)
+    
+    # Parse doc if it's a JSON string
+    if doc and isinstance(doc, str):
+        try:
+            doc = json.loads(doc)
+        except (json.JSONDecodeError, TypeError):
+            doc = None
+    
     today = nowdate()
     item_code = item.get("item_code")
     batch_no_data = []
@@ -869,6 +877,23 @@ def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=Non
         )
 
     item["selling_price_list"] = price_list
+
+    # Extract company from item dict if not provided as separate parameter
+    # This handles cases where frontend passes company inside item dict
+    if not company and item.get("company"):
+        company = item.get("company")
+    
+    # If still no company, try to get it from doc parameter
+    if not company and doc:
+        if isinstance(doc, dict):
+            company = doc.get("company")
+        elif hasattr(doc, "company"):
+            company = doc.company
+    
+    # If still no company, try to get it from POS profile
+    if not company and item.get("pos_profile"):
+        pos_profile_doc = frappe.get_cached_doc("POS Profile", item.get("pos_profile"))
+        company = pos_profile_doc.company if pos_profile_doc else None
 
     # Determine if multi-currency is enabled on the POS Profile
     allow_multi_currency = False
@@ -905,20 +930,42 @@ def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=Non
         item["conversion_rate"] = exchange_rate
 
         if doc:
-            doc.price_list_currency = price_list_currency
-            doc.plc_conversion_rate = exchange_rate
-            doc.conversion_rate = exchange_rate
+            # Ensure doc is a dict-like object before setting attributes
+            if isinstance(doc, dict):
+                doc["price_list_currency"] = price_list_currency
+                doc["plc_conversion_rate"] = exchange_rate
+                doc["conversion_rate"] = exchange_rate
+            elif hasattr(doc, "price_list_currency"):
+                # It's a document object
+                doc.price_list_currency = price_list_currency
+                doc.plc_conversion_rate = exchange_rate
+                doc.conversion_rate = exchange_rate
 
     # Add company and doctype to the item args for ERPNext validation
+    # Company is required by ERPNext's validate_item_details function
     if company:
         item["company"] = company
+    elif not item.get("company"):
+        # If company is still missing, this will cause validation error
+        # Try to get from active POS profile as last resort
+        try:
+            active_profile = get_active_pos_profile()
+            if active_profile and active_profile.get("company"):
+                company = active_profile.get("company")
+                item["company"] = company
+        except Exception:
+            pass
+    
+    # Ensure company is set, otherwise ERPNext validation will fail
+    if not item.get("company"):
+        frappe.throw(_("Company is required. Please ensure POS Profile has a company set."))
 
     # Set doctype for ERPNext validation
     item["doctype"] = "Sales Invoice"
 
     # Create a proper doc structure with company for ERPNext validation
     if not doc and company:
-        doc = frappe._dict({"doctype": "Sales Invoice", "company": company})
+        doc = {"doctype": "Sales Invoice", "company": company}
 
     max_discount = frappe.get_value("Item", item_code, "max_discount")
     res = get_item_details(

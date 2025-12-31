@@ -8,6 +8,7 @@ import {
 	getOfflineCustomers,
 	getTaxTemplate,
 	getTaxInclusiveSetting,
+	getOpeningStorage,
 } from "../../../offline/index.js";
 
 // Import composables
@@ -754,6 +755,105 @@ export default {
 		let doc = {};
 		const sourceDoc = this.invoice_doc || {};
 
+		// Safety check: ensure pos_profile exists, try to get it from various sources
+		if (!this.pos_profile) {
+			// Try to get from frappe.boot
+			if (frappe?.boot?.pos_profile) {
+				this.pos_profile = frappe.boot.pos_profile;
+				console.warn("Using pos_profile from frappe.boot");
+				// Emit event to notify other components that profile is restored
+				if (this.eventBus) {
+					this.eventBus.emit("register_pos_profile", {
+						pos_profile: this.pos_profile,
+					});
+				}
+			}
+			// Try to get from cached opening storage
+			else {
+				try {
+					const cached = getOpeningStorage();
+					if (cached && cached.pos_profile) {
+						this.pos_profile = cached.pos_profile;
+						console.warn("Using pos_profile from cached opening storage");
+						// Emit event to notify other components that profile is restored
+						if (this.eventBus) {
+							this.eventBus.emit("register_pos_profile", {
+								pos_profile: this.pos_profile,
+							});
+						}
+					}
+				} catch (e) {
+					console.error("Failed to get pos_profile from cache:", e);
+				}
+			}
+			
+			// If still not available, log error and return minimal doc
+			if (!this.pos_profile) {
+				console.error("pos_profile is not available. Cannot create invoice doc.");
+				// Return a minimal doc structure to prevent further errors
+				return {
+					doctype: "Sales Invoice",
+					is_pos: 1,
+					ignore_pricing_rule: 1,
+					items: [],
+					payments: [],
+				};
+			}
+		}
+		
+		// Ensure items array is properly initialized in the store
+		if (this.invoiceStore && !Array.isArray(this.invoiceStore.items)) {
+			this.invoiceStore.setItems([]);
+		}
+		
+		// Ensure stock_settings is properly initialized
+		if (!this.stock_settings || typeof this.stock_settings !== 'object') {
+			// Try to get stock_settings from cached opening storage
+			let cachedStockSettings = null;
+			try {
+				const cached = getOpeningStorage();
+				if (cached && cached.stock_settings) {
+					cachedStockSettings = cached.stock_settings;
+				}
+			} catch (e) {
+				// Ignore cache errors
+			}
+			
+			this.stock_settings = cachedStockSettings || {
+				allow_negative_stock: false,
+			};
+		}
+		
+		// Ensure pos_opening_shift is properly initialized
+		if (!this.pos_opening_shift) {
+			// Try to get pos_opening_shift from cached opening storage
+			try {
+				const cached = getOpeningStorage();
+				if (cached) {
+					// pos_opening_shift might be in the cached data directly or nested
+					if (cached.pos_opening_shift) {
+						this.pos_opening_shift = cached.pos_opening_shift;
+					} else if (cached.pos_opening_shift_name) {
+						// If only the name is stored, create a minimal object
+						this.pos_opening_shift = { name: cached.pos_opening_shift_name };
+					}
+				}
+			} catch (e) {
+				// Ignore cache errors
+			}
+		}
+		
+		// Final safety check - ensure pos_opening_shift is an object with name property if it exists
+		if (this.pos_opening_shift && typeof this.pos_opening_shift !== 'object') {
+			// If it's just a string (name), convert to object
+			if (typeof this.pos_opening_shift === 'string') {
+				this.pos_opening_shift = { name: this.pos_opening_shift };
+			} else {
+				// If it's something else unexpected, set to null
+				this.pos_opening_shift = null;
+			}
+		}
+
 		if (sourceDoc.name) {
 			doc = { ...sourceDoc };
 		}
@@ -761,21 +861,21 @@ export default {
 		// Always set these fields first
 		if (this.invoiceType === "Quotation") {
 			doc.doctype = "Quotation";
-		} else if (this.invoiceType === "Order" && this.pos_profile.posa_create_only_sales_order) {
+		} else if (this.invoiceType === "Order" && this.pos_profile?.posa_create_only_sales_order) {
 			doc.doctype = "Sales Order";
-		} else if (this.pos_profile.create_pos_invoice_instead_of_sales_invoice) {
+		} else if (this.pos_profile?.create_pos_invoice_instead_of_sales_invoice) {
 			doc.doctype = "POS Invoice";
 		} else {
 			doc.doctype = "Sales Invoice";
 		}
 		doc.is_pos = 1;
 		doc.ignore_pricing_rule = 1;
-		doc.company = doc.company || this.pos_profile.company;
-		doc.pos_profile = doc.pos_profile || this.pos_profile.name;
-		doc.posa_show_custom_name_marker_on_print = this.pos_profile.posa_show_custom_name_marker_on_print;
+		doc.company = doc.company || this.pos_profile?.company;
+		doc.pos_profile = doc.pos_profile || this.pos_profile?.name;
+		doc.posa_show_custom_name_marker_on_print = this.pos_profile?.posa_show_custom_name_marker_on_print || 0;
 
 		// Currency related fields
-		doc.currency = this.selected_currency || this.pos_profile.currency;
+		doc.currency = this.selected_currency || this.pos_profile?.currency;
 		doc.conversion_rate = (sourceDoc && sourceDoc.conversion_rate) || this.conversion_rate || 1;
 
 		// Use actual price list currency if available
@@ -786,9 +886,9 @@ export default {
 			(doc.price_list_currency === doc.currency ? 1 : this.exchange_rate);
 
 		// Other fields
-		doc.campaign = doc.campaign || this.pos_profile.campaign;
-		doc.selling_price_list = this.pos_profile.selling_price_list;
-		doc.naming_series = doc.naming_series || this.pos_profile.naming_series;
+		doc.campaign = doc.campaign || this.pos_profile?.campaign;
+		doc.selling_price_list = this.pos_profile?.selling_price_list;
+		doc.naming_series = doc.naming_series || this.pos_profile?.naming_series;
 		doc.customer = this.customer;
 
 		// Determine if this is a return invoice
@@ -857,7 +957,7 @@ export default {
 			});
 			doc.total_taxes_and_charges = totalTax;
 		} else if (isOffline()) {
-			const tmpl = getTaxTemplate(this.pos_profile.taxes_and_charges);
+			const tmpl = getTaxTemplate(this.pos_profile?.taxes_and_charges);
 			if (tmpl && Array.isArray(tmpl.taxes)) {
 				const inclusive = getTaxInclusiveSetting();
 				let runningTotal = grandTotal;
@@ -904,7 +1004,7 @@ export default {
 		doc.base_grand_total = grandTotal * (this.exchange_rate || 1);
 
 		// Apply rounding to get rounded total unless disabled in POS Profile
-		if (this.pos_profile.disable_rounded_total) {
+		if (this.pos_profile?.disable_rounded_total) {
 			doc.rounded_total = flt(grandTotal, this.currency_precision);
 			doc.base_rounded_total = flt(doc.base_grand_total, this.currency_precision);
 		} else {
@@ -913,7 +1013,16 @@ export default {
 		}
 
 		// Add POS specific fields
-		doc.posa_pos_opening_shift = this.pos_opening_shift.name;
+		// Safely get pos_opening_shift name with multiple fallbacks
+		let openingShiftName = null;
+		if (this.pos_opening_shift) {
+			if (typeof this.pos_opening_shift === 'object' && this.pos_opening_shift.name) {
+				openingShiftName = this.pos_opening_shift.name;
+			} else if (typeof this.pos_opening_shift === 'string') {
+				openingShiftName = this.pos_opening_shift;
+			}
+		}
+		doc.posa_pos_opening_shift = openingShiftName;
 		
 		// Add sales order reference and advance paid if loading from sales order
 		if (this.sales_order_name) {
@@ -1219,7 +1328,14 @@ export default {
 		const total_amount = this.subtotal;
 		let remaining_amount = total_amount;
 
-		this.pos_profile.payments.forEach((payment, index) => {
+		// Safety check: ensure pos_profile.payments exists and is an array
+		const profilePayments = (this.pos_profile && this.pos_profile.payments) || [];
+		if (!Array.isArray(profilePayments)) {
+			console.warn("pos_profile.payments is not an array, using empty array");
+			return payments;
+		}
+
+		profilePayments.forEach((payment, index) => {
 			// For the first payment method, assign the full remaining amount
 			const payment_amount = index === 0 ? remaining_amount : payment.amount || 0;
 
@@ -1231,7 +1347,7 @@ export default {
 			// amount is in USD (e.g. 10 USD)
 			// base_amount should be in PKR (e.g. 3000 PKR)
 			// So multiply by exchange rate to get base_amount
-			const baseCurrency = this.price_list_currency || this.pos_profile.currency;
+			const baseCurrency = this.price_list_currency || this.pos_profile?.currency;
 			const base_amount =
 				this.selected_currency !== baseCurrency
 					? this.flt(adjusted_amount / (this.exchange_rate || 1), this.currency_precision)
@@ -1244,7 +1360,7 @@ export default {
 				default: payment.default,
 				account: payment.account || "",
 				type: payment.type || "Cash",
-				currency: this.selected_currency || this.pos_profile.currency,
+				currency: this.selected_currency || this.pos_profile?.currency,
 				conversion_rate: this.conversion_rate || 1,
 			});
 
@@ -2135,7 +2251,9 @@ export default {
 			const { message } = await frappe.call({
 				method: "posawesome.posawesome.api.invoices.get_draft_invoices",
 				args: {
-					pos_opening_shift: this.pos_opening_shift.name,
+					pos_opening_shift: (this.pos_opening_shift && typeof this.pos_opening_shift === 'object' && this.pos_opening_shift.name) 
+						? this.pos_opening_shift.name 
+						: (typeof this.pos_opening_shift === 'string' ? this.pos_opening_shift : null),
 					doctype: this.pos_profile.create_pos_invoice_instead_of_sales_invoice
 						? "POS Invoice"
 						: "Sales Invoice",
@@ -2367,12 +2485,13 @@ export default {
 					warehouse: item.warehouse || this.pos_profile.warehouse,
 					doc: currentDoc,
 					price_list: this.selected_price_list || this.pos_profile.selling_price_list,
+					company: this.pos_profile?.company,
 					item: {
 						item_code: item.item_code,
 						customer: this.customer,
 						doctype: currentDoc.doctype,
 						name: currentDoc.name || `New ${currentDoc.doctype} 1`,
-						company: this.pos_profile.company,
+						company: this.pos_profile?.company,
 						conversion_rate: 1,
 						currency: this.pos_profile.currency,
 						qty: item.qty,
@@ -3198,8 +3317,9 @@ export default {
                         item.max_qty = flt(item.available_qty / (item.conversion_factor || 1));
 
                         // Set increment disable flag based on stock limits
+                        const allowNegative = this.stock_settings?.allow_negative_stock ?? false;
                         item.disable_increment =
-                                (!this.stock_settings.allow_negative_stock || this.blockSaleBeyondAvailableQty) &&
+                                (!allowNegative || this.blockSaleBeyondAvailableQty) &&
                                 item.qty >= item.max_qty;
                 }
         },

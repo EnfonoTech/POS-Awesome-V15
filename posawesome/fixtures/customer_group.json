@@ -9,8 +9,8 @@
   "is_group": 0,
   "modified": "2025-12-20 10:21:06.165930",
   "name": "Online Delivery",
-  "old_parent": "All Customer Groups",
-  "parent_customer_group": "All Customer Groups",
+  "old_parent": "",
+  "parent_customer_group": "",
   "payment_terms": null
  }
 ]
