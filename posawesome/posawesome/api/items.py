@@ -439,6 +439,7 @@ def _build_search_plan(
         "name",
         "item_code",
         "item_name",
+        "custom_item_name_arabic",
         "stock_uom",
         "is_stock_item",
         "has_variants",
@@ -724,6 +725,7 @@ def get_item_variants(pos_profile, parent_item_code, price_list=None, customer=N
     fields = [
         "name as item_code",
         "item_name",
+        "custom_item_name_arabic",
         "description",
         "stock_uom",
         "image",

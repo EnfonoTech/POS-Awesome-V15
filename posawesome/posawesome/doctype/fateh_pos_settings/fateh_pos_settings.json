@@ -13,6 +13,9 @@
   "use_global_uom",
   "global_uom",
   "show_favorites_on_top",
+  "card_view_section",
+  "show_arabic_name_in_card",
+  "hide_item_code_in_card",
   "return_reason_section",
   "default_return_reason"
  ],
@@ -51,6 +54,23 @@
    "fieldname": "show_favorites_on_top",
    "fieldtype": "Check",
    "label": "Show Favorite Items on Top"
+  },
+  {
+   "fieldname": "card_view_section",
+   "fieldtype": "Section Break",
+   "label": "Card View Settings"
+  },
+  {
+   "default": "0",
+   "fieldname": "show_arabic_name_in_card",
+   "fieldtype": "Check",
+   "label": "Show Arabic Name in Card"
+  },
+  {
+   "default": "0",
+   "fieldname": "hide_item_code_in_card",
+   "fieldtype": "Check",
+   "label": "Hide Item Code in Card"
   },
   {
    "fieldname": "return_reason_section",

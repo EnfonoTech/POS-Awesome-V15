@@ -344,8 +344,18 @@
 										<div class="card-item-content">
 											<div class="card-item-header">
 												<div class="card-item-header-left">
-													<h4 class="card-item-name">{{ item.item_name }}</h4>
-													<span class="card-item-code">{{ item.item_code }}</span>
+													<h4 class="card-item-name">
+														<template v-if="showArabicNameInCard && item.custom_item_name_arabic">
+															<div class="card-item-name-english">{{ item.item_name }}</div>
+															<div class="card-item-name-arabic">{{ item.custom_item_name_arabic }}</div>
+														</template>
+														<template v-else>
+															{{ item.item_name }}
+														</template>
+													</h4>
+													<template v-if="!hideItemCodeInCard">
+														<span class="card-item-code">{{ item.item_code }}</span>
+													</template>
 												</div>
 											</div>
 											<div class="card-item-details">
@@ -708,6 +718,8 @@ export default {
 		globalUom: "", // Single global UOM that applies to all items
 		showFavoritesOnTop: true,
 		useGlobalUom: false,
+		showArabicNameInCard: false,
+		hideItemCodeInCard: false,
 		temp_show_favorites_on_top: true,
 		temp_use_global_uom: false,
 		temp_global_uom: "",
@@ -3785,6 +3797,18 @@ export default {
 					this.useGlobalUom = res.message.use_global_uom !== undefined ? res.message.use_global_uom : true;
 					this.showFavoritesOnTop = res.message.show_favorites_on_top !== undefined ? res.message.show_favorites_on_top : true;
 					this.globalUom = res.message.global_uom || "";
+					this.showArabicNameInCard = res.message.show_arabic_name_in_card !== undefined ? res.message.show_arabic_name_in_card : false;
+					this.hideItemCodeInCard = res.message.hide_item_code_in_card !== undefined ? res.message.hide_item_code_in_card : false;
+					console.log("Loaded card view settings:", {
+						showArabicNameInCard: this.showArabicNameInCard,
+						hideItemCodeInCard: this.hideItemCodeInCard
+					});
+					// Force Vue to update the view
+					this.$nextTick(() => {
+						if (typeof this.$forceUpdate === "function") {
+							this.$forceUpdate();
+						}
+					});
 				} else {
 					// Fallback to localStorage
 					const saved = localStorage.getItem("posawesome_global_uom_settings");
@@ -3793,11 +3817,21 @@ export default {
 						this.useGlobalUom = settings.useGlobalUom !== undefined ? settings.useGlobalUom : true;
 						this.showFavoritesOnTop = settings.showFavoritesOnTop !== undefined ? settings.showFavoritesOnTop : true;
 						this.globalUom = settings.globalUom || "";
+						this.showArabicNameInCard = settings.showArabicNameInCard !== undefined ? settings.showArabicNameInCard : false;
+						this.hideItemCodeInCard = settings.hideItemCodeInCard !== undefined ? settings.hideItemCodeInCard : false;
+						// Force Vue to update the view
+						this.$nextTick(() => {
+							if (typeof this.$forceUpdate === "function") {
+								this.$forceUpdate();
+							}
+						});
 					} else {
 						// Set defaults
 						this.useGlobalUom = true;
 						this.showFavoritesOnTop = true;
 						this.globalUom = "";
+						this.showArabicNameInCard = false;
+						this.hideItemCodeInCard = false;
 						this.saveGlobalUomSettings();
 					}
 				}
@@ -3811,16 +3845,28 @@ export default {
 						this.useGlobalUom = settings.useGlobalUom !== undefined ? settings.useGlobalUom : true;
 						this.showFavoritesOnTop = settings.showFavoritesOnTop !== undefined ? settings.showFavoritesOnTop : true;
 						this.globalUom = settings.globalUom || "";
+						this.showArabicNameInCard = settings.showArabicNameInCard !== undefined ? settings.showArabicNameInCard : false;
+						this.hideItemCodeInCard = settings.hideItemCodeInCard !== undefined ? settings.hideItemCodeInCard : false;
 					} else {
 						this.useGlobalUom = true;
 						this.showFavoritesOnTop = true;
 						this.globalUom = "";
+						this.showArabicNameInCard = false;
+						this.hideItemCodeInCard = false;
 					}
 				} catch (e2) {
 					this.useGlobalUom = true;
 					this.showFavoritesOnTop = true;
 					this.globalUom = "";
+					this.showArabicNameInCard = false;
+					this.hideItemCodeInCard = false;
 				}
+				// Force Vue to update the view
+				this.$nextTick(() => {
+					if (typeof this.$forceUpdate === "function") {
+						this.$forceUpdate();
+					}
+				});
 			}
 			// Update prices after loading settings (defer to next tick to ensure items are loaded)
 			if (this.useGlobalUom && this.globalUom) {
@@ -3828,6 +3874,12 @@ export default {
 					this.updateGlobalUomPrices();
 				});
 			}
+			// Force Vue to update the view after all settings are loaded
+			this.$nextTick(() => {
+				if (typeof this.$forceUpdate === "function") {
+					this.$forceUpdate();
+				}
+			});
 		},
 		async saveGlobalUomSettings() {
 			try {
@@ -3838,6 +3890,8 @@ export default {
 						global_uom: this.globalUom || "",
 						use_global_uom: this.useGlobalUom,
 						show_favorites_on_top: this.showFavoritesOnTop,
+						show_arabic_name_in_card: this.showArabicNameInCard,
+						hide_item_code_in_card: this.hideItemCodeInCard,
 					},
 				});
 			} catch (e) {
@@ -3849,6 +3903,8 @@ export default {
 					useGlobalUom: this.useGlobalUom,
 					showFavoritesOnTop: this.showFavoritesOnTop,
 					globalUom: this.globalUom || "",
+					showArabicNameInCard: this.showArabicNameInCard,
+					hideItemCodeInCard: this.hideItemCodeInCard,
 				};
 				localStorage.setItem("posawesome_global_uom_settings", JSON.stringify(settings));
 			} catch (e) {
@@ -4045,19 +4101,20 @@ export default {
 		},
 	cardColumns() {
 		// Calculate columns based on container width and minimum card width
-		const minCardWidth = 160; // Minimum width for each card
+		// Use responsive minimum card width
+		const minCardWidth = this.windowWidth <= 768 ? 110 : this.windowWidth <= 1200 ? 120 : 130;
 		const containerWidth = this.cardContainerWidth || this.windowWidth;
 		const columns = Math.floor(containerWidth / minCardWidth);
 		
 		// Ensure at least 2 columns on mobile, cap at reasonable max
 		if (this.windowWidth <= 768) {
-			return Math.max(2, Math.min(columns, 3));
+			return Math.max(2, Math.min(columns, 5));
 		}
 		if (this.windowWidth <= 1200) {
-			return Math.max(3, Math.min(columns, 5));
+			return Math.max(3, Math.min(columns, 7));
 		}
 		// Desktop: allow more columns based on available space
-		return Math.max(4, Math.min(columns, 8));
+		return Math.max(4, Math.min(columns, 10));
 	},
 		availableUoms() {
 			// Collect all unique UOMs from all items
@@ -4098,33 +4155,36 @@ export default {
 			return 8;
 		},
 		cardRowHeight() {
-			// Row height: 140px card + 10px padding = 150px
+			// Row height: 95px card + 2px padding = 97px
 			// First row starts at 20px due to grid padding-top
 			if (this.windowWidth <= 768) {
-				return 150;
+				return 97;
 			}
 			if (this.windowWidth <= 1200) {
-				return 150;
+				return 97;
 			}
-			return 150;
+			return 97;
 		},
 	cardColumnWidth() {
 		const columns = Math.max(1, this.cardColumns);
 		const containerWidth = this.cardContainerWidth || 0;
 		if (!containerWidth) {
 			// Default fallback based on screen size
-			if (this.windowWidth <= 768) return 140;
-			if (this.windowWidth <= 1200) return 150;
-			return 160;
+			if (this.windowWidth <= 768) return 110;
+			if (this.windowWidth <= 1200) return 120;
+			return 130;
 		}
 
 		// Account for gaps and padding
-		const gapBetweenCards = 4; // 2px padding on each side
+		const gapBetweenCards = 2; // 1px padding on each side
 		const paddingTotal = 2; // 1px container padding on each side
 		const available = Math.max(0, containerWidth - paddingTotal);
 		const width = Math.floor(available / columns);
-		// Subtract gap to create spacing between cards
-		return Math.max(140, width - gapBetweenCards);
+		// Subtract gap to create spacing between cards, with minimum based on screen size
+		const minWidth = this.windowWidth <= 768 ? 110 : this.windowWidth <= 1200 ? 120 : 130;
+		const calculatedWidth = width - gapBetweenCards;
+		// Allow cards to expand to use available space, but with a reasonable minimum
+		return Math.max(minWidth, calculatedWidth);
 	},
 		displayedItems() {
 			const baseItems = Array.isArray(this.filteredItems) ? [...this.filteredItems] : [];
@@ -4800,7 +4860,7 @@ export default {
 /* Enhanced Card View Grid Layout - 5 items per row */
 .items-card-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
 	gap: 0;
 	row-gap: 0;
 	column-gap: 0;
@@ -4842,19 +4902,21 @@ export default {
 	margin: 0;
 	padding: 0 !important;
 	box-sizing: border-box !important;
+	width: 100% !important;
+	max-width: 100% !important;
 }
 
 .card-item-wrapper {
 	margin: 0;
-	padding: 5px 1px;
+	padding: 1px;
 	box-sizing: border-box;
 	width: 100%;
 	height: 100%;
 }
 
 .card-item-wrapper .card-item-card {
-	height: 140px;
-	min-height: 140px;
+	height: 95px;
+	min-height: 95px;
 }
 
 .items-card-grid::-webkit-scrollbar {
@@ -4880,7 +4942,7 @@ export default {
 
 .card-item-card {
 	background-color: var(--surface-secondary, #ffffff);
-	border-radius: 12px;
+	border-radius: 6px;
 	border: 1px solid rgba(0, 0, 0, 0.08);
 	overflow: hidden;
 	transition:
@@ -4890,9 +4952,10 @@ export default {
 	cursor: pointer;
 	display: flex;
 	flex-direction: column;
-	height: 140px;
-	min-height: 140px;
-	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+	height: 95px;
+	min-height: 95px;
+	max-width: 100%;
+	box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
 	will-change: transform;
 	backface-visibility: hidden;
 	transform: translate3d(0, 0, 0);
@@ -4908,21 +4971,22 @@ export default {
 }
 
 .card-item-content {
-	padding: 10px 12px 12px;
+	padding: 4px 8px 8px;
 	flex: 1;
 	display: flex;
 	flex-direction: column;
-	gap: 6px;
+	gap: 2px;
+	min-height: 0;
 }
 
 .card-item-header {
 	border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-	padding-bottom: 6px;
-	margin-bottom: 4px;
+	padding-bottom: 1px;
+	margin-bottom: 1px;
 	display: flex;
 	justify-content: space-between;
 	align-items: flex-start;
-	gap: 8px;
+	gap: 3px;
 }
 
 .card-item-header-left {
@@ -4938,31 +5002,61 @@ export default {
 }
 
 .card-item-name {
-	font-size: 0.9rem;
+	font-size: 0.8rem;
 	font-weight: 600;
 	color: var(--text-primary, #2c3e50);
-	margin: 0 0 4px 0;
-	line-height: 1.4;
-	min-height: 2.8em;
-	display: -webkit-box;
-	-webkit-line-clamp: 2;
-	line-clamp: 2;
-	-webkit-box-orient: vertical;
-	overflow: hidden;
-	text-overflow: ellipsis;
+	margin: 0 0 1px 0;
+	line-height: 1.2;
+	min-height: 2.3em;
+	display: flex;
+	flex-direction: column;
+	gap: 1px;
 	/* Enhanced Arabic font support */
 	font-family:
 		"SF Pro Display", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "Noto Sans Arabic", "Tahoma",
 		sans-serif;
 }
 
+.card-item-name-english {
+	font-size: 0.8rem;
+	font-weight: 600;
+	color: var(--text-primary, #2c3e50);
+	line-height: 1.2;
+	direction: ltr;
+	text-align: left;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	line-clamp: 2;
+	-webkit-box-orient: vertical;
+	margin-bottom: 1px;
+	/* Enhanced Arabic font support */
+	font-family:
+		"SF Pro Display", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", sans-serif;
+}
+
+.card-item-name-arabic {
+	font-size: 0.8rem;
+	font-weight: 600;
+	color: var(--text-primary, #2c3e50);
+	line-height: 1.3;
+	direction: rtl;
+	text-align: right;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	/* Enhanced Arabic font support */
+	font-family: "Noto Sans Arabic", "Tahoma", "Arial", sans-serif;
+}
+
 .card-item-code {
-	font-size: 0.75rem;
+	font-size: 0.7rem;
 	color: var(--pos-text-secondary, #6c757d);
 	font-weight: 500;
 	background: rgba(0, 0, 0, 0.04);
-	padding: 2px 6px;
-	border-radius: 4px;
+	padding: 1px 4px;
+	border-radius: 3px;
 	/* Enhanced Arabic font support */
 	font-family:
 		"SF Pro Display", "Segoe UI", "Roboto", "Helvetica Neue", "Arial", "Noto Sans Arabic", "Tahoma",
@@ -4972,32 +5066,36 @@ export default {
 .card-item-details {
 	display: flex;
 	flex-direction: column;
-	gap: 8px;
+	gap: 4px;
 	flex: 1;
+	min-height: 0;
 }
 
 .card-item-price {
 	display: flex;
 	flex-direction: row;
 	align-items: center;
-	gap: 6px;
+	gap: 4px;
 	justify-content: space-between;
+	margin-top: auto;
+	flex-shrink: 0;
 }
 
 .primary-price {
 	display: flex;
 	align-items: center;
-	gap: 4px;
+	gap: 3px;
 	font-weight: 600;
 	color: var(--primary-color, #1976d2);
+	font-size: 0.85rem;
 	flex: 1;
 }
 
 .card-item-uom {
-	font-size: 0.75rem;
+	font-size: 0.7rem;
 	color: var(--pos-text-secondary, #6c757d);
 	font-weight: 500;
-	margin-left: 4px;
+	margin-left: 3px;
 }
 
 .favorite-btn-after-rate {
@@ -5280,7 +5378,7 @@ export default {
 /* Responsive breakpoints */
 @media (max-width: 1200px) {
 	.items-card-grid {
-		grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+		grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
 		padding: 1px;
 		padding-top: 20px;
 	}

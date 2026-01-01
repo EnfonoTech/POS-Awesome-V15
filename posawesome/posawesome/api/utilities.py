@@ -669,11 +669,15 @@ def get_fateh_pos_settings():
                 global_uom = doc.get("global_uom") or ""
                 use_global_uom = doc.get("use_global_uom") or 0
                 show_favorites_on_top = doc.get("show_favorites_on_top") or 0
+                show_arabic_name_in_card = doc.get("show_arabic_name_in_card") or 0
+                hide_item_code_in_card = doc.get("hide_item_code_in_card") or 0
                 return {
                     "favorite_items": favorite_items,
                     "global_uom": global_uom,
                     "use_global_uom": bool(use_global_uom),
                     "show_favorites_on_top": bool(show_favorites_on_top),
+                    "show_arabic_name_in_card": bool(show_arabic_name_in_card),
+                    "hide_item_code_in_card": bool(hide_item_code_in_card),
                 }
         
         # Fallback: return defaults
@@ -682,6 +686,8 @@ def get_fateh_pos_settings():
             "global_uom": "",
             "use_global_uom": True,
             "show_favorites_on_top": True,
+            "show_arabic_name_in_card": False,
+            "hide_item_code_in_card": False,
         }
     except Exception as e:
         frappe.log_error(f"Error getting Fateh POS Settings: {str(e)}")
@@ -690,11 +696,13 @@ def get_fateh_pos_settings():
             "global_uom": "",
             "use_global_uom": True,
             "show_favorites_on_top": True,
+            "show_arabic_name_in_card": False,
+            "hide_item_code_in_card": False,
         }
 
 
 @frappe.whitelist()
-def save_fateh_pos_settings(favorite_items=None, global_uom=None, use_global_uom=None, show_favorites_on_top=None):
+def save_fateh_pos_settings(favorite_items=None, global_uom=None, use_global_uom=None, show_favorites_on_top=None, show_arabic_name_in_card=None, hide_item_code_in_card=None):
     """Save Fateh POS Settings including favorite items and global UOM."""
     try:
         # Try to save to Fateh POS Settings doctype if it exists
@@ -739,6 +747,10 @@ def save_fateh_pos_settings(favorite_items=None, global_uom=None, use_global_uom
                 doc.use_global_uom = 1 if use_global_uom else 0
             if show_favorites_on_top is not None:
                 doc.show_favorites_on_top = 1 if show_favorites_on_top else 0
+            if show_arabic_name_in_card is not None:
+                doc.show_arabic_name_in_card = 1 if show_arabic_name_in_card else 0
+            if hide_item_code_in_card is not None:
+                doc.hide_item_code_in_card = 1 if hide_item_code_in_card else 0
             
             doc.save()
             frappe.db.commit()
