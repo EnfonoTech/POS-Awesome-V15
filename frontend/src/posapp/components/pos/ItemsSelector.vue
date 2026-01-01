@@ -1940,45 +1940,45 @@ export default {
 						item.conversion_factor = uomData.conversion_factor;
 					}
 					
-					// Fetch price for the new UOM synchronously before adding to cart
-					if (oldUom !== this.globalUom) {
-						try {
-							const priceList = this.active_price_list;
-							const r = await frappe.call({
-								method: "posawesome.posawesome.api.items.get_price_for_uom",
-								args: {
-									item_code: item.item_code,
-									price_list: priceList,
-									uom: this.globalUom,
-								},
-							});
-							if (r.message) {
-								const uomRate = parseFloat(r.message);
-								if (uomRate && uomRate > 0) {
-									item._manual_rate_set = true;
-									item.base_price_list_rate = uomRate;
-									if (!item.posa_offer_applied) {
-										item.base_rate = uomRate;
-									}
-									// Apply currency conversion if needed
-									const baseCurrency = this.price_list_currency || this.pos_profile.currency;
-									if (this.selected_currency !== baseCurrency) {
-										item.price_list_rate = this.flt(
-											item.base_price_list_rate * this.exchange_rate,
-											this.currency_precision,
-										);
-										item.rate = this.flt(item.base_rate * this.exchange_rate, this.currency_precision);
-									} else {
-										item.price_list_rate = item.base_price_list_rate;
-										item.rate = item.base_rate;
-									}
+					// Always fetch price for the global UOM to ensure correct rate is set
+					// This is important even when global UOM matches stock UOM, as the price
+					// for the specific UOM might differ from the default price
+					try {
+						const priceList = this.active_price_list;
+						const r = await frappe.call({
+							method: "posawesome.posawesome.api.items.get_price_for_uom",
+							args: {
+								item_code: item.item_code,
+								price_list: priceList,
+								uom: this.globalUom,
+							},
+						});
+						if (r.message) {
+							const uomRate = parseFloat(r.message);
+							if (uomRate && uomRate > 0) {
+								item._manual_rate_set = true;
+								item.base_price_list_rate = uomRate;
+								if (!item.posa_offer_applied) {
+									item.base_rate = uomRate;
+								}
+								// Apply currency conversion if needed
+								const baseCurrency = this.price_list_currency || this.pos_profile.currency;
+								if (this.selected_currency !== baseCurrency) {
+									item.price_list_rate = this.flt(
+										item.base_price_list_rate * this.exchange_rate,
+										this.currency_precision,
+									);
+									item.rate = this.flt(item.base_rate * this.exchange_rate, this.currency_precision);
+								} else {
+									item.price_list_rate = item.base_price_list_rate;
+									item.rate = item.base_rate;
 								}
 							}
-						} catch (e) {
-							console.error("Failed to fetch UOM price", e);
-							// Fallback: emit calc_uom event to Invoice component
-							this.eventBus.emit("calc_uom", item, this.globalUom);
 						}
+					} catch (e) {
+						console.error("Failed to fetch UOM price", e);
+						// Fallback: emit calc_uom event to Invoice component
+						this.eventBus.emit("calc_uom", item, this.globalUom);
 					}
 				}
 			}
