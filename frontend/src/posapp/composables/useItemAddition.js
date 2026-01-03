@@ -293,6 +293,12 @@ export function useItemAddition() {
 			} else {
 				const cur_item = context.items[index];
 				const previousQty = cur_item.qty;
+				// Preserve rate before update_items_details to prevent it from being reset
+				const preservedRate = cur_item.rate;
+				const preservedPriceListRate = cur_item.price_list_rate;
+				const preservedBaseRate = cur_item.base_rate;
+				const preservedBasePriceListRate = cur_item.base_price_list_rate;
+				
 				if (context.update_items_details) {
 					runAsyncTask(
 						() => context.update_items_details([cur_item]),
@@ -313,6 +319,37 @@ export function useItemAddition() {
 					cur_item.qty += new_item.qty || 1;
 				}
 				if (context.calc_stock_qty) context.calc_stock_qty(cur_item, cur_item.qty);
+				
+				// Restore rate if it was valid and got reset to 0
+				if (preservedRate && preservedRate > 0) {
+					if (!cur_item.rate || cur_item.rate === 0) {
+						cur_item.rate = preservedRate;
+					}
+					if (!cur_item.price_list_rate || cur_item.price_list_rate === 0) {
+						cur_item.price_list_rate = preservedPriceListRate || preservedRate;
+					}
+					if (!cur_item.base_rate || cur_item.base_rate === 0) {
+						cur_item.base_rate = preservedBaseRate || preservedRate;
+					}
+					if (!cur_item.base_price_list_rate || cur_item.base_price_list_rate === 0) {
+						cur_item.base_price_list_rate = preservedBasePriceListRate || preservedRate;
+					}
+				}
+				
+				// Recalculate amount after merge
+				if (cur_item.rate && cur_item.qty) {
+					if (context.flt && context.currency_precision !== undefined) {
+						cur_item.amount = context.flt(cur_item.qty * cur_item.rate, context.currency_precision);
+						if (cur_item.base_rate) {
+							cur_item.base_amount = context.flt(cur_item.qty * cur_item.base_rate, context.currency_precision);
+						}
+					} else {
+						cur_item.amount = cur_item.qty * cur_item.rate;
+						if (cur_item.base_rate) {
+							cur_item.base_amount = cur_item.qty * cur_item.base_rate;
+						}
+					}
+				}
 
 				if (cur_item.has_batch_no && cur_item.batch_no && context.setBatchQty) {
 					context.setBatchQty(cur_item, cur_item.batch_no, false);
@@ -350,6 +387,12 @@ export function useItemAddition() {
 		} else {
 			const cur_item = context.items[index];
 			const previousQty = cur_item.qty;
+			// Preserve rate before update_items_details to prevent it from being reset
+			const preservedRate = cur_item.rate;
+			const preservedPriceListRate = cur_item.price_list_rate;
+			const preservedBaseRate = cur_item.base_rate;
+			const preservedBasePriceListRate = cur_item.base_price_list_rate;
+			
 			if (context.update_items_details) {
 				runAsyncTask(() => context.update_items_details([cur_item]), "update_items_details:existing");
 			}
@@ -374,6 +417,37 @@ export function useItemAddition() {
 				cur_item.qty += item.qty || 1;
 			}
 			if (context.calc_stock_qty) context.calc_stock_qty(cur_item, cur_item.qty);
+			
+			// Restore rate if it was valid and got reset to 0
+			if (preservedRate && preservedRate > 0) {
+				if (!cur_item.rate || cur_item.rate === 0) {
+					cur_item.rate = preservedRate;
+				}
+				if (!cur_item.price_list_rate || cur_item.price_list_rate === 0) {
+					cur_item.price_list_rate = preservedPriceListRate || preservedRate;
+				}
+				if (!cur_item.base_rate || cur_item.base_rate === 0) {
+					cur_item.base_rate = preservedBaseRate || preservedRate;
+				}
+				if (!cur_item.base_price_list_rate || cur_item.base_price_list_rate === 0) {
+					cur_item.base_price_list_rate = preservedBasePriceListRate || preservedRate;
+				}
+			}
+			
+			// Recalculate amount after merge
+			if (cur_item.rate && cur_item.qty) {
+				if (context.flt && context.currency_precision !== undefined) {
+					cur_item.amount = context.flt(cur_item.qty * cur_item.rate, context.currency_precision);
+					if (cur_item.base_rate) {
+						cur_item.base_amount = context.flt(cur_item.qty * cur_item.base_rate, context.currency_precision);
+					}
+				} else {
+					cur_item.amount = cur_item.qty * cur_item.rate;
+					if (cur_item.base_rate) {
+						cur_item.base_amount = cur_item.qty * cur_item.base_rate;
+					}
+				}
+			}
 
 			// Update batch quantity if needed
 			if (cur_item.has_batch_no && cur_item.batch_no && context.setBatchQty) {

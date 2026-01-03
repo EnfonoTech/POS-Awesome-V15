@@ -1230,22 +1230,35 @@ export default {
 
 			// Handle currency conversion for rates and amounts
 			const baseCurrency = this.price_list_currency || this.pos_profile.currency;
+			
+			// Ensure rate is set - use price_list_rate as fallback if rate is 0 or missing
+			const itemRate = item.rate && item.rate > 0 ? item.rate : (item.price_list_rate || 0);
+			const itemPriceListRate = item.price_list_rate || itemRate;
+			const itemBaseRate = item.base_rate && item.base_rate > 0 ? item.base_rate : (item.base_price_list_rate || itemRate);
+			const itemBasePriceListRate = item.base_price_list_rate || itemBaseRate;
+			
 			if (this.selected_currency !== baseCurrency) {
 				// If exchange rate is 300 PKR = 1 USD
 				// item.rate is in USD (e.g. 10 USD)
 				// base_rate should be in PKR (e.g. 3000 PKR)
-				new_item.rate = flt(item.rate); // Keep rate in USD
+				new_item.rate = flt(itemRate); // Keep rate in USD
 
 				// Use pre-stored base_rate if available, otherwise calculate
-				new_item.base_rate = item.base_rate || flt(item.rate / this.exchange_rate);
+				new_item.base_rate = itemBaseRate || flt(itemRate / this.exchange_rate);
 
-				new_item.price_list_rate = flt(item.price_list_rate); // Keep price list rate in USD
+				new_item.price_list_rate = flt(itemPriceListRate); // Keep price list rate in USD
 				new_item.base_price_list_rate =
-					item.base_price_list_rate ?? flt(item.price_list_rate / this.exchange_rate);
+					itemBasePriceListRate ?? flt(itemPriceListRate / this.exchange_rate);
 
-				// Calculate amounts
-				new_item.amount = flt(item.qty) * new_item.rate; // Amount in USD
-				new_item.base_amount = new_item.amount / this.exchange_rate; // Convert to base currency
+				// Calculate amounts - ensure rate is not 0
+				if (new_item.rate > 0) {
+					new_item.amount = flt(item.qty) * new_item.rate; // Amount in USD
+					new_item.base_amount = new_item.amount / this.exchange_rate; // Convert to base currency
+				} else {
+					// If rate is still 0, try to calculate from base_rate
+					new_item.amount = flt(item.qty) * (new_item.base_rate * this.exchange_rate);
+					new_item.base_amount = flt(item.qty) * new_item.base_rate;
+				}
 
 				// Handle discount amount
 				new_item.discount_amount = flt(item.discount_amount); // Keep discount in USD
@@ -1253,12 +1266,21 @@ export default {
 					item.base_discount_amount || flt(item.discount_amount / this.exchange_rate);
 			} else {
 				// Same currency (base currency), make sure we use base rates if available
-				new_item.rate = flt(item.rate);
-				new_item.base_rate = item.base_rate || flt(item.rate);
-				new_item.price_list_rate = flt(item.price_list_rate);
-				new_item.base_price_list_rate = item.base_price_list_rate ?? flt(item.price_list_rate);
-				new_item.amount = flt(item.qty) * new_item.rate;
-				new_item.base_amount = new_item.amount;
+				new_item.rate = flt(itemRate);
+				new_item.base_rate = itemBaseRate || flt(itemRate);
+				new_item.price_list_rate = flt(itemPriceListRate);
+				new_item.base_price_list_rate = itemBasePriceListRate ?? flt(itemPriceListRate);
+				
+				// Calculate amounts - ensure rate is not 0
+				if (new_item.rate > 0) {
+					new_item.amount = flt(item.qty) * new_item.rate;
+					new_item.base_amount = new_item.amount;
+				} else {
+					// If rate is still 0, try to use base_rate
+					new_item.amount = flt(item.qty) * new_item.base_rate;
+					new_item.base_amount = new_item.amount;
+				}
+				
 				new_item.discount_amount = flt(item.discount_amount);
 				new_item.base_discount_amount = item.base_discount_amount || flt(item.discount_amount);
 			}
@@ -2391,23 +2413,42 @@ export default {
 							const manualLocked = item._manual_rate_set === true;
 							const shouldOverrideRate =
 								!item.locked_price && !item.posa_offer_applied && !manualLocked;
+							
+							// Preserve existing rate if it's valid and the new price is 0 or missing
+							const hasValidExistingRate = item.rate && item.rate > 0;
+							const hasValidNewPrice = price && price > 0;
 
 							if (shouldOverrideRate) {
-								if (force || price) {
+								// Only update rate if we have a valid new price, or if force is enabled
+								if (hasValidNewPrice || (force && hasValidNewPrice)) {
 									item.rate = price;
 									item.price_list_rate = price;
 									// Ensure base rate fields are also set
 									item.base_rate = basePrice;
 									item.base_price_list_rate = basePrice;
+								} else if (hasValidExistingRate && !hasValidNewPrice) {
+									// Preserve existing rate if new price is invalid
+									// Don't override with 0
 								}
 							} else if (!item.price_list_rate && (force || price)) {
-								item.price_list_rate = price;
-								// Ensure base rate fields are also set
-								if (!item.base_price_list_rate) {
-									item.base_price_list_rate = basePrice;
+								// Only set if we have a valid price
+								if (hasValidNewPrice) {
+									item.price_list_rate = price;
+									// Ensure base rate fields are also set
+									if (!item.base_price_list_rate) {
+										item.base_price_list_rate = basePrice;
+									}
+									if (!item.base_rate) {
+										item.base_rate = basePrice;
+									}
 								}
-								if (!item.base_rate) {
-									item.base_rate = basePrice;
+							}
+							
+							// Recalculate amount after rate update
+							if (item.rate && item.qty) {
+								item.amount = this.flt(item.qty * item.rate, this.currency_precision);
+								if (item.base_rate) {
+									item.base_amount = this.flt(item.qty * item.base_rate, this.currency_precision);
 								}
 							}
 						}
