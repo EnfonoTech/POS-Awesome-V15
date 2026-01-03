@@ -2387,6 +2387,7 @@ export default {
 							const force =
 								this.pos_profile?.posa_force_price_from_customer_price_list !== false;
 							const price = updated_item.price_list_rate ?? updated_item.rate ?? 0;
+							const basePrice = updated_item.base_price_list_rate ?? updated_item.base_rate ?? price;
 							const manualLocked = item._manual_rate_set === true;
 							const shouldOverrideRate =
 								!item.locked_price && !item.posa_offer_applied && !manualLocked;
@@ -2395,9 +2396,19 @@ export default {
 								if (force || price) {
 									item.rate = price;
 									item.price_list_rate = price;
+									// Ensure base rate fields are also set
+									item.base_rate = basePrice;
+									item.base_price_list_rate = basePrice;
 								}
 							} else if (!item.price_list_rate && (force || price)) {
 								item.price_list_rate = price;
+								// Ensure base rate fields are also set
+								if (!item.base_price_list_rate) {
+									item.base_price_list_rate = basePrice;
+								}
+								if (!item.base_rate) {
+									item.base_rate = basePrice;
+								}
 							}
 						}
 						if (updated_item.currency) {

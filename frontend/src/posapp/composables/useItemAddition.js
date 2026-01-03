@@ -461,25 +461,45 @@ export function useItemAddition() {
 		new_item.discount_amount = 0;
 		new_item.discount_percentage = 0;
 		new_item.discount_amount_per_item = 0;
+		// Use price_list_rate if available, otherwise fall back to rate
+		// This ensures we preserve the fetched price from item detail
 		new_item.price_list_rate = item.price_list_rate ?? item.rate ?? 0;
 
 		// Setup base rates properly for multi-currency
 		const baseCurrency = context.price_list_currency || context.pos_profile.currency;
 		if (context.selected_currency !== baseCurrency) {
 			// Store original base currency values
+			// Prefer base_price_list_rate if available, otherwise calculate from rate
 			new_item.base_price_list_rate =
-				item.base_price_list_rate !== undefined
+				item.base_price_list_rate !== undefined && item.base_price_list_rate !== null
 					? item.base_price_list_rate
-					: item.rate / context.exchange_rate;
+					: (item.price_list_rate ?? item.rate ?? 0) / (context.exchange_rate || 1);
 			new_item.base_rate =
-				item.base_rate !== undefined ? item.base_rate : item.rate / context.exchange_rate;
+				item.base_rate !== undefined && item.base_rate !== null
+					? item.base_rate
+					: (item.rate ?? item.price_list_rate ?? 0) / (context.exchange_rate || 1);
 			new_item.base_discount_amount = 0;
 		} else {
 			// In base currency, base rates = displayed rates
+			// Ensure we use the actual values if provided, otherwise use rate/price_list_rate
 			new_item.base_price_list_rate =
-				item.base_price_list_rate !== undefined ? item.base_price_list_rate : item.rate;
-			new_item.base_rate = item.base_rate !== undefined ? item.base_rate : item.rate;
+				item.base_price_list_rate !== undefined && item.base_price_list_rate !== null
+					? item.base_price_list_rate
+					: (item.price_list_rate ?? item.rate ?? 0);
+			new_item.base_rate =
+				item.base_rate !== undefined && item.base_rate !== null
+					? item.base_rate
+					: (item.rate ?? item.price_list_rate ?? 0);
 			new_item.base_discount_amount = 0;
+		}
+		
+		// Ensure rate is set if we have price_list_rate but no rate
+		if (!new_item.rate && new_item.price_list_rate) {
+			new_item.rate = new_item.price_list_rate;
+		}
+		// Ensure base_rate is set if we have base_price_list_rate but no base_rate
+		if (!new_item.base_rate && new_item.base_price_list_rate) {
+			new_item.base_rate = new_item.base_price_list_rate;
 		}
 
 		new_item.qty = item.qty;

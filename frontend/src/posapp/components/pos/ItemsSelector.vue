@@ -3410,6 +3410,88 @@ export default {
 				}
 			}
 
+			// Always fetch item detail for barcode scans to ensure rate is properly set
+			// This fixes the issue where the first item's rate is not showing
+			// We need to fetch the complete item detail to get all rate fields properly set
+			try {
+				const currentDoc = this.get_invoice_doc ? this.get_invoice_doc() : {};
+				const priceList = this.selected_price_list || this.active_price_list || this.pos_profile.selling_price_list;
+				
+				const res = await frappe.call({
+					method: "posawesome.posawesome.api.items.get_item_detail",
+					args: {
+						warehouse: newItem.warehouse || this.pos_profile.warehouse,
+						doc: currentDoc,
+						price_list: priceList,
+						company: this.pos_profile?.company,
+						item: {
+							item_code: newItem.item_code,
+							customer: this.customer,
+							doctype: currentDoc.doctype || "Sales Invoice",
+							name: currentDoc.name || `New Sales Invoice 1`,
+							company: this.pos_profile?.company,
+							conversion_rate: 1,
+							currency: this.pos_profile.currency,
+							qty: newItem.qty || 1,
+							price_list_rate: newItem.price_list_rate || newItem.rate || 0,
+							child_docname: `New Sales Invoice Item 1`,
+							cost_center: this.pos_profile.cost_center,
+							pos_profile: this.pos_profile.name,
+							uom: newItem.uom || newItem.stock_uom,
+							tax_category: "",
+							transaction_type: "selling",
+							update_stock: this.pos_profile.update_stock,
+							price_list: priceList,
+							has_batch_no: newItem.has_batch_no,
+							has_serial_no: newItem.has_serial_no,
+							serial_no: newItem.serial_no,
+							batch_no: newItem.batch_no,
+							is_stock_item: newItem.is_stock_item,
+						},
+					},
+				});
+
+				if (res?.message) {
+					const data = res.message;
+					// Update rate fields from the fetched detail - prioritize fetched values
+					if (data.price_list_rate !== undefined && data.price_list_rate !== null) {
+						newItem.price_list_rate = data.price_list_rate;
+						newItem.base_price_list_rate = data.price_list_rate;
+					}
+					if (data.rate !== undefined && data.rate !== null) {
+						newItem.rate = data.rate;
+						newItem.base_rate = data.base_rate !== undefined ? data.base_rate : data.rate;
+					}
+					// If we still don't have rate, try to use price_list_rate
+					if ((!newItem.rate || newItem.rate === 0) && newItem.price_list_rate) {
+						newItem.rate = newItem.price_list_rate;
+						newItem.base_rate = newItem.base_price_list_rate || newItem.price_list_rate;
+					}
+					// Also update other important fields
+					if (data.uom) {
+						newItem.uom = data.uom;
+					}
+					if (data.stock_uom) {
+						newItem.stock_uom = data.stock_uom;
+					}
+					if (data.conversion_factor) {
+						newItem.conversion_factor = data.conversion_factor;
+					}
+					// Update currency if provided
+					if (data.currency) {
+						newItem.currency = data.currency;
+					}
+				}
+			} catch (e) {
+				console.error("Failed to fetch item detail for barcode scan", e);
+				// Fallback: if we have rate but missing other fields, set them
+				if (newItem.rate && (!newItem.price_list_rate || !newItem.base_rate || !newItem.base_price_list_rate)) {
+					newItem.price_list_rate = newItem.price_list_rate || newItem.rate;
+					newItem.base_rate = newItem.base_rate || newItem.rate;
+					newItem.base_price_list_rate = newItem.base_price_list_rate || newItem.rate;
+				}
+			}
+
 			// Apply quantity from scale barcode if available
 			if (qtyFromBarcode !== null && !isNaN(qtyFromBarcode)) {
 				newItem.qty = qtyFromBarcode;
