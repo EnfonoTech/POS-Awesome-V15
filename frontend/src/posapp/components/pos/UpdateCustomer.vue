@@ -22,13 +22,13 @@
 								<v-text-field
 									density="compact"
 									color="primary"
-									:label="frappe._('Customer Name') + ' *'"
+									:label="hideNonEssential ? frappe._('Customer Name / mobile number') + ' *' : frappe._('Customer Name') + ' *'"
 									hide-details
 									class="pos-themed-input"
 									v-model="customer_name"
 								></v-text-field>
 							</v-col>
-							<v-col cols="6">
+							<v-col cols="6" v-if="!hideNonEssential">
 								<v-text-field
 									density="compact"
 									color="primary"
@@ -38,7 +38,7 @@
 									v-model="tax_id"
 								></v-text-field>
 							</v-col>
-							<v-col cols="6">
+							<v-col cols="6" v-if="!hideNonEssential">
 								<v-text-field
 									density="compact"
 									color="primary"
@@ -80,7 +80,7 @@
 								></v-select>
 							</v-col>
 
-							<v-col cols="6">
+							<v-col cols="6" v-if="!hideNonEssential">
 								<v-text-field
 									density="compact"
 									color="primary"
@@ -90,7 +90,7 @@
 									v-model="email_id"
 								></v-text-field>
 							</v-col>
-							<v-col cols="6">
+							<v-col cols="6" v-if="!hideNonEssential">
 								<v-select
 									density="compact"
 									label="Gender"
@@ -99,7 +99,7 @@
 									class="pos-themed-input"
 								></v-select>
 							</v-col>
-							<v-col cols="6">
+							<v-col cols="6" v-if="!hideNonEssential">
 								<v-text-field
 									density="compact"
 									color="primary"
@@ -109,7 +109,7 @@
 									v-model="referral_code"
 								></v-text-field>
 							</v-col>
-							<v-col cols="6">
+							<v-col cols="6" v-if="!hideNonEssential">
 								<v-text-field
 									v-model="birthday"
 									:label="frappe._('Birthday (DD-MM-YYYY)')"
@@ -177,10 +177,17 @@
 						</v-row>
 					</v-container>
 				</v-card-text>
-				<v-card-actions>
+				<v-card-actions class="pa-4">
 					<v-spacer></v-spacer>
 					<v-btn color="error" theme="dark" @click="confirm_close">{{ __("Close") }}</v-btn>
-					<v-btn color="success" theme="dark" @click="submit_dialog">{{ __("Submit") }}</v-btn>
+					<v-btn 
+						color="success" 
+						size="large"
+						class="submit-btn-overlap"
+						@click="submit_dialog"
+					>
+						{{ __("Submit") }}
+					</v-btn>
 				</v-card-actions>
 			</v-card>
 		</v-dialog>
@@ -237,7 +244,7 @@ export default {
 		gender: "",
 		loyalty_points: null,
 		loyalty_program: null,
-		hideNonEssential: false,
+		hideNonEssential: true,
 		countries: [
 			"Afghanistan",
 			"Australia",
@@ -282,6 +289,28 @@ export default {
 		hideNonEssential(val) {
 			if (typeof localStorage !== "undefined") {
 				localStorage.setItem("posawesome_hide_non_essential_fields", JSON.stringify(val));
+			}
+			// When hide non essential is enabled, sync customer_name and mobile_no
+			if (val) {
+				// If customer_name has value and looks like a phone number, set mobile_no
+				if (this.customer_name && !this.mobile_no && this.isValidPhoneNumber(this.customer_name)) {
+					this.mobile_no = this.customer_name;
+				}
+				// If mobile_no has value but customer_name doesn't, set customer_name to mobile_no
+				if (this.mobile_no && !this.customer_name) {
+					this.customer_name = this.mobile_no;
+				}
+			}
+		},
+		customer_name(newVal) {
+			// When hide non essential is enabled, only set mobile_no if it's a valid phone number
+			if (this.hideNonEssential && newVal) {
+				if (this.isValidPhoneNumber(newVal)) {
+					this.mobile_no = newVal;
+				} else {
+					// If it's not a valid phone number, clear mobile_no to avoid validation errors
+					this.mobile_no = "";
+				}
 			}
 		},
 		birthday(newVal) {
@@ -338,6 +367,17 @@ export default {
 	},
 	computed: {},
 	methods: {
+		// Check if a value looks like a valid phone number
+		isValidPhoneNumber(value) {
+			if (!value || typeof value !== 'string') return false;
+			// Remove common phone number characters (spaces, dashes, parentheses, plus)
+			const cleaned = value.replace(/[\s\-\(\)\+]/g, '');
+			// Check if it contains mostly digits and has reasonable length (at least 7 digits, max 15)
+			const digitCount = (cleaned.match(/\d/g) || []).length;
+			// Phone numbers typically have 7-15 digits
+			// Also check that non-digit characters are minimal (only allowed phone chars)
+			return digitCount >= 7 && digitCount <= 15 && /^[\d\s\-\(\)\+]+$/.test(value);
+		},
 		// Add a new method to update calendar date
 		updateCalendarDate(day, month, year) {
 			// First close the date picker if it's open
@@ -470,19 +510,46 @@ export default {
 		},
 		async submit_dialog() {
 			const vm = this;
+			// When hide non essential is enabled, only set mobile_no if customer_name is a valid phone number
+			if (this.hideNonEssential) {
+				// If customer_name is set and looks like a phone number, use it for mobile_no
+				if (this.customer_name && this.isValidPhoneNumber(this.customer_name)) {
+					this.mobile_no = this.customer_name;
+				} else if (this.customer_name && !this.isValidPhoneNumber(this.customer_name)) {
+					// If customer_name is not a valid phone number, clear mobile_no to avoid validation errors
+					this.mobile_no = "";
+				}
+				// If mobile_no is set but customer_name is not, use mobile_no for customer_name
+				if (this.mobile_no && !this.customer_name) {
+					this.customer_name = this.mobile_no;
+				}
+			}
+			
 			if (!this.customer_name) {
 				frappe.throw(__("Customer Name is required"));
 				return;
 			}
 
-			if (!this.group) {
-				frappe.throw(__("Customer group is required"));
-				return;
-			}
+			// Only validate group and territory if hideNonEssential is false
+			// When hidden, use defaults if not set
+			if (!this.hideNonEssential) {
+				if (!this.group) {
+					frappe.throw(__("Customer group is required"));
+					return;
+				}
 
-			if (!this.territory) {
-				frappe.throw(__("Customer territory is required"));
-				return;
+				if (!this.territory) {
+					frappe.throw(__("Customer territory is required"));
+					return;
+				}
+			} else {
+				// When hideNonEssential is true, use defaults if not set
+				if (!this.group) {
+					this.group = frappe.defaults.get_user_default("Customer Group");
+				}
+				if (!this.territory) {
+					this.territory = frappe.defaults.get_user_default("Territory");
+				}
 			}
 
 			// Format birthday to YYYY-MM-DD if it exists and is in another format
@@ -651,7 +718,14 @@ export default {
 			const saved = localStorage.getItem("posawesome_hide_non_essential_fields");
 			if (saved !== null) {
 				this.hideNonEssential = JSON.parse(saved);
+			} else {
+				// Default to true if not saved in localStorage
+				this.hideNonEssential = true;
+				localStorage.setItem("posawesome_hide_non_essential_fields", JSON.stringify(true));
 			}
+		} else {
+			// Default to true if localStorage is not available
+			this.hideNonEssential = true;
 		}
 		this.eventBus.on("open_update_customer", (data) => {
 			this.customerDialog = true;
@@ -668,13 +742,29 @@ export default {
 				this.email_id = data.email_id;
 				this.referral_code = data.referral_code;
 				this.birthday = data.birthday;
-				this.group = data.customer_group;
+				// Set customer group - use default_customer_group if provided, otherwise use existing customer_group
+				this.group = data.default_customer_group || data.customer_group;
 				this.territory = data.territory;
 				this.loyalty_points = data.loyalty_points;
 				this.loyalty_program = data.loyalty_program;
 				this.gender = data.gender;
+				
+				// When hide non essential is enabled and customer_name is empty, use mobile_no if it exists
+				if (this.hideNonEssential && !this.customer_name && this.mobile_no) {
+					this.customer_name = this.mobile_no;
+				}
+				// If customer_name is set but not a valid phone number, clear mobile_no to avoid validation errors
+				if (this.hideNonEssential && this.customer_name && !this.isValidPhoneNumber(this.customer_name)) {
+					this.mobile_no = "";
+				}
 			} else {
 				this.country = (this.pos_profile && this.pos_profile.posa_default_country) || "Pakistan";
+				// If default_customer_group is provided in data, set it and use defaults for other fields
+				if (data && data.default_customer_group) {
+					this.group = data.default_customer_group;
+					// Set territory from user defaults (same as normal new customer)
+					this.territory = frappe.defaults.get_user_default("Territory");
+				}
 			}
 		});
 		this.eventBus.on("register_pos_profile", (data) => {
@@ -695,4 +785,33 @@ export default {
 };
 </script>
 
-<style scoped></style>
+<style scoped>
+.submit-btn-overlap {
+	position: relative;
+	z-index: 10;
+	transform: scale(1.05);
+	margin-left: 16px;
+	font-weight: 600;
+	letter-spacing: 0.5px;
+	min-width: 110px;
+	height: 44px;
+	background-color: #4caf50 !important;
+	color: #ffffff !important;
+	text-transform: uppercase;
+}
+
+.submit-btn-overlap :deep(.v-btn__content) {
+	color: #ffffff !important;
+	font-weight: 600;
+}
+
+.submit-btn-overlap:hover {
+	transform: scale(1.08);
+	background-color: #45a049 !important;
+}
+
+.submit-btn-overlap:active {
+	transform: scale(1.02);
+	background-color: #3d8b40 !important;
+}
+</style>

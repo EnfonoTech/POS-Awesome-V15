@@ -552,13 +552,13 @@
 						cols="6"
 						v-if="invoice_doc && pos_profile.posa_allow_credit_sale && !invoice_doc.is_return"
 					>
-						<v-switch 
-							v-model="is_credit_sale" 
-							:label="frappe._('Credit Sale?')"
-							:color="is_credit_sale ? 'warning' : 'primary'"
-							:disabled="isOnlineDeliveryCustomer && is_credit_sale"
-							:readonly="isOnlineDeliveryCustomer && is_credit_sale"
-						></v-switch>
+					<v-switch 
+						v-model="is_credit_sale" 
+						:label="frappe._('Credit Sale?')"
+						:color="is_credit_sale ? 'warning' : 'primary'"
+						:disabled="(isOnlineDeliveryCustomer || isHomeCustomer) && is_credit_sale"
+						:readonly="(isOnlineDeliveryCustomer || isHomeCustomer) && is_credit_sale"
+					></v-switch>
 					</v-col>
 					<v-col cols="6" v-if="invoice_doc && invoice_doc.is_return && pos_profile.use_cashback">
 						<v-switch
@@ -873,6 +873,12 @@ export default {
 			if (!this.invoice_doc) return false;
 			const customerGroup = this.invoice_doc.customer_group || this.customerInfoFromStore?.customer_group || this.customer_info?.customer_group;
 			return customerGroup === "Online Delivery";
+		},
+		// Check if customer is from Home Customer group
+		isHomeCustomer() {
+			if (!this.invoice_doc) return false;
+			const customerGroup = this.invoice_doc.customer_group || this.customerInfoFromStore?.customer_group || this.customer_info?.customer_group;
+			return customerGroup === "Home Customer";
 		},
 		// Check if invoice has sales order (from invoice_doc or items)
 		has_sales_order() {
@@ -1195,11 +1201,12 @@ export default {
 				return;
 			}
 			
-			// Prevent disabling credit sale for Online Delivery customers
-			if (!newVal && this.isOnlineDeliveryCustomer && oldVal === true) {
+			// Prevent disabling credit sale for Online Delivery and Home Customer customers
+			if (!newVal && (this.isOnlineDeliveryCustomer || this.isHomeCustomer) && oldVal === true) {
 				this.is_credit_sale = true;
+				const customerGroup = this.isOnlineDeliveryCustomer ? "Online Delivery" : "Home Customer";
 				this.eventBus.emit("show_message", {
-					title: __("Credit sale cannot be disabled for Online Delivery customer group"),
+					title: __("Credit sale cannot be disabled for {0} customer group", [customerGroup]),
 					color: "error",
 				});
 				frappe.utils.play_sound("error");
@@ -1373,11 +1380,12 @@ export default {
 		},
 		// Submit payment after validation
 		async submit(event, payment_received = false, print = false) {
-			// Validate Online Delivery customer group must be unpaid (credit sale only)
-			if (this.isOnlineDeliveryCustomer) {
+			// Validate Online Delivery and Home Customer groups must be unpaid (credit sale only)
+			if (this.isOnlineDeliveryCustomer || this.isHomeCustomer) {
 				if (!this.is_credit_sale) {
+					const customerGroup = this.isOnlineDeliveryCustomer ? "Online Delivery" : "Home Customer";
 					this.eventBus.emit("show_message", {
-						title: __("Online Delivery must be credit sale"),
+						title: __("{0} customer group must use credit sale", [customerGroup]),
 						color: "error",
 					});
 					frappe.utils.play_sound("error");
@@ -1389,8 +1397,9 @@ export default {
 					return amount > 0;
 				});
 				if (hasPayments) {
+					const customerGroup = this.isOnlineDeliveryCustomer ? "Online Delivery" : "Home Customer";
 					this.eventBus.emit("show_message", {
-						title: __("Online Delivery must be unpaid. Please remove all payment amounts."),
+						title: __("{0} customer group must be unpaid. Please remove all payment amounts.", [customerGroup]),
 						color: "error",
 					});
 					frappe.utils.play_sound("error");
@@ -2368,13 +2377,13 @@ export default {
 					this.is_credit_sale = this._pendingCreditSaleState;
 					this._pendingCreditSaleState = null;
 				} else if (!invoice_doc.is_return) {
-					// Don't reset is_credit_sale if customer group is Online Delivery
+					// Don't reset is_credit_sale if customer group is Online Delivery or Home Customer
 					// Check both invoice_doc and customerInfoFromStore for customer_group
 					const customerGroup = invoice_doc.customer_group || this.customerInfoFromStore?.customer_group;
-					if (customerGroup !== "Online Delivery") {
-						this.is_credit_sale = false;
-					} else {
+					if (customerGroup === "Online Delivery" || customerGroup === "Home Customer") {
 						this.is_credit_sale = true;
+					} else {
+						this.is_credit_sale = false;
 					}
 				} else {
 					this.is_credit_sale = false;

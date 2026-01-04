@@ -3412,7 +3412,6 @@ export default {
 
 			// Always fetch item detail for barcode scans to ensure rate is properly set
 			// This fixes the issue where the first item's rate is not showing
-			// We need to fetch the complete item detail to get all rate fields properly set
 			try {
 				const currentDoc = this.get_invoice_doc ? this.get_invoice_doc() : {};
 				const priceList = this.selected_price_list || this.active_price_list || this.pos_profile.selling_price_list;
@@ -3454,18 +3453,42 @@ export default {
 				if (res?.message) {
 					const data = res.message;
 					// Update rate fields from the fetched detail - prioritize fetched values
+					// Handle price_list_rate (0 is a valid value for free items)
 					if (data.price_list_rate !== undefined && data.price_list_rate !== null) {
 						newItem.price_list_rate = data.price_list_rate;
-						newItem.base_price_list_rate = data.price_list_rate;
+						newItem.base_price_list_rate = data.base_price_list_rate !== undefined && data.base_price_list_rate !== null 
+							? data.base_price_list_rate 
+							: data.price_list_rate;
 					}
+					// Handle rate (0 is a valid value for free items)
 					if (data.rate !== undefined && data.rate !== null) {
 						newItem.rate = data.rate;
-						newItem.base_rate = data.base_rate !== undefined ? data.base_rate : data.rate;
+						newItem.base_rate = data.base_rate !== undefined && data.base_rate !== null 
+							? data.base_rate 
+							: data.rate;
 					}
-					// If we still don't have rate, try to use price_list_rate
-					if ((!newItem.rate || newItem.rate === 0) && newItem.price_list_rate) {
+					// If we still don't have rate but have price_list_rate, use it
+					if ((newItem.rate === undefined || newItem.rate === null) && newItem.price_list_rate !== undefined && newItem.price_list_rate !== null) {
 						newItem.rate = newItem.price_list_rate;
-						newItem.base_rate = newItem.base_price_list_rate || newItem.price_list_rate;
+						newItem.base_rate = newItem.base_price_list_rate !== undefined && newItem.base_price_list_rate !== null
+							? newItem.base_price_list_rate
+							: newItem.price_list_rate;
+					}
+					// If we still don't have base_rate, set it from rate or price_list_rate
+					if ((newItem.base_rate === undefined || newItem.base_rate === null)) {
+						if (newItem.rate !== undefined && newItem.rate !== null) {
+							newItem.base_rate = newItem.rate;
+						} else if (newItem.price_list_rate !== undefined && newItem.price_list_rate !== null) {
+							newItem.base_rate = newItem.price_list_rate;
+						}
+					}
+					// If we still don't have base_price_list_rate, set it from price_list_rate or rate
+					if ((newItem.base_price_list_rate === undefined || newItem.base_price_list_rate === null)) {
+						if (newItem.price_list_rate !== undefined && newItem.price_list_rate !== null) {
+							newItem.base_price_list_rate = newItem.price_list_rate;
+						} else if (newItem.rate !== undefined && newItem.rate !== null) {
+							newItem.base_price_list_rate = newItem.rate;
+						}
 					}
 					// Also update other important fields
 					if (data.uom) {
@@ -3481,6 +3504,14 @@ export default {
 					if (data.currency) {
 						newItem.currency = data.currency;
 					}
+					
+					console.log("Item detail fetched for barcode scan:", {
+						item_code: newItem.item_code,
+						rate: newItem.rate,
+						price_list_rate: newItem.price_list_rate,
+						base_rate: newItem.base_rate,
+						base_price_list_rate: newItem.base_price_list_rate,
+					});
 				}
 			} catch (e) {
 				console.error("Failed to fetch item detail for barcode scan", e);
@@ -3534,6 +3565,30 @@ export default {
 
 				// Suppress low stock notifications when negative stock is allowed
 			}
+
+			// Ensure rate is set before adding item - final check
+			// Only set if rate is actually missing (undefined/null), not if it's 0 (which is valid for free items)
+			if ((newItem.rate === undefined || newItem.rate === null) && newItem.price_list_rate !== undefined && newItem.price_list_rate !== null) {
+				newItem.rate = newItem.price_list_rate;
+			}
+			if ((newItem.base_rate === undefined || newItem.base_rate === null) && newItem.base_price_list_rate !== undefined && newItem.base_price_list_rate !== null) {
+				newItem.base_rate = newItem.base_price_list_rate;
+			}
+			// If still no rate, try to use the rate from the original item
+			if ((newItem.rate === undefined || newItem.rate === null) && item.rate !== undefined && item.rate !== null) {
+				newItem.rate = item.rate;
+				newItem.price_list_rate = item.price_list_rate !== undefined && item.price_list_rate !== null ? item.price_list_rate : item.rate;
+				newItem.base_rate = item.base_rate !== undefined && item.base_rate !== null ? item.base_rate : item.rate;
+				newItem.base_price_list_rate = item.base_price_list_rate !== undefined && item.base_price_list_rate !== null ? item.base_price_list_rate : item.rate;
+			}
+			
+			console.log("Before adding item to invoice:", {
+				item_code: newItem.item_code,
+				rate: newItem.rate,
+				price_list_rate: newItem.price_list_rate,
+				base_rate: newItem.base_rate,
+				base_price_list_rate: newItem.base_price_list_rate,
+			});
 
 			this.awaitingScanResult = true;
 

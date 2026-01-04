@@ -1,87 +1,103 @@
 <template>
 	<!-- ? Disable dropdown if either readonly or loadingCustomers is true -->
 	<div class="customer-input-wrapper">
-		<Skeleton v-if="loadingCustomers" height="48" class="w-100" />
-		<v-autocomplete
-			v-else
-			ref="customerDropdown"
-			class="customer-autocomplete sleek-field pos-themed-input"
-			density="compact"
-			clearable
-			variant="solo"
-			color="primary"
-			:label="frappe._('Customer')"
-			v-model="internalCustomer"
-			:items="filteredCustomers"
-			item-title="customer_name"
-			item-value="name"
-			:no-data-text="
-				isCustomerBackgroundLoading ? __('Loading customer data...') : __('Customers not found')
-			"
-			hide-details
-			:customFilter="() => true"
-			:disabled="effectiveReadonly || loadingCustomers"
-			:menu-props="{ closeOnContentClick: false }"
-			@update:menu="onCustomerMenuToggle"
-			@update:modelValue="onCustomerChange"
-			@update:search="onCustomerSearch"
-			@keydown.enter="handleEnter"
-			:virtual-scroll="true"
-			:virtual-scroll-item-height="48"
-		>
-			<!-- Edit icon (left) -->
-			<template #prepend-inner>
-				<v-tooltip text="Edit customer">
-					<template #activator="{ props }">
-						<v-icon
-							v-bind="props"
-							class="icon-button"
-							@mousedown.prevent.stop
-							@click.stop="edit_customer"
-						>
-							mdi-account-edit
-						</v-icon>
+		<div class="d-flex align-center gap-2">
+			<div class="flex-grow-1">
+				<Skeleton v-if="loadingCustomers" height="48" class="w-100" />
+				<v-autocomplete
+					v-else
+					ref="customerDropdown"
+					class="customer-autocomplete sleek-field pos-themed-input"
+					density="compact"
+					clearable
+					variant="solo"
+					color="primary"
+					:label="frappe._('Customer')"
+					v-model="internalCustomer"
+					:items="filteredCustomers"
+					item-title="customer_name"
+					item-value="name"
+					:no-data-text="
+						isCustomerBackgroundLoading ? __('Loading customer data...') : __('Customers not found')
+					"
+					hide-details
+					:customFilter="() => true"
+					:disabled="effectiveReadonly || loadingCustomers"
+					:menu-props="{ closeOnContentClick: false }"
+					@update:menu="onCustomerMenuToggle"
+					@update:modelValue="onCustomerChange"
+					@update:search="onCustomerSearch"
+					@keydown.enter="handleEnter"
+					:virtual-scroll="true"
+					:virtual-scroll-item-height="48"
+				>
+					<!-- Edit icon (left) -->
+					<template #prepend-inner>
+						<v-tooltip text="Edit customer">
+							<template #activator="{ props }">
+								<v-icon
+									v-bind="props"
+									class="icon-button"
+									@mousedown.prevent.stop
+									@click.stop="edit_customer"
+								>
+									mdi-account-edit
+								</v-icon>
+							</template>
+						</v-tooltip>
 					</template>
-				</v-tooltip>
-			</template>
 
-			<!-- Add icon (right) -->
-			<template #append-inner>
-				<v-tooltip text="Add new customer">
-					<template #activator="{ props }">
-						<v-icon
-							v-bind="props"
-							class="icon-button"
-							@mousedown.prevent.stop
-							@click.stop="new_customer"
-						>
-							mdi-plus
-						</v-icon>
+					<!-- Add icon (right) -->
+					<template #append-inner>
+						<v-tooltip text="Add new customer">
+							<template #activator="{ props }">
+								<v-icon
+									v-bind="props"
+									class="icon-button new-customer-button"
+									@mousedown.prevent.stop
+									@click.stop="new_customer"
+								>
+									mdi-plus
+								</v-icon>
+							</template>
+						</v-tooltip>
 					</template>
-				</v-tooltip>
-			</template>
 
-			<!-- Dropdown display -->
-			<template #item="{ props, item }">
-				<v-list-item v-bind="props">
-					<v-list-item-subtitle v-if="item.raw.customer_name !== item.raw.name">
-						<div v-html="`ID: ${item.raw.name}`"></div>
-					</v-list-item-subtitle>
-					<v-list-item-subtitle v-if="item.raw.tax_id">
-						<div v-html="`TAX ID: ${item.raw.tax_id}`"></div>
-					</v-list-item-subtitle>
-					<v-list-item-subtitle v-if="item.raw.email_id">
-						<div v-html="`Email: ${item.raw.email_id}`"></div>
-					</v-list-item-subtitle>
-					<v-list-item-subtitle v-if="item.raw.mobile_no">
-						<div v-html="`Mobile No: ${item.raw.mobile_no}`"></div>
-					</v-list-item-subtitle>
-					<v-list-item-subtitle v-if="item.raw.primary_address">
-						<div v-html="`Primary Address: ${item.raw.primary_address}`"></div>
-					</v-list-item-subtitle>
-				</v-list-item>
-			</template>
-		</v-autocomplete>
+					<!-- Dropdown display -->
+					<template #item="{ props, item }">
+						<v-list-item v-bind="props">
+							<v-list-item-subtitle v-if="item.raw.customer_name !== item.raw.name">
+								<div v-html="`ID: ${item.raw.name}`"></div>
+							</v-list-item-subtitle>
+							<v-list-item-subtitle v-if="item.raw.tax_id">
+								<div v-html="`TAX ID: ${item.raw.tax_id}`"></div>
+							</v-list-item-subtitle>
+							<v-list-item-subtitle v-if="item.raw.email_id">
+								<div v-html="`Email: ${item.raw.email_id}`"></div>
+							</v-list-item-subtitle>
+							<v-list-item-subtitle v-if="item.raw.mobile_no">
+								<div v-html="`Mobile No: ${item.raw.mobile_no}`"></div>
+							</v-list-item-subtitle>
+							<v-list-item-subtitle v-if="item.raw.primary_address">
+								<div v-html="`Primary Address: ${item.raw.primary_address}`"></div>
+							</v-list-item-subtitle>
+						</v-list-item>
+					</template>
+				</v-autocomplete>
+			</div>
+			<!-- Home Customer Button -->
+			<v-btn
+				color="primary"
+				size="small"
+				variant="elevated"
+				class="home-customer-btn"
+				@click="new_home_customer"
+				:disabled="loadingCustomers"
+			>
+				<v-icon start>mdi-home</v-icon>
+				{{ __("Home Customer") }}
+			</v-btn>
+		</div>
 
 		<!-- Update customer modal -->
 		<div class="mt-4">
@@ -136,6 +152,35 @@
 .icon-button:hover {
 	opacity: 1;
 	color: var(--v-theme-primary);
+}
+
+.home-customer-btn {
+	min-width: 140px;
+	font-weight: 500;
+	min-height: 36px !important;
+	padding: 8px 16px !important;
+}
+
+.new-customer-button {
+	font-size: 32px !important;
+	width: 40px !important;
+	height: 40px !important;
+	display: flex !important;
+	align-items: center !important;
+	justify-content: center !important;
+	opacity: 0.8;
+	transform: scale(1.1);
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+	border-radius: 50%;
+	background-color: rgba(var(--v-theme-primary-rgb, 25, 118, 210), 0.1);
+}
+
+.new-customer-button:hover {
+	opacity: 1;
+	color: var(--v-theme-primary) !important;
+	transform: scale(1.2);
+	box-shadow: 0 4px 12px rgba(var(--v-theme-primary-rgb, 25, 118, 210), 0.3);
+	background-color: rgba(var(--v-theme-primary-rgb, 25, 118, 210), 0.15);
 }
 </style>
 
@@ -319,7 +364,11 @@ export default {
 			eventBus?.emit("open_update_customer", null);
 		};
 
-                const edit_customer = () => {
+		const new_home_customer = () => {
+			eventBus?.emit("open_update_customer", { default_customer_group: "Home Customer" });
+		};
+
+		const edit_customer = () => {
                         eventBus?.emit("open_update_customer", customerInfo.value || {});
                 };
 
@@ -413,6 +462,7 @@ export default {
                         onCustomerSearch,
                         handleEnter,
                         new_customer,
+                        new_home_customer,
                         edit_customer,
                         focusCustomerSearch,
                 };
