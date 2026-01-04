@@ -205,6 +205,13 @@
 								@keydown.enter.prevent="onQuickItemEnter"
 								@focus="onQuickItemFocus"
 							>
+								<template #item="{ props, item }">
+									<v-list-item v-bind="props">
+										<v-list-item-subtitle v-if="item.raw.rate !== undefined && item.raw.rate !== null">
+											{{ __("Rate") }}: {{ formatCurrency(item.raw.rate) }}
+										</v-list-item-subtitle>
+									</v-list-item>
+								</template>
 							</v-autocomplete>
 						</div>
 						<v-btn
@@ -2105,13 +2112,15 @@ export default {
 		async onQuickItemSearch(term) {
 			if (!this.enableQuickItemSearch) return;
 
-			const txt = (term || "").trim();
+			// Don't trim to allow spaces in search
+			const txt = term || "";
 			this.quickItemSearch = txt;
+			const searchTerm = txt.trim(); // Use trimmed version only for searching
 
 			try {
 				let results = [];
 
-				if (txt) {
+				if (searchTerm) {
 					// Build filters
 					const filters = { 
 						disabled: 0,
@@ -2150,10 +2159,10 @@ export default {
 					// Fetch items matching item_code and item_name separately, then combine
 					// This ensures both searches work reliably
 					const codeFilters = { ...filters };
-					codeFilters.item_code = ["like", `%${txt}%`];
+					codeFilters.item_code = ["like", `%${searchTerm}%`];
 					
 					const nameFilters = { ...filters };
-					nameFilters.item_name = ["like", `%${txt}%`];
+					nameFilters.item_name = ["like", `%${searchTerm}%`];
 					
 					// Fetch items matching item_code
 					const codeRes = await frappe.call({
@@ -2190,7 +2199,46 @@ export default {
 					});
 					
 					let fetchedItems = Array.from(uniqueMap.values());
-					console.log(`Quick search for "${txt}": Found ${fetchedItems.length} items (${codeItems.length} by code, ${nameItems.length} by name)`);
+					console.log(`Quick search for "${searchTerm}": Found ${fetchedItems.length} items (${codeItems.length} by code, ${nameItems.length} by name)`);
+
+					// Fetch prices for items
+					if (fetchedItems.length > 0) {
+						try {
+							const priceList = this.selected_price_list || this.pos_profile?.selling_price_list;
+							if (priceList) {
+								const priceRes = await frappe.call({
+									method: "frappe.client.get_list",
+									args: {
+										doctype: "Item Price",
+										fields: ["item_code", "price_list_rate", "currency"],
+										filters: {
+											item_code: ["in", fetchedItems.map(i => i.item_code)],
+											price_list: priceList,
+											selling: 1
+										},
+									},
+								});
+								
+								// Create a map of item_code to price
+								const priceMap = new Map();
+								if (Array.isArray(priceRes?.message)) {
+									priceRes.message.forEach(price => {
+										if (!priceMap.has(price.item_code)) {
+											priceMap.set(price.item_code, price.price_list_rate);
+										}
+									});
+								}
+								
+								// Attach prices to items
+								fetchedItems = fetchedItems.map(item => ({
+									...item,
+									rate: priceMap.get(item.item_code) || null
+								}));
+							}
+						} catch (e) {
+							console.warn("Failed to fetch item prices:", e);
+						}
+					}
 
 					// Use server results directly - they already contain matches for both item_code and item_name
 					results = fetchedItems;
@@ -2241,13 +2289,54 @@ export default {
 						},
 					});
 					results = Array.isArray(res?.message) ? res.message : [];
+					
+					// Fetch prices for initial list items
+					if (results.length > 0) {
+						try {
+							const priceList = this.selected_price_list || this.pos_profile?.selling_price_list;
+							if (priceList) {
+								const priceRes = await frappe.call({
+									method: "frappe.client.get_list",
+									args: {
+										doctype: "Item Price",
+										fields: ["item_code", "price_list_rate", "currency"],
+										filters: {
+											item_code: ["in", results.map(i => i.item_code)],
+											price_list: priceList,
+											selling: 1
+										},
+										limit: 50
+									},
+								});
+								
+								// Create a map of item_code to price
+								const priceMap = new Map();
+								if (Array.isArray(priceRes?.message)) {
+									priceRes.message.forEach(price => {
+										if (!priceMap.has(price.item_code)) {
+											priceMap.set(price.item_code, price.price_list_rate);
+										}
+									});
+								}
+								
+								// Attach prices to items
+								results = results.map(item => ({
+									...item,
+									rate: priceMap.get(item.item_code) || null
+								}));
+							}
+						} catch (e) {
+							console.warn("Failed to fetch item prices:", e);
+						}
+					}
 				}
 
 				this.quickItemOptions = results.map((item) => ({
-					title: `${item.item_code} - ${item.item_name || item.item_code}`,  // ← Combine both!
+					title: `${item.item_code} - ${item.item_name || item.item_code}`,
 					value: item.item_code,
 					item_code: item.item_code,
 					item_name: item.item_name || item.item_code,
+					rate: item.rate || null,
 				}));
 			} catch (e) {
 				console.error("Quick item search failed", e);
