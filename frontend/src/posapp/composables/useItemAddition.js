@@ -626,6 +626,9 @@ const clearInvoice = (context) => {
 	// Check if customer should be preserved using the flag set when loading from SO
 	const customerFromSalesOrder = context._customerFromSalesOrder;
 	
+	// Check if customer was manually selected (e.g., via quick customer)
+	const manuallySelectedCustomer = context._manuallySelectedCustomer;
+	
 	// Also check if current customer is different from default (means manually selected)
 	const currentCustomer = context.customer;
 	const isNonDefaultCustomer = currentCustomer && 
@@ -657,8 +660,9 @@ const clearInvoice = (context) => {
 	// 1. If active return invoice - ALWAYS preserve customer (must match original)
 	// 2. If saved invoice - preserve customer from saved invoice (readonly controlled by load_invoice)
 	// 3. If from sales order (flag set) - use that customer
-	// 4. If manually selected (non-default) - keep current customer
-	// 5. Otherwise - reset to default
+	// 4. If manually selected (via quick customer or flag) - keep that customer
+	// 5. If manually selected (non-default) - keep current customer
+	// 6. Otherwise - reset to default
 	if (isActiveReturnInvoice) {
 		// Active return invoice - customer MUST be preserved (matches original invoice)
 		// Don't change context.customer at all
@@ -671,6 +675,10 @@ const clearInvoice = (context) => {
 	} else if (customerFromSalesOrder) {
 		// Customer came from sales order - keep it
 		context.customer = customerFromSalesOrder;
+	} else if (manuallySelectedCustomer) {
+		// Customer was manually selected via quick customer - preserve it
+		context.customer = manuallySelectedCustomer;
+		// Keep the flag so it's preserved in future operations
 	} else if (isNonDefaultCustomer) {
 		// Customer was manually selected (not default) - keep it
 		// Don't change context.customer
@@ -683,6 +691,9 @@ const clearInvoice = (context) => {
 		}
 		if (context._savedInvoiceCustomer !== undefined) {
 			context._savedInvoiceCustomer = null;
+		}
+		if (context._manuallySelectedCustomer !== undefined) {
+			context._manuallySelectedCustomer = null;
 		}
 	}
 

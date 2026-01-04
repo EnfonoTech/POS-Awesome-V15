@@ -665,10 +665,28 @@ export default {
 		this.return_doc = "";
 		if (!data.name && !data.is_return) {
 			this.items = [];
-			this.customer = this.pos_profile.customer;
-			// Clear all customer preservation flags when starting fresh invoice
-			this._customerFromSalesOrder = null;
-			this._savedInvoiceCustomer = null;
+			// Preserve manually selected customer (e.g., from quick customer selection)
+			// Only reset to default if no customer was manually selected
+			if (this._manuallySelectedCustomer) {
+				this.customer = this._manuallySelectedCustomer;
+				// Don't clear the flag - keep it so customer is preserved
+			} else {
+				// Preserve the currently selected customer if one is set and different from default
+				const currentCustomer = this.customer;
+				const defaultCustomer = this.pos_profile.customer;
+				// Only reset to default if:
+				// 1. No customer is selected, OR
+				// 2. Current customer is the default AND it's not from a sales order or saved invoice
+				if (!currentCustomer || (currentCustomer === defaultCustomer && !this._customerFromSalesOrder && !this._savedInvoiceCustomer)) {
+					this.customer = defaultCustomer;
+				}
+			}
+			// Clear customer preservation flags only if they exist
+			// This allows manually selected customers (via quick customer) to be preserved
+			if (this._customerFromSalesOrder || this._savedInvoiceCustomer) {
+				this._customerFromSalesOrder = null;
+				this._savedInvoiceCustomer = null;
+			}
 			this.invoice_doc = "";
 			this.discount_amount = 0;
 			this.additional_discount_percentage = 0;

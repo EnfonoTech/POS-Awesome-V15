@@ -2083,6 +2083,8 @@ export default {
 		selectQuickCustomer(customerName) {
 			// Set customer directly to ensure it's selected immediately
 			this.customer = customerName;
+			// Mark that customer was manually selected (to preserve it when new_order is called)
+			this._manuallySelectedCustomer = customerName;
 			// Select customer using the store to keep it in sync
 			this.customersStore.setSelectedCustomer(customerName);
 			// Update the customer component if available

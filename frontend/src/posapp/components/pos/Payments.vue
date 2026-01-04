@@ -556,6 +556,8 @@
 							v-model="is_credit_sale" 
 							:label="frappe._('Credit Sale?')"
 							:color="is_credit_sale ? 'warning' : 'primary'"
+							:disabled="isOnlineDeliveryCustomer && is_credit_sale"
+							:readonly="isOnlineDeliveryCustomer && is_credit_sale"
 						></v-switch>
 					</v-col>
 					<v-col cols="6" v-if="invoice_doc && invoice_doc.is_return && pos_profile.use_cashback">
@@ -866,6 +868,12 @@ export default {
 		};
 	},
 	computed: {
+		// Check if customer is from Online Delivery group
+		isOnlineDeliveryCustomer() {
+			if (!this.invoice_doc) return false;
+			const customerGroup = this.invoice_doc.customer_group || this.customerInfoFromStore?.customer_group || this.customer_info?.customer_group;
+			return customerGroup === "Online Delivery";
+		},
 		// Check if invoice has sales order (from invoice_doc or items)
 		has_sales_order() {
 			if (!this.invoice_doc) return false;
@@ -1182,10 +1190,22 @@ export default {
 			}
 		},
 		// Watch is_credit_sale to reset all payment methods
-		is_credit_sale(newVal) {
+		is_credit_sale(newVal, oldVal) {
 			if (!this.invoice_doc) {
 				return;
 			}
+			
+			// Prevent disabling credit sale for Online Delivery customers
+			if (!newVal && this.isOnlineDeliveryCustomer && oldVal === true) {
+				this.is_credit_sale = true;
+				this.eventBus.emit("show_message", {
+					title: __("Credit sale cannot be disabled for Online Delivery customer group"),
+					color: "error",
+				});
+				frappe.utils.play_sound("error");
+				return;
+			}
+			
 			if (newVal) {
 				// If credit sale is enabled, set all payment methods to 0
 				this.invoice_doc.payments.forEach((payment) => {
@@ -1353,6 +1373,31 @@ export default {
 		},
 		// Submit payment after validation
 		async submit(event, payment_received = false, print = false) {
+			// Validate Online Delivery customer group must be unpaid (credit sale only)
+			if (this.isOnlineDeliveryCustomer) {
+				if (!this.is_credit_sale) {
+					this.eventBus.emit("show_message", {
+						title: __("Online Delivery must be credit sale"),
+						color: "error",
+					});
+					frappe.utils.play_sound("error");
+					return;
+				}
+				// Check if any payment has amount > 0
+				const hasPayments = this.invoice_doc.payments.some((payment) => {
+					const amount = this.flt(payment.amount);
+					return amount > 0;
+				});
+				if (hasPayments) {
+					this.eventBus.emit("show_message", {
+						title: __("Online Delivery must be unpaid. Please remove all payment amounts."),
+						color: "error",
+					});
+					frappe.utils.play_sound("error");
+					return;
+				}
+			}
+			
 			// For return invoices, ensure payment amounts are negative
 			if (this.invoice_doc.is_return) {
 				this.ensureReturnPaymentsAreNegative();
