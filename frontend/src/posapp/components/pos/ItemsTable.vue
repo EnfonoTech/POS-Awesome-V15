@@ -1316,12 +1316,50 @@ export default {
 			}
 		},
 		handleMinusClick(item) {
-			if (item.qty <= 1) {
-				// Remove the item when quantity would become 0 or less
-				this.removeItem(item);
+			console.log('[handleMinusClick] START - item:', item, 'isReturnInvoice:', this.isReturnInvoice);
+			
+			if (!item) {
+				console.log('[handleMinusClick] Item is null/undefined, returning');
+				return;
+			}
+			
+			// For return invoices, quantities are negative (e.g., -3 means returning 3)
+			// We need to check the absolute value to determine if we should remove or reduce
+			const currentQty = parseFloat(item.qty) || 0;
+			
+			console.log('[handleMinusClick] currentQty:', currentQty, 'item.qty:', item.qty);
+			
+			if (this.isReturnInvoice) {
+				// For return invoices: quantities should be negative
+				// Check absolute value: only remove if it would become 0 after reduction
+				const absQty = Math.abs(currentQty);
+				
+				console.log('[handleMinusClick] Return invoice - currentQty:', currentQty, 'absQty:', absQty);
+				
+				// Only remove if absolute quantity is exactly 1 (after reduction it would be 0)
+				// For example: -1 should be removed, but -2, -3, etc. should be reduced
+				if (absQty === 1) {
+					// Can't reduce further (would become 0), remove the item
+					console.log('[handleMinusClick] Removing item because absQty === 1');
+					this.removeItem(item);
+				} else if (absQty > 1) {
+					// Reduce quantity: subtractOne will handle the reduction correctly
+					// For -3, it should become -2; for 3, it should become -2
+					// DO NOT remove here - let subtractOne handle it
+					console.log('[handleMinusClick] Calling subtractOne to reduce quantity');
+					this.subtractOne(item);
+				} else {
+					// absQty is 0 or invalid, remove the item
+					console.log('[handleMinusClick] Removing item because absQty is invalid:', absQty);
+					this.removeItem(item);
+				}
 			} else {
-				// Use the existing subtractOne function
-				this.subtractOne(item);
+				// For regular invoices: if quantity is 1 or less, remove the item
+				if (currentQty <= 1) {
+					this.removeItem(item);
+				} else {
+					this.subtractOne(item);
+				}
 			}
 		},
 

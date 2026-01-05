@@ -302,6 +302,7 @@
 						:fatehPosSettings="fatehPosSettings"
 						:subtractOne="subtract_one"
 						:addOne="add_one"
+						:isReturnInvoice="isReturnInvoice"
 						:toggleOffer="toggleOffer"
 						:changePriceListRate="change_price_list_rate"
 						:isNegative="isNegative"
@@ -1831,18 +1832,84 @@ export default {
 
                 // Decrease quantity of an item (handles return logic)
                 subtract_one(item) {
+			if (!item) {
+				console.log('[subtract_one] Item is null/undefined');
+				return;
+			}
+			
 			if (this.isReturnInvoice) {
-				// For returns, move quantity toward zero
-				item.qty++;
+				// For returns, we need to reduce the absolute quantity
+				// Quantities can be positive (3, 4) or negative (-3, -4)
+				// We want to reduce the absolute value by 1
+				const oldQty = parseFloat(item.qty) || 0;
+				const absQty = Math.abs(oldQty);
+				
+				console.log('[subtract_one] Return invoice - oldQty:', oldQty, 'absQty:', absQty, 'isReturnInvoice:', this.isReturnInvoice);
+				
+				// Safety check: if absolute quantity is 0 or invalid, remove the item
+				if (absQty <= 0 || isNaN(absQty)) {
+					console.log('[subtract_one] Removing item because absQty is invalid:', absQty);
+					this.remove_item(item);
+					return;
+				}
+				
+				// If absolute quantity is 1, after reduction it becomes 0, so remove
+				if (absQty === 1) {
+					console.log('[subtract_one] Removing item because absQty === 1 (would become 0)');
+					this.remove_item(item);
+					return;
+				}
+				
+				// Calculate new quantity by reducing absolute value by 1
+				// For positive: 3 -> 2 -> -2
+				// For negative: -3 -> -2
+				let newQty;
+				if (oldQty > 0) {
+					// Positive quantity: reduce it (3 -> 2), then convert to negative (-2)
+					newQty = -(oldQty - 1);
+					console.log('[subtract_one] Positive quantity - reduced from', oldQty, 'to', newQty);
+				} else if (oldQty < 0) {
+					// Negative quantity: increment it toward zero (-3 -> -2, -2 -> -1)
+					newQty = oldQty + 1;
+					console.log('[subtract_one] Negative quantity - incremented from', oldQty, 'to', newQty);
+				} else {
+					// oldQty is 0, remove the item
+					console.log('[subtract_one] Removing item because oldQty is 0');
+					this.remove_item(item);
+					return;
+				}
+				
+				// Final safety check: only remove if new quantity becomes 0 or positive
+				// This should only happen if oldQty was exactly -1, which becomes 0
+				if (newQty >= 0) {
+					console.log('[subtract_one] Removing item because newQty >= 0:', newQty);
+					this.remove_item(item);
+					return;
+				}
+				
+				// Update the quantity - it should always be negative at this point
+				console.log('[subtract_one] Updating quantity from', oldQty, 'to', newQty);
+				item.qty = newQty;
+				
+				// Update related fields
+				this.calc_stock_qty(item, item.qty);
+				this.updateBundleChildrenQty(item);
+				this.$forceUpdate();
 			} else {
-				item.qty--;
-                        }
-                        if (item.qty == 0) {
-                                this.remove_item(item);
-                        }
-                        this.calc_stock_qty(item, item.qty);
-                        this.updateBundleChildrenQty(item);
-                        this.$forceUpdate();
+				// For regular invoices, decrement quantity
+				const oldQty = item.qty || 0;
+				item.qty = oldQty - 1;
+				
+				// Remove if quantity becomes 0 or negative
+				if (item.qty <= 0) {
+					this.remove_item(item);
+					return; // Exit early if item was removed
+				}
+				
+				this.calc_stock_qty(item, item.qty);
+				this.updateBundleChildrenQty(item);
+				this.$forceUpdate();
+			}
                 },
 
 		// Handle item reordering from drag and drop
