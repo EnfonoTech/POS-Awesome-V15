@@ -106,6 +106,8 @@
 					<v-btn color="error" @click="closeDialog">{{ __("Cancel") }}</v-btn>
 					<v-btn
 						color="success"
+						size="large"
+						class="submit-btn-overlap"
 						:loading="isSubmitting"
 						:disabled="isSubmitting || !canSubmit"
 						@click="submitInvoice"
@@ -264,4 +266,36 @@ export default {
 	},
 };
 </script>
+
+<style scoped>
+.submit-btn-overlap {
+	position: relative;
+	z-index: 10;
+	transform: scale(1.05);
+	margin-left: 16px;
+	font-weight: 600;
+	letter-spacing: 0.5px;
+	min-width: 110px;
+	height: 44px;
+	background-color: #4caf50 !important;
+	color: #ffffff !important;
+	text-transform: uppercase;
+	box-shadow: none !important;
+}
+
+.submit-btn-overlap :deep(.v-btn__content) {
+	color: #ffffff !important;
+	font-weight: 600;
+}
+
+.submit-btn-overlap:hover {
+	transform: scale(1.08);
+	background-color: #45a049 !important;
+}
+
+.submit-btn-overlap:active {
+	transform: scale(1.02);
+	background-color: #3d8b40 !important;
+}
+</style>
 
