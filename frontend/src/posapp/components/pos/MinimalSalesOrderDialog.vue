@@ -126,23 +126,52 @@
 									{{ __("Add Item") }}
 								</v-btn>
 								
-								<!-- Total Amount Display -->
-								<div class="d-flex justify-end mt-3">
-									<v-card variant="outlined" style="min-width: 280px;">
-										<v-card-text class="py-2 px-3">
-											<v-row dense align="center" no-gutters>
-												<v-col cols="6" class="text-right font-weight-medium">
-													{{ __("Total Amount") }}:
-												</v-col>
-												<v-col cols="6" class="text-right">
-													<span class="text-h6 font-weight-bold primary--text">
-														{{ currencySymbolValue }}{{ formatPrice(totalAmount) }}
-													</span>
-												</v-col>
-											</v-row>
-										</v-card-text>
-									</v-card>
-								</div>
+								<!-- Total Amount Display and Delivery Date -->
+								<v-row class="mt-3" align="center">
+									<v-col cols="12" md="5">
+										<v-menu
+											v-model="delivery_date_menu"
+											:close-on-content-click="false"
+											transition="scale-transition"
+											offset-y
+											min-width="auto"
+										>
+											<template v-slot:activator="{ props }">
+												<v-text-field
+													v-model="formatted_delivery_date"
+													:label="__('Delivery Date')"
+													variant="outlined"
+													density="compact"
+													prepend-inner-icon="mdi-calendar"
+													readonly
+													v-bind="props"
+													hide-details
+												></v-text-field>
+											</template>
+											<v-date-picker
+												v-model="delivery_date"
+												@update:model-value="onDeliveryDateSelect"
+												:min="todayDate"
+											></v-date-picker>
+										</v-menu>
+									</v-col>
+									<v-col cols="12" md="7" class="d-flex justify-end">
+										<v-card variant="outlined" style="min-width: 280px;">
+											<v-card-text class="py-2 px-3">
+												<v-row dense align="center" no-gutters>
+													<v-col cols="6" class="text-right font-weight-medium">
+														{{ __("Total Amount") }}:
+													</v-col>
+													<v-col cols="6" class="text-right">
+														<span class="text-h6 font-weight-bold primary--text">
+															{{ currencySymbolValue }}{{ formatPrice(totalAmount) }}
+														</span>
+													</v-col>
+												</v-row>
+											</v-card-text>
+										</v-card>
+									</v-col>
+								</v-row>
 							</v-col>
 						</v-row>
 						
@@ -156,6 +185,7 @@
 									density="compact"
 									:prefix="currencySymbolValue"
 									prepend-inner-icon="mdi-cash"
+									:error-messages="advanceAmountError"
 								></v-text-field>
 							</v-col>
 							<v-col cols="12" md="6" v-if="advance_amount > 0">
@@ -197,6 +227,8 @@
 					<v-btn color="error" @click="closeDialog">{{ __("Cancel") }}</v-btn>
 					<v-btn
 						color="success"
+						size="large"
+						class="submit-btn-overlap"
 						:loading="isSubmitting"
 						:disabled="isSubmitting || !canSubmit"
 						@click="submitOrder"
@@ -216,6 +248,10 @@ import format from "../../format";
 export default {
 	mixins: [format],
 	data() {
+		// Get today's date in YYYY-MM-DD format
+		const today = new Date();
+		const todayDate = today.toISOString().split('T')[0];
+		
 		return {
 			dialog: false,
 			customer_name: "",
@@ -228,6 +264,10 @@ export default {
 			pos_profile: null,
 			isSubmitting: false,
 			errorMessage: "",
+			delivery_date: todayDate,
+			delivery_date_menu: false,
+			formatted_delivery_date: "",
+			todayDate: todayDate,
 			itemHeaders: [
 				{ title: __("Item"), key: "item_name", sortable: false },
 				{ title: __("Qty"), key: "qty", sortable: false, width: "100px" },
@@ -258,8 +298,15 @@ export default {
 					const hasItem = item.selected_item || (item.item_name && item.item_name.trim());
 					return hasItem && item.qty > 0;
 				}) &&
-				(this.advance_amount === 0 || (this.advance_amount > 0 && this.mode_of_payment))
+				(this.advance_amount === 0 || (this.advance_amount > 0 && this.mode_of_payment)) &&
+				!this.advanceAmountError
 			);
+		},
+		advanceAmountError() {
+			if (this.advance_amount > 0 && this.advance_amount > this.totalAmount) {
+				return __("Advance amount cannot be greater than total amount");
+			}
+			return "";
 		},
 	},
 	watch: {
@@ -297,6 +344,9 @@ export default {
 			this.resetForm();
 		},
 		resetForm() {
+			const today = new Date();
+			const todayDate = today.toISOString().split('T')[0];
+			
 			this.customer_name = "";
 			this.mobile_no = "";
 			this.items = [];
@@ -306,6 +356,82 @@ export default {
 			this.errorMessage = "";
 			this.itemCounter = 0;
 			this.itemSearchCache = {};
+			this.delivery_date = todayDate;
+			this.formatted_delivery_date = "";
+			this.todayDate = todayDate;
+		},
+		onDeliveryDateSelect(value) {
+			// Close the menu
+			this.delivery_date_menu = false;
+			
+			// If value is provided from the date picker, use it
+			if (value !== undefined) {
+				this.delivery_date = value;
+			}
+			
+			// Format date for display
+			if (this.delivery_date) {
+				try {
+					// Handle both string and Date object formats
+					let dateStr = this.delivery_date;
+					
+					// If it's a Date object, convert to YYYY-MM-DD string first
+					if (dateStr instanceof Date) {
+						const year = dateStr.getFullYear();
+						const month = String(dateStr.getMonth() + 1).padStart(2, '0');
+						const day = String(dateStr.getDate()).padStart(2, '0');
+						dateStr = `${year}-${month}-${day}`;
+						this.delivery_date = dateStr; // Update to string format
+					}
+					
+					// Now handle string format (should be YYYY-MM-DD)
+					if (typeof dateStr === 'string') {
+						// If it's already in YYYY-MM-DD format, use it directly
+						if (dateStr.match(/^\d{4}-\d{2}-\d{2}$/)) {
+							const [year, month, day] = dateStr.split('-');
+							const dateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+							
+							// Validate the date
+							if (!isNaN(dateObj.getTime())) {
+								this.formatted_delivery_date = dateObj.toLocaleDateString('en-US', {
+									year: 'numeric',
+									month: 'long',
+									day: 'numeric'
+								});
+							} else {
+								// Invalid date, use raw string
+								this.formatted_delivery_date = dateStr;
+							}
+						} else {
+							// Try parsing as ISO string or other format
+							const dateObj = new Date(dateStr);
+							if (!isNaN(dateObj.getTime())) {
+								this.formatted_delivery_date = dateObj.toLocaleDateString('en-US', {
+									year: 'numeric',
+									month: 'long',
+									day: 'numeric'
+								});
+								// Also update delivery_date to YYYY-MM-DD format
+								const year = dateObj.getFullYear();
+								const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+								const day = String(dateObj.getDate()).padStart(2, '0');
+								this.delivery_date = `${year}-${month}-${day}`;
+							} else {
+								// Invalid date, use raw string
+								this.formatted_delivery_date = dateStr;
+							}
+						}
+					} else {
+						// Not a string or date, convert to string
+						this.formatted_delivery_date = String(dateStr);
+					}
+				} catch (error) {
+					console.error("Error formatting delivery date:", error);
+					this.formatted_delivery_date = String(this.delivery_date || "");
+				}
+			} else {
+				this.formatted_delivery_date = "";
+			}
 		},
 		addItem() {
 			this.items.push({
@@ -483,6 +609,31 @@ export default {
 			this.errorMessage = "";
 			
 			try {
+				// Ensure delivery_date is in correct format (YYYY-MM-DD)
+				let deliveryDateToSend = this.delivery_date;
+				if (deliveryDateToSend) {
+					// If it's a Date object, convert to string
+					if (deliveryDateToSend instanceof Date) {
+						const year = deliveryDateToSend.getFullYear();
+						const month = String(deliveryDateToSend.getMonth() + 1).padStart(2, '0');
+						const day = String(deliveryDateToSend.getDate()).padStart(2, '0');
+						deliveryDateToSend = `${year}-${month}-${day}`;
+					} else if (typeof deliveryDateToSend === 'string' && !deliveryDateToSend.match(/^\d{4}-\d{2}-\d{2}$/)) {
+						// Try to parse and reformat if not in correct format
+						try {
+							const dateObj = new Date(deliveryDateToSend);
+							if (!isNaN(dateObj.getTime())) {
+								const year = dateObj.getFullYear();
+								const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+								const day = String(dateObj.getDate()).padStart(2, '0');
+								deliveryDateToSend = `${year}-${month}-${day}`;
+							}
+						} catch (e) {
+							console.warn("Could not parse delivery date:", e);
+						}
+					}
+				}
+				
 				const { message } = await frappe.call({
 					method: "posawesome.posawesome.api.minimal_sales_orders.create_minimal_sales_order",
 					args: {
@@ -493,6 +644,7 @@ export default {
 							advance_amount: this.advance_amount,
 							mode_of_payment: this.mode_of_payment,
 							additional_notes: this.additional_notes,
+							delivery_date: deliveryDateToSend,
 							company: this.pos_profile?.company,
 							pos_profile: this.pos_profile?.name,
 							set_warehouse: this.pos_profile?.warehouse || this.pos_profile?.set_warehouse,
@@ -544,7 +696,28 @@ export default {
 				}
 			} catch (error) {
 				console.error("Failed to create sales order:", error);
-				this.errorMessage = error.message || __("Failed to create sales order");
+				// Simplify error messages
+				let errorMsg = __("Failed to create sales order");
+				if (error.message) {
+					// Check for specific error messages and simplify them
+					if (error.message.includes("Allocated Amount cannot be greater than outstanding amount")) {
+						errorMsg = __("Advance amount cannot be greater than total amount. Please reduce the advance amount.");
+					} else if (error.message.includes("Allocated Amount")) {
+						errorMsg = __("Payment amount is invalid. Please check the advance amount.");
+					} else {
+						// Try to extract a simpler message
+						const msg = error.message;
+						// Remove technical details
+						if (msg.includes(":")) {
+							const parts = msg.split(":");
+							errorMsg = parts[parts.length - 1].trim() || errorMsg;
+						} else {
+							errorMsg = msg;
+						}
+					}
+				}
+				this.errorMessage = errorMsg;
+				frappe.utils.play_sound("error");
 			} finally {
 				this.isSubmitting = false;
 			}
@@ -558,6 +731,16 @@ export default {
 			this.pos_profile = data?.pos_profile;
 			this.dialog = true;
 			await this.loadPaymentModes(); // This will set default mode of payment
+			
+			// Set default delivery date to today
+			const today = new Date();
+			const todayDate = today.toISOString().split('T')[0];
+			this.delivery_date = todayDate;
+			this.todayDate = todayDate;
+			// Format the date for display immediately
+			this.$nextTick(() => {
+				this.onDeliveryDateSelect();
+			});
 			
 			// Add default item if available
 			if (data?.default_item) {
@@ -584,4 +767,36 @@ export default {
 	},
 };
 </script>
+
+<style scoped>
+.submit-btn-overlap {
+	position: relative;
+	z-index: 10;
+	transform: scale(1.05);
+	margin-left: 16px;
+	font-weight: 600;
+	letter-spacing: 0.5px;
+	min-width: 110px;
+	height: 44px;
+	background-color: #4caf50 !important;
+	color: #ffffff !important;
+	text-transform: uppercase;
+	box-shadow: none !important;
+}
+
+.submit-btn-overlap :deep(.v-btn__content) {
+	color: #ffffff !important;
+	font-weight: 600;
+}
+
+.submit-btn-overlap:hover {
+	transform: scale(1.08);
+	background-color: #45a049 !important;
+}
+
+.submit-btn-overlap:active {
+	transform: scale(1.02);
+	background-color: #3d8b40 !important;
+}
+</style>
 

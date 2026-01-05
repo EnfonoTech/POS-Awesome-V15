@@ -166,6 +166,18 @@ def create_minimal_sales_order(data):
     # Get warehouse from data or POS profile
     set_warehouse = data.get("set_warehouse") or (pos_profile_doc.warehouse if hasattr(pos_profile_doc, "warehouse") else None)
     
+    # Get delivery date from data or use today
+    delivery_date = data.get("delivery_date")
+    if delivery_date:
+        # Validate and parse delivery date
+        from frappe.utils import getdate
+        try:
+            delivery_date = getdate(delivery_date)
+        except Exception:
+            delivery_date = nowdate()
+    else:
+        delivery_date = nowdate()
+    
     # Create sales order
     so_doc = frappe.get_doc({
         "doctype": "Sales Order",
@@ -173,7 +185,7 @@ def create_minimal_sales_order(data):
         "company": company,
         "currency": currency,
         "transaction_date": nowdate(),
-        "delivery_date": nowdate(),
+        "delivery_date": delivery_date,
         "pos_profile": pos_profile,
     })
     
