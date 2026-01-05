@@ -151,12 +151,6 @@ def set_paid_amount_and_received_amount(
 @frappe.whitelist()
 def get_outstanding_invoices(customer=None, company=None, currency=None, pos_profile=None, invoice_number=None, sales_person=None):
     try:
-        party_account = get_party_account("Customer", customer, company)
-
-        frappe.logger().debug(
-            f"Fetching outstanding invoices for customer: {customer}, party_account: {party_account}"
-        )
-
         # Determine which doctype to use based on POS profile setting
         use_pos_invoice = False
         if pos_profile:
@@ -171,11 +165,20 @@ def get_outstanding_invoices(customer=None, company=None, currency=None, pos_pro
         # Build filters
         filters = {
             "company": company,
-            "customer": customer,
             "outstanding_amount": (">", 0),
             "docstatus": 1,
             "is_return": 0,
         }
+
+        # Only filter by customer if no sales_person or invoice_number is provided
+        # This allows sales_person and invoice_number filters to work independently
+        if customer and not sales_person and not invoice_number:
+            filters["customer"] = customer
+            # Get party account only when customer filter is applied
+            party_account = get_party_account("Customer", customer, company)
+            frappe.logger().debug(
+                f"Fetching outstanding invoices for customer: {customer}, party_account: {party_account}"
+            )
 
         if currency:
             filters["currency"] = currency
@@ -184,9 +187,45 @@ def get_outstanding_invoices(customer=None, company=None, currency=None, pos_pro
         if pos_profile:
             filters["pos_profile"] = pos_profile
 
+        # If sales_person is provided, get invoices from Sales Team first
+        sales_team_invoice_names = None
+        if sales_person:
+            # Get all invoices that have this sales person in Sales Team
+            sales_team_invoices = frappe.get_all(
+                "Sales Team",
+                filters={
+                    "parenttype": doctype_name,
+                    "sales_person": sales_person,
+                },
+                fields=["parent"],
+                distinct=True,
+            )
+            sales_team_invoice_names = [st["parent"] for st in sales_team_invoices]
+            
+            if not sales_team_invoice_names:
+                # No invoices found for this sales person, return empty list
+                return []
+
         # Filter by invoice number if provided
+        # If both invoice_number and sales_person are provided, filter by both
         if invoice_number:
-            filters["name"] = ("like", f"%{invoice_number}%")
+            if sales_team_invoice_names:
+                # Both filters: filter invoice_number within sales_person invoices
+                matching_invoices = [
+                    inv for inv in sales_team_invoice_names 
+                    if invoice_number.lower() in inv.lower()
+                ]
+                if matching_invoices:
+                    filters["name"] = ("in", matching_invoices)
+                else:
+                    # No matching invoices, return empty list
+                    return []
+            else:
+                # Only invoice_number filter
+                filters["name"] = ("like", f"%{invoice_number}%")
+        elif sales_team_invoice_names:
+            # Only sales_person filter
+            filters["name"] = ("in", sales_team_invoice_names)
 
         # Get all outstanding invoices from the appropriate doctype
         outstanding_invoices = frappe.get_all(
@@ -205,26 +244,6 @@ def get_outstanding_invoices(customer=None, company=None, currency=None, pos_pro
             ],
             order_by="posting_date desc",
         )
-
-        # Filter by sales person if provided (sales person is in Sales Team child table)
-        if sales_person and outstanding_invoices:
-            # Get invoice names that have this sales person in Sales Team
-            invoice_names = [inv["voucher_no"] for inv in outstanding_invoices]
-            sales_team_invoices = frappe.get_all(
-                "Sales Team",
-                filters={
-                    "parent": ("in", invoice_names),
-                    "parenttype": doctype_name,
-                    "sales_person": sales_person,
-                },
-                fields=["parent"],
-                distinct=True,
-            )
-            sales_team_invoice_names = [st["parent"] for st in sales_team_invoices]
-            # Filter outstanding_invoices to only include those with the sales person
-            outstanding_invoices = [
-                inv for inv in outstanding_invoices if inv["voucher_no"] in sales_team_invoice_names
-            ]
 
         # Ensure all amounts are properly formatted
         for invoice in outstanding_invoices:

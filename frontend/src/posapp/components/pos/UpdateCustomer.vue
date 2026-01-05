@@ -533,14 +533,14 @@ export default {
 			// Only validate group and territory if hideNonEssential is false
 			// When hidden, use defaults if not set
 			if (!this.hideNonEssential) {
-				if (!this.group) {
-					frappe.throw(__("Customer group is required"));
-					return;
-				}
+			if (!this.group) {
+				frappe.throw(__("Customer group is required"));
+				return;
+			}
 
-				if (!this.territory) {
-					frappe.throw(__("Customer territory is required"));
-					return;
+			if (!this.territory) {
+				frappe.throw(__("Customer territory is required"));
+				return;
 				}
 			} else {
 				// When hideNonEssential is true, use defaults if not set

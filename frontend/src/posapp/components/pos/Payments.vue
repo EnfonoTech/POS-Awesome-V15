@@ -552,13 +552,13 @@
 						cols="6"
 						v-if="invoice_doc && pos_profile.posa_allow_credit_sale && !invoice_doc.is_return"
 					>
-					<v-switch
-						v-model="is_credit_sale"
-						:label="frappe._('Credit Sale?')"
-						:color="is_credit_sale ? 'warning' : 'primary'"
+						<v-switch 
+							v-model="is_credit_sale" 
+							:label="frappe._('Credit Sale?')"
+							:color="is_credit_sale ? 'warning' : 'primary'"
 						:disabled="(isOnlineDeliveryCustomer && is_credit_sale) || (isHomeCustomer && is_credit_sale) || isWalkInCustomer"
 						:readonly="(isOnlineDeliveryCustomer && is_credit_sale) || (isHomeCustomer && is_credit_sale) || isWalkInCustomer"
-					></v-switch>
+						></v-switch>
 					</v-col>
 					<v-col cols="6" v-if="invoice_doc && invoice_doc.is_return && pos_profile.use_cashback">
 						<v-switch
@@ -2496,13 +2496,13 @@ export default {
 					const isCreditSaleCustomer = customerGroup === "Online Delivery" || customerGroup === "Home Customer";
 					
 					if (!isCreditSaleCustomer) {
-						// If payment amount is already set (e.g., adjusted for advances), keep it
-						// Otherwise, use full invoice total
-						if (!default_payment.amount || default_payment.amount === 0) {
-							default_payment.amount = this.flt(
-								invoice_doc.rounded_total || invoice_doc.grand_total,
-								this.currency_precision,
-							);
+					// If payment amount is already set (e.g., adjusted for advances), keep it
+					// Otherwise, use full invoice total
+					if (!default_payment.amount || default_payment.amount === 0) {
+					default_payment.amount = this.flt(
+						invoice_doc.rounded_total || invoice_doc.grand_total,
+						this.currency_precision,
+					);
 						}
 					}
 					this.is_credit_return = false;

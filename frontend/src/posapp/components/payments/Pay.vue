@@ -821,9 +821,15 @@ export default {
 				return;
 			}
 
+			// If sales person or invoice number is selected, don't filter by customer
+			// This allows sales person and invoice number filters to work independently
+			const customerFilter = (this.sales_person_search || this.invoice_number_search) 
+				? null 
+				: this.customer_name;
+
 			return frappe
 				.call("posawesome.posawesome.api.payment_entry.get_outstanding_invoices", {
-					customer: this.customer_name,
+					customer: customerFilter,
 					company: this.company,
 					currency: this.pos_profile.currency,
 					pos_profile: this.pos_profile.name, // Always use logged-in POS profile
