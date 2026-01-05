@@ -858,6 +858,7 @@ export default {
 			credit_due_presets: [7, 14, 30], // Preset options for due days
 			customer_info: "", // Customer info
 			custom_customer_number: "", // Custom customer number
+			_updatingCreditSale: false, // Flag to prevent infinite loops in credit sale watcher
 			mpesa_modes: [], // List of available M-Pesa modes
 			sales_persons: [], // List of sales persons
 			sales_person: "", // Selected sales person
@@ -1203,33 +1204,11 @@ export default {
 		},
 		// Watch is_credit_sale to reset all payment methods
 		is_credit_sale(newVal, oldVal) {
-			if (!this.invoice_doc) {
+			if (!this.invoice_doc || !this.invoice_doc.payments) {
 				return;
 			}
 			
-			// Prevent disabling credit sale for Online Delivery and Home Customer customers
-			if (!newVal && (this.isOnlineDeliveryCustomer || this.isHomeCustomer) && oldVal === true) {
-				this.is_credit_sale = true;
-				const customerGroup = this.isOnlineDeliveryCustomer ? "Online Delivery" : "Home Customer";
-				this.eventBus.emit("show_message", {
-					title: __("Credit sale cannot be disabled for {0} customer group", [customerGroup]),
-					color: "error",
-				});
-				frappe.utils.play_sound("error");
-				return;
-			}
-			
-			// Prevent enabling credit sale for Walk-in Customer
-			if (newVal && this.isWalkInCustomer && oldVal === false) {
-				this.is_credit_sale = false;
-				this.eventBus.emit("show_message", {
-					title: __("Credit sale cannot be enabled for Walk-in Customer"),
-					color: "error",
-				});
-				frappe.utils.play_sound("error");
-				return;
-			}
-			
+			// Always clear payments when credit sale is enabled (even if updating flag is set)
 			if (newVal) {
 				// If credit sale is enabled, set all payment methods to 0
 				this.invoice_doc.payments.forEach((payment) => {
@@ -1238,10 +1217,18 @@ export default {
 						payment.base_amount = 0;
 					}
 				});
+				// Return early to prevent other logic from running during flag updates
+				if (this._updatingCreditSale) {
+					return;
+				}
 			} else {
+				// Skip if we're already updating (prevent infinite loops)
+				if (this._updatingCreditSale) {
+					return;
+				}
 				// If credit sale is disabled, set cash payment to invoice total
 				this.invoice_doc.payments.forEach((payment) => {
-					if (payment.mode_of_payment.toLowerCase() === "cash") {
+					if (payment.mode_of_payment && payment.mode_of_payment.toLowerCase() === "cash") {
 						payment.amount = this.invoice_doc.rounded_total || this.invoice_doc.grand_total;
 						if (payment.base_amount !== undefined) {
 							payment.base_amount = payment.amount;
@@ -1275,8 +1262,16 @@ export default {
 		"invoice_doc.customer"(customer, previous) {
 			if (customer && customer !== previous) {
 				this.get_addresses();
+				// Update credit sale based on customer
+				this.updateCreditSaleBasedOnCustomer();
 			} else if (!customer) {
 				this.addresses = [];
+			}
+		},
+		"invoice_doc.customer_group"(customerGroup, previous) {
+			if (customerGroup !== previous) {
+				// Update credit sale based on customer group
+				this.updateCreditSaleBasedOnCustomer();
 			}
 		},
 		"invoice_doc.posa_delivery_date"(date) {
@@ -1335,6 +1330,12 @@ export default {
 			if (data === "true") {
 				// Reload settings when payment dialog opens to ensure latest values
 				await this.loadFatehPosSettings();
+				
+				// Ensure credit sale is set correctly and payments are cleared for Online Delivery and Home Customer
+				if (this.invoice_doc && !this.invoice_doc.is_return) {
+					this.updateCreditSaleBasedOnCustomer();
+				}
+				
 				this.$nextTick(() => {
 					setTimeout(() => {
 						const btn = this.$refs.submitButton;
@@ -1394,6 +1395,40 @@ export default {
 					payment.base_amount = -Math.abs(payment.base_amount);
 				}
 			});
+		},
+		// Update credit sale based on customer
+		updateCreditSaleBasedOnCustomer() {
+			if (!this.invoice_doc) {
+				return;
+			}
+			
+			const customerGroup = this.invoice_doc.customer_group || this.customerInfoFromStore?.customer_group || this.customer_info?.customer_group;
+			const customer = this.invoice_doc.customer || this.customerInfoFromStore?.name || this.customer_info?.name;
+			
+			// Simple logic: Walk-in Customer = OFF, Home Customer or Online Delivery = ON
+			if (customer === "Walk-in Customer") {
+				this._updatingCreditSale = true;
+				this.is_credit_sale = false;
+				this.$nextTick(() => {
+					this._updatingCreditSale = false;
+				});
+			} else if (customerGroup === "Home Customer" || customerGroup === "Online Delivery") {
+				// First clear all payments, then set credit sale
+				if (this.invoice_doc.payments && Array.isArray(this.invoice_doc.payments)) {
+					this.invoice_doc.payments.forEach((payment) => {
+						payment.amount = 0;
+						if (payment.base_amount !== undefined) {
+							payment.base_amount = 0;
+						}
+					});
+				}
+				// Then set credit sale (this will trigger watcher, but payments are already 0)
+				this._updatingCreditSale = true;
+				this.is_credit_sale = true;
+				this.$nextTick(() => {
+					this._updatingCreditSale = false;
+				});
+			}
 		},
 		// Submit payment after validation
 		async submit(event, payment_received = false, print = false) {
@@ -2410,17 +2445,30 @@ export default {
 					this.is_credit_sale = this._pendingCreditSaleState;
 					this._pendingCreditSaleState = null;
 				} else if (!invoice_doc.is_return) {
-					// Don't reset is_credit_sale if customer group is Online Delivery or Home Customer
-					// Check both invoice_doc and customerInfoFromStore for customer_group
+					// Simple logic: Walk-in Customer = OFF, Home Customer or Online Delivery = ON
 					const customerGroup = invoice_doc.customer_group || this.customerInfoFromStore?.customer_group;
 					const customer = invoice_doc.customer || this.customerInfoFromStore?.name;
-					if (customerGroup === "Online Delivery" || customerGroup === "Home Customer") {
-						this.is_credit_sale = true;
-					} else if (customer === "Walk-in Customer") {
+					
+					this._updatingCreditSale = true;
+					if (customer === "Walk-in Customer") {
 						this.is_credit_sale = false;
+					} else if (customerGroup === "Online Delivery" || customerGroup === "Home Customer") {
+						this.is_credit_sale = true;
+						// Set all payment amounts to 0 for credit sale customers
+						if (invoice_doc.payments && Array.isArray(invoice_doc.payments)) {
+							invoice_doc.payments.forEach((payment) => {
+								payment.amount = 0;
+								if (payment.base_amount !== undefined) {
+									payment.base_amount = 0;
+								}
+							});
+						}
 					} else {
 						this.is_credit_sale = false;
 					}
+					this.$nextTick(() => {
+						this._updatingCreditSale = false;
+					});
 				} else {
 					this.is_credit_sale = false;
 				}
@@ -2443,13 +2491,19 @@ export default {
 					}
 				} else if (default_payment) {
 					// For regular invoices, set positive amount
-					// If payment amount is already set (e.g., adjusted for advances), keep it
-					// Otherwise, use full invoice total
-					if (!default_payment.amount || default_payment.amount === 0) {
-					default_payment.amount = this.flt(
-						invoice_doc.rounded_total || invoice_doc.grand_total,
-						this.currency_precision,
-					);
+					// But don't set if customer is Online Delivery or Home Customer (credit sale - must be 0)
+					const customerGroup = invoice_doc.customer_group || this.customerInfoFromStore?.customer_group;
+					const isCreditSaleCustomer = customerGroup === "Online Delivery" || customerGroup === "Home Customer";
+					
+					if (!isCreditSaleCustomer) {
+						// If payment amount is already set (e.g., adjusted for advances), keep it
+						// Otherwise, use full invoice total
+						if (!default_payment.amount || default_payment.amount === 0) {
+							default_payment.amount = this.flt(
+								invoice_doc.rounded_total || invoice_doc.grand_total,
+								this.currency_precision,
+							);
+						}
 					}
 					this.is_credit_return = false;
 				}
