@@ -62,12 +62,11 @@
 				<div class="pos-table__qty-counter" :class="{ 'rtl-layout': isRTL }" :title="`RTL: ${isRTL}`">
 					<v-btn
 						:disabled="!!item.posa_is_replace"
-						size="small"
 						variant="flat"
 						class="pos-table__qty-btn pos-table__qty-btn--minus minus-btn qty-control-btn"
 						@click.stop="handleMinusClick(item)"
 					>
-						<v-icon size="small">mdi-minus</v-icon>
+						<v-icon>mdi-minus</v-icon>
 					</v-btn>
 					<div
 						class="pos-table__qty-display amount-value number-field-rtl"
@@ -87,12 +86,11 @@
 								item.max_qty !== undefined &&
 								item.qty >= item.max_qty)
 						"
-						size="small"
 						variant="flat"
 						class="pos-table__qty-btn pos-table__qty-btn--plus plus-btn qty-control-btn"
 						@click.stop="addOne(item)"
 					>
-						<v-icon size="small">mdi-plus</v-icon>
+						<v-icon>mdi-plus</v-icon>
 					</v-btn>
 				</div>
 			</template>
@@ -244,12 +242,11 @@
 			<template v-slot:item.actions="{ item }">
 				<v-btn
 					:disabled="!!item.posa_is_replace"
-					size="small"
 					variant="flat"
 					class="pos-table__delete-btn delete-action-btn"
 					@click.stop="removeItem(item)"
 				>
-					<v-icon size="small">mdi-delete-outline</v-icon>
+					<v-icon>mdi-delete-outline</v-icon>
 				</v-btn>
 			</template>
 
@@ -3125,6 +3122,15 @@ body[dir="rtl"] .amount-value.right-aligned {
 .qty-control-btn .v-icon {
 	position: relative;
 	z-index: 1;
+	color: #ffffff !important;
+}
+
+.qty-control-btn.minus-btn .v-icon {
+	color: #ffffff !important;
+}
+
+.qty-control-btn.plus-btn .v-icon {
+	color: #ffffff !important;
 }
 
 .pos-table__qty-counter {
@@ -3318,50 +3324,53 @@ body[dir="rtl"] .number-field-rtl {
 }
 
 .qty-control-btn.minus-btn {
-	background: var(--pos-button-warning-bg) !important;
-	color: var(--pos-button-warning-text) !important;
-	border: 2px solid var(--pos-button-warning-border) !important;
+	background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%) !important;
+	color: #ffffff !important;
+	border: 2px solid rgba(217, 119, 6, 0.3) !important;
 }
 
 .qty-control-btn.minus-btn:hover {
-	background: var(--pos-button-warning-hover-bg) !important;
-	color: var(--pos-button-warning-hover-text) !important;
+	background: linear-gradient(135deg, #d97706 0%, #b45309 100%) !important;
+	color: #ffffff !important;
 	box-shadow:
-		0 6px 20px var(--pos-shadow),
-		0 4px 8px var(--pos-shadow-light) !important;
-	transform: translateY(-2px) scale(1.05) !important;
+		0 8px 24px rgba(245, 158, 11, 0.4),
+		0 4px 12px rgba(0, 0, 0, 0.15) !important;
+	transform: translateY(-2px) scale(1.08) !important;
+	border-color: rgba(217, 119, 6, 0.5) !important;
 }
 
 .qty-control-btn.plus-btn {
-	background: var(--pos-button-success-bg) !important;
-	color: var(--pos-button-success-text) !important;
-	border: 2px solid var(--pos-button-success-border) !important;
+	background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+	color: #ffffff !important;
+	border: 2px solid rgba(5, 150, 105, 0.3) !important;
 }
 
 .qty-control-btn.plus-btn:hover {
-	background: var(--pos-button-success-hover-bg) !important;
-	color: var(--pos-button-success-hover-text) !important;
+	background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
+	color: #ffffff !important;
 	box-shadow:
-		0 6px 20px var(--pos-shadow),
-		0 4px 8px var(--pos-shadow-light) !important;
-	transform: translateY(-2px) scale(1.05) !important;
+		0 8px 24px rgba(16, 185, 129, 0.4),
+		0 4px 12px rgba(0, 0, 0, 0.15) !important;
+	transform: translateY(-2px) scale(1.08) !important;
+	border-color: rgba(5, 150, 105, 0.5) !important;
 }
 
 /* Delete action button styling */
 .delete-action-btn {
-	min-width: 44px !important;
-	height: 44px !important;
+	min-width: 48px !important;
+	height: 48px !important;
 	border-radius: 12px !important;
-	transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+	transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
 	box-shadow:
-		0 4px 12px var(--pos-shadow),
-		0 2px 4px var(--pos-shadow-light) !important;
+		0 3px 10px rgba(0, 0, 0, 0.12),
+		0 1px 4px rgba(0, 0, 0, 0.08) !important;
 	font-weight: 600 !important;
-	background: var(--pos-button-error-bg) !important;
-	color: var(--pos-button-error-text) !important;
-	border: 2px solid var(--pos-button-error-border) !important;
+	background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
+	color: #ffffff !important;
+	border: 2px solid rgba(220, 38, 38, 0.3) !important;
 	position: relative !important;
 	overflow: hidden !important;
+	cursor: pointer !important;
 }
 
 .delete-action-btn::before {
@@ -3382,22 +3391,25 @@ body[dir="rtl"] .number-field-rtl {
 }
 
 .delete-action-btn:hover {
-	transform: translateY(-2px) scale(1.05);
+	transform: translateY(-2px) scale(1.08);
 	box-shadow:
-		0 8px 24px var(--pos-shadow-dark),
-		0 4px 8px var(--pos-shadow) !important;
-	background: var(--pos-button-error-hover-bg) !important;
-	color: var(--pos-button-error-hover-text) !important;
+		0 8px 24px rgba(239, 68, 68, 0.4),
+		0 4px 12px rgba(0, 0, 0, 0.15) !important;
+	background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%) !important;
+	color: #ffffff !important;
+	border-color: rgba(220, 38, 38, 0.5) !important;
 }
 
 .delete-action-btn .v-icon {
 	position: relative;
 	z-index: 1;
 	transition: all 0.2s ease;
+	color: #ffffff !important;
 }
 
 .delete-action-btn:hover .v-icon {
 	animation: pulse 0.6s ease-in-out;
+	color: #ffffff !important;
 }
 
 /* =================================================================
