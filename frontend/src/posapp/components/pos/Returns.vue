@@ -581,12 +581,10 @@ export default {
 			this.perform_search();
 		},
 		return_without_invoice() {
-			console.log("Starting return without invoice flow");
 			const invoice_doc = {};
 			invoice_doc.items = [];
 			invoice_doc.is_return = 1;
 			const data = { invoice_doc };
-			console.log("Emitting load_return_invoice event with data:", data);
 			this.eventBus.emit("load_return_invoice", data);
 			this.invoicesDialog = false;
 		},
@@ -603,11 +601,8 @@ export default {
 					return;
 				}
 				
-				console.log("Starting return with invoice flow");
 				const invoice_doc = {};
 				const items = [];
-
-				console.log("Original return doc:", return_doc);
 
 				return_doc.items.forEach((item) => {
 					const new_item = { ...item };
@@ -661,7 +656,6 @@ export default {
 				}
 
 				const data = { invoice_doc, return_doc };
-				console.log("Emitting load_return_invoice event with data:", data);
 
 				this.eventBus.emit("load_return_invoice", data);
 				this.invoicesDialog = false;

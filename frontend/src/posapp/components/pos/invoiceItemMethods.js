@@ -323,16 +323,8 @@ export default {
 
 	// Load an invoice (or return invoice) from data, set all fields accordingly
 	async load_invoice(data = {}) {
-		console.log("load_invoice called with data:", {
-			is_return: data.is_return,
-			return_against: data.return_against,
-			customer: data.customer,
-			items_count: data.items ? data.items.length : 0,
-		});
-
 		this.clear_invoice();
 		if (data.is_return) {
-			console.log("Processing return invoice");
 			this.invoiceType = "Return";
 			this.invoiceTypes = ["Return"];
 		}
@@ -355,7 +347,6 @@ export default {
 		}
 		this.items = data.items || [];
 		this.packed_items = data.packed_items || [];
-		console.log("Items set:", this.items.length, "items");
 
 		if (data.is_return && data.return_against) {
 			this.items.forEach((item) => {
@@ -394,7 +385,6 @@ export default {
 
 			this.posa_offers = data.posa_offers || [];
 		} else {
-			console.log("Warning: No items in return invoice");
 		}
 
 	if (this.packed_items.length > 0) {
@@ -1407,16 +1397,6 @@ export default {
 			remaining_amount -= payment_amount;
 		});
 
-		console.log("Generated payments:", {
-			currency: this.selected_currency,
-			exchange_rate: this.exchange_rate,
-			payments: payments.map((p) => ({
-				mode: p.mode_of_payment,
-				amount: p.amount,
-				base_amount: p.base_amount,
-			})),
-		});
-
 		return payments;
 	},
 
@@ -1907,16 +1887,8 @@ export default {
 		this._suppressClosePayments = true;
 
 		try {
-			console.log("Starting show_payment process");
-			console.log("Invoice state before payment:", {
-				invoiceType: this.invoiceType,
-				is_return: this.invoice_doc ? this.invoice_doc.is_return : false,
-				items_count: this.items.length,
-				customer: this.customer,
-			});
 
 			if (!this.customer) {
-				console.log("Customer validation failed");
 				this.eventBus.emit("show_message", {
 					title: __(`Select a customer`),
 					color: "error",
@@ -1928,11 +1900,9 @@ export default {
 			// This ensures the customer persists when navigating to the payments screen
 			if (this.customer && this.customersStore) {
 				this.customersStore.setSelectedCustomer(this.customer);
-				console.log("Synced customer to store:", this.customer);
 			}
 
 			if (!this.items.length) {
-				console.log("Items validation failed - no items");
 				this.eventBus.emit("show_message", {
 					title: __(`Select items to sell`),
 					color: "error",
@@ -1940,14 +1910,10 @@ export default {
 				return;
 			}
 
-			console.log("Basic validations passed, proceeding to main validation");
 			const isValid = this.validate();
-			console.log("Main validation result:", isValid);
-
-		if (!isValid) {
-			console.log("Main validation failed");
-			return;
-		}
+			if (!isValid) {
+				return;
+			}
 
 	// Save advances and sales_order BEFORE processing (from this.invoice_doc)
 	const savedAdvances = this.invoice_doc && this.invoice_doc.advances ? [...this.invoice_doc.advances] : [];
@@ -1960,22 +1926,18 @@ export default {
 			!this.new_delivery_date &&
 			!(this.invoice_doc && this.invoice_doc.posa_delivery_date)
 		) {
-			console.log("Building local Sales Order doc for payment");
 			invoice_doc = this.get_invoice_doc();
 		} else if (
 			this.invoice_doc &&
 			this.invoice_doc.doctype === "Sales Order" &&
 			this.invoiceType === "Invoice"
 		) {
-			console.log("Processing Sales Order payment");
 			invoice_doc = await this.process_invoice_from_order();
 		} else {
-			console.log("Processing regular invoice");
 			invoice_doc = await this.process_invoice();
 		}
 
 		if (!invoice_doc) {
-			console.log("Failed to process invoice");
 			return;
 		}
 
@@ -2051,14 +2013,6 @@ export default {
 
 			// Check if this is a return invoice
 			if (this.isReturnInvoice || invoice_doc.is_return) {
-				console.log("Preparing RETURN invoice for payment with:", {
-					is_return: invoice_doc.is_return,
-					invoiceType: this.invoiceType,
-					return_against: invoice_doc.return_against,
-					items: invoice_doc.items.length,
-					grand_total: invoice_doc.grand_total,
-				});
-
 				// For return invoices, explicitly ensure all amounts are negative
 				invoice_doc.is_return = 1;
 				if (invoice_doc.grand_total > 0) invoice_doc.grand_total = -Math.abs(invoice_doc.grand_total);
@@ -2134,19 +2088,13 @@ export default {
 
 	// Validate invoice before payment/submit (return logic, quantity, rates, etc)
 	async validate() {
-		console.log("Starting return validation");
 
 		// For all returns, check if amounts are negative
 		if (this.isReturnInvoice) {
-			console.log("Validating return invoice values");
 
 			// Check if quantities are negative
 			const positiveItems = this.items.filter((item) => item.qty >= 0 || item.stock_qty >= 0);
 			if (positiveItems.length > 0) {
-				console.log(
-					"Found positive quantities in return items:",
-					positiveItems.map((i) => i.item_code),
-				);
 				this.eventBus.emit("show_message", {
 					title: __(`Return items must have negative quantities`),
 					color: "error",
@@ -2164,7 +2112,6 @@ export default {
 
 			// Ensure total amount is negative
 			if (this.subtotal > 0) {
-				console.log("Return has positive subtotal:", this.subtotal);
 				this.eventBus.emit("show_message", {
 					title: __(`Return total must be negative`),
 					color: "warning",
@@ -2175,8 +2122,6 @@ export default {
 		// For return with reference to existing invoice
 		const currentInvoice = this.invoice_doc;
 		if (currentInvoice && currentInvoice.is_return && currentInvoice.return_against) {
-			console.log("Return doc:", this.invoice_doc);
-			console.log("Current items:", this.items);
 
 			try {
 				// Get original invoice items for comparison
@@ -2191,7 +2136,6 @@ export default {
 						},
 						callback: (r) => {
 							if (r.message) {
-								console.log("Original invoice data:", r.message);
 								resolve(r.message.items || []);
 							} else {
 								reject(new Error("Original invoice not found"));
@@ -2200,23 +2144,9 @@ export default {
 					});
 				});
 
-				console.log("Original invoice items:", original_items);
-				console.log(
-					"Original item codes:",
-					original_items.map((item) => ({
-						item_code: item.item_code,
-						qty: item.qty,
-						rate: item.rate,
-					})),
-				);
 
 				// Validate each return item
 				for (const item of this.items) {
-					console.log("Validating return item:", {
-						item_code: item.item_code,
-						rate: item.rate,
-						qty: item.qty,
-					});
 
 					// Normalize item codes by trimming and converting to uppercase
 					const normalized_return_item_code = item.item_code.trim().toUpperCase();
@@ -2227,11 +2157,6 @@ export default {
 					);
 
 					if (!original_item) {
-						console.log("Item not found in original invoice:", {
-							return_item_code: normalized_return_item_code,
-							original_items: original_items.map((i) => i.item_code.trim().toUpperCase()),
-						});
-
 						this.eventBus.emit("show_message", {
 							title: __(`Item ${item.item_code} not found in original invoice`),
 							color: "error",
@@ -2241,11 +2166,6 @@ export default {
 
 					// Compare rates with precision
 					const rate_diff = Math.abs(original_item.rate - item.rate);
-					console.log("Rate comparison:", {
-						return_rate: item.rate,
-						orig_rate: original_item.rate,
-						difference: rate_diff,
-					});
 
 					if (rate_diff > 0.01) {
 						this.eventBus.emit("show_message", {
@@ -2258,10 +2178,6 @@ export default {
 					// Compare quantities
 					const return_qty = Math.abs(item.qty);
 					const orig_qty = original_item.qty;
-					console.log("Quantity comparison:", {
-						return_qty: return_qty,
-						orig_qty: orig_qty,
-					});
 
 					if (return_qty > orig_qty) {
 						this.eventBus.emit("show_message", {
@@ -2508,10 +2424,6 @@ export default {
 	},
 
 	async _performItemDetailUpdate(item, force_update = false) {
-		console.log("update_item_detail request", {
-			code: item ? item.item_code : undefined,
-			force_update,
-		});
 		if (!item || !item.item_code) {
 			return;
 		}
@@ -2834,16 +2746,6 @@ export default {
 
 		item.amount = this.flt(item.qty * item.rate, this.currency_precision);
 		item.base_amount = this.flt(item.qty * item.base_rate, this.currency_precision);
-
-		console.log(`Updated rates for ${item.item_code} on expand:`, {
-			base_rate: item.base_rate,
-			rate: item.rate,
-			base_price_list_rate: item.base_price_list_rate,
-			price_list_rate: item.price_list_rate,
-			exchange_rate: this.exchange_rate,
-			selected_currency: this.selected_currency,
-			default_currency: this.pos_profile.currency,
-		});
 	},
 	// Fetch customer details (info, price list, etc)
 	async fetch_customer_details() {
