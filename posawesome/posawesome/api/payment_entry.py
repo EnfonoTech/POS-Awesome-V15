@@ -327,19 +327,72 @@ def process_pos_payment(payload):
     today = nowdate()
 
     # prepare invoice list once so allocations can update remaining amounts
+    # Also validate that all invoices belong to the same customer
     remaining_invoices = []
+    invoice_customers = set()
     for invoice in data.selected_invoices:
         invoice_name = invoice.get("voucher_no") or invoice.get("name")
         if not invoice_name:
             continue
+        
+        # Try to get invoice document - check both POS Invoice and Sales Invoice
+        inv_doc = None
+        invoice_customer = None
         outstanding = flt(invoice.get("outstanding_amount"))
-        if outstanding <= 0:
+        found_doctype = None
+        
+        # Try both doctypes to find the invoice
+        # Try Sales Invoice first as it's more common, then POS Invoice
+        for doctype_name in ["Sales Invoice", "POS Invoice"]:
             try:
-                si = frappe.get_doc("Sales Invoice", invoice_name)
-                outstanding = flt(si.outstanding_amount)
-            except Exception:
-                outstanding = 0
-        remaining_invoices.append({"name": invoice_name, "outstanding_amount": outstanding})
+                inv_doc = frappe.get_doc(doctype_name, invoice_name)
+                invoice_customer = inv_doc.customer
+                found_doctype = doctype_name
+                
+                # Validate invoice belongs to the specified customer
+                if invoice_customer != customer:
+                    frappe.throw(
+                        _("{0} {1} is not associated with Customer {2}").format(
+                            doctype_name,
+                            invoice_name,
+                            customer
+                        )
+                    )
+                
+                invoice_customers.add(invoice_customer)
+                if outstanding <= 0:
+                    outstanding = flt(inv_doc.outstanding_amount)
+                break  # Found the invoice, exit loop
+            except frappe.DoesNotExistError:
+                # Invoice not found in this doctype, try next one
+                continue
+            except Exception as e:
+                # If it's a customer validation error, re-raise it
+                if "not associated with Customer" in str(e):
+                    raise
+                # For other errors, try next doctype
+                continue
+        
+        # If invoice not found in either doctype, throw error
+        if not inv_doc:
+            frappe.throw(
+                _("Invoice {0} not found in POS Invoice or Sales Invoice").format(invoice_name)
+            )
+        
+        # Store the doctype with the invoice so we can use it when creating payment entries
+        remaining_invoices.append({
+            "name": invoice_name, 
+            "outstanding_amount": outstanding,
+            "doctype": found_doctype
+        })
+    
+    # Ensure all invoices belong to the same customer
+    if len(invoice_customers) > 1:
+        frappe.throw(
+            _("All selected invoices must belong to the same customer. Found customers: {0}").format(
+                ", ".join(invoice_customers)
+            )
+        )
 
     new_payments_entry = []
     all_payments_entry = []
@@ -484,7 +537,7 @@ def process_pos_payment(payload):
                     payment_entry.append(
                         "references",
                         {
-                            "reference_doctype": "Sales Invoice",
+                            "reference_doctype": inv.get("doctype", "Sales Invoice"),
                             "reference_name": inv["name"],
                             "total_amount": inv["outstanding_amount"],
                             "outstanding_amount": inv["outstanding_amount"],

@@ -1190,12 +1190,39 @@ export default {
 				this.selected_invoices = this.selected_invoices.filter(
 					(i) => i.voucher_no !== item.voucher_no,
 				);
+				
+				// If no invoices selected, check if we should clear customer
+				if (this.selected_invoices.length === 0 && (this.sales_person_search || this.invoice_number_search)) {
+					// Don't clear customer if it was manually set
+					// Only clear if it was auto-set from invoice selection
+				}
 			} else {
+				// Validate: All selected invoices must belong to the same customer
+				if (this.selected_invoices.length > 0 && item.customer) {
+					const firstInvoiceCustomer = this.selected_invoices[0].customer;
+					if (firstInvoiceCustomer && firstInvoiceCustomer !== item.customer) {
+						frappe.msgprint(
+							__("Cannot select invoices from different customers. Selected invoice belongs to {0}, but other invoices belong to {1}", [
+								item.customer_name || item.customer,
+								this.selected_invoices[0].customer_name || firstInvoiceCustomer,
+							])
+						);
+						return;
+					}
+				}
+				
 				// Add this invoice to selection - support multiple selection
 				this.selected_invoices.push(item);
 
-				if (item.customer && !this.customer_name) {
-					useCustomersStore().setSelectedCustomer(item.customer);
+				// Auto-set customer from invoice if not already set or if searching by sales person/invoice number
+				if (item.customer) {
+					if (!this.customer_name || this.sales_person_search || this.invoice_number_search) {
+						// Set customer from invoice
+						this.customer_name = item.customer;
+						useCustomersStore().setSelectedCustomer(item.customer);
+						// Fetch customer details
+						this.fetch_customer_details();
+					}
 				}
 			}
 
