@@ -871,15 +871,19 @@ export default {
 	},
 	computed: {
 		// Check if customer is from Online Delivery group
+		// Prioritize current customer info over stale invoice_doc data
 		isOnlineDeliveryCustomer() {
 			if (!this.invoice_doc) return false;
-			const customerGroup = this.invoice_doc.customer_group || this.customerInfoFromStore?.customer_group || this.customer_info?.customer_group;
+			// Prioritize current customer info store/data over invoice_doc which might be stale
+			const customerGroup = this.customerInfoFromStore?.customer_group || this.customer_info?.customer_group || this.invoice_doc.customer_group;
 			return customerGroup === "Online Delivery";
 		},
 		// Check if customer is from Home Customer group
+		// Prioritize current customer info over stale invoice_doc data
 		isHomeCustomer() {
 			if (!this.invoice_doc) return false;
-			const customerGroup = this.invoice_doc.customer_group || this.customerInfoFromStore?.customer_group || this.customer_info?.customer_group;
+			// Prioritize current customer info store/data over invoice_doc which might be stale
+			const customerGroup = this.customerInfoFromStore?.customer_group || this.customer_info?.customer_group || this.invoice_doc.customer_group;
 			return customerGroup === "Home Customer";
 		},
 		// Check if customer is Walk-in Customer
@@ -1403,8 +1407,9 @@ export default {
 				return;
 			}
 			
-			const customerGroup = this.invoice_doc.customer_group || this.customerInfoFromStore?.customer_group || this.customer_info?.customer_group;
-			const customer = this.invoice_doc.customer || this.customerInfoFromStore?.name || this.customer_info?.name;
+			// Prioritize current customer info over stale invoice_doc data
+			const customerGroup = this.customerInfoFromStore?.customer_group || this.customer_info?.customer_group || this.invoice_doc.customer_group;
+			const customer = this.customerInfoFromStore?.name || this.customer_info?.name || this.invoice_doc.customer;
 			
 			// Simple logic: Walk-in Customer = OFF, Home Customer or Online Delivery = ON
 			if (customer === "Walk-in Customer") {
