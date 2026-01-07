@@ -436,6 +436,7 @@ import { useInvoiceStore } from "../../stores/invoiceStore.js";
 import { useCustomersStore } from "../../stores/customersStore.js";
 import { storeToRefs } from "pinia";
 import stockCoordinator from "../../utils/stockCoordinator.js";
+import { getOpeningStorage } from "../../../offline/index.js";
 
 export default {
 	name: "POSInvoice",
@@ -1906,15 +1907,38 @@ export default {
                                 item.idx = index + 1;
                         });
                 },
+                ensurePosProfileInitialized() {
+                        // Check if POS profile exists in storage but hasn't been registered yet
+                        // This is a fallback to ensure initialization happens on every refresh
+                        try {
+                                const cachedData = getOpeningStorage();
+                                if (cachedData && cachedData.pos_profile) {
+                                        // Check if pos_profile is not set or doesn't match cached one
+                                        if (!this.pos_profile || !this.pos_profile.name || 
+                                            this.pos_profile.name !== cachedData.pos_profile.name) {
+                                                // Manually trigger registration with cached data
+                                                console.info("Invoice: Triggering POS profile registration from cache");
+                                                this.handleRegisterPosProfile(cachedData);
+                                        }
+                                }
+                        } catch (error) {
+                                console.warn("Invoice: Failed to check cached POS profile", error);
+                        }
+                },
                 handleRegisterPosProfile(data) {
                         this.pos_profile = data.pos_profile;
                         this.company = data.company || null;
                         // Always reset customer to POS profile customer when registering POS profile
                         // This ensures POS uses its own customer, separate from payments
-                        if (data.pos_profile.customer) {
-                                this.customer = data.pos_profile.customer;
-                                this.customersStore.setSelectedCustomer(data.pos_profile.customer);
-                        }
+                        this.$nextTick(() => {
+                                if (this.setCustomerFromPosProfile) {
+                                        this.setCustomerFromPosProfile();
+                                } else if (data.pos_profile.customer) {
+                                        // Fallback if method not yet initialized
+                                        this.customer = data.pos_profile.customer;
+                                        this.customersStore.setSelectedCustomer(data.pos_profile.customer);
+                                }
+                        });
                         this.pos_opening_shift = data.pos_opening_shift;
                         this.stock_settings = data.stock_settings;
                         const prec = parseInt(data.pos_profile.posa_decimal_precision);
@@ -2434,6 +2458,14 @@ export default {
                         "scan-error": this.handleScanErrorFromItemsSelector,
                         "scan-success": this.handleScanSuccess,
                         "scan-error-acknowledged": this.handleScanErrorAcknowledged, // VERSION 2.0.3 - Unlock scanner when ItemsSelector acknowledges error
+                        "data-loaded": (dataType) => {
+                                // When data (items/customers) is loaded, ensure customer is set from POS profile
+                                if (dataType === "items" || dataType === "customers") {
+                                        this.$nextTick(() => {
+                                                this.setCustomerFromPosProfile();
+                                        });
+                                }
+                        },
                 };
 
                 Object.entries(this._busHandlers).forEach(([eventName, handler]) => {
@@ -2442,14 +2474,42 @@ export default {
 
                 this.stockUnsubscribe = stockCoordinator.subscribe(this.handleStockCoordinatorUpdate);
 
-                if (this.pos_profile.posa_allow_multi_currency) {
+                // Fallback: Check if POS profile exists in storage but hasn't been registered yet
+                // This ensures initialization happens even if register_pos_profile event was missed
+                this.ensurePosProfileInitialized();
+
+                // Auto-select customer from POS profile after refresh
+                this.setCustomerFromPosProfile();
+
+                if (this.pos_profile && this.pos_profile.posa_allow_multi_currency) {
                         this.fetch_available_currencies();
                 }
 
                 this.emitCartQuantities();
                 this.$nextTick(() => {
                         this.primeInvoiceStockState();
+                        // Double-check customer selection after nextTick
+                        this.setCustomerFromPosProfile();
                 });
+                
+                // Set up multiple delayed checks to handle async loading scenarios
+                // Check after Customer component should be mounted
+                setTimeout(() => {
+                        this.ensurePosProfileInitialized();
+                        this.setCustomerFromPosProfile();
+                }, 300);
+                
+                // Check after items/customers might be loaded
+                setTimeout(() => {
+                        this.ensurePosProfileInitialized();
+                        this.setCustomerFromPosProfile();
+                }, 1000);
+                
+                // Final check after everything should be ready
+                setTimeout(() => {
+                        this.ensurePosProfileInitialized();
+                        this.setCustomerFromPosProfile();
+                }, 2000);
         },
         // Cleanup event listeners before component is destroyed
         beforeUnmount() {
@@ -2485,6 +2545,50 @@ export default {
 	// Register global keyboard shortcuts when component is created
 	created() {
 		this.invoiceStore.clear();
+		// Method to set customer from POS profile with retry mechanism
+		this.setCustomerFromPosProfile = (retryCount = 0) => {
+			if (this.pos_profile && this.pos_profile.customer) {
+				const profileCustomer = this.pos_profile.customer;
+				// Set customer in both store and local state
+				this.customer = profileCustomer;
+				this.customersStore.setSelectedCustomer(profileCustomer);
+				// Also emit event so Customer component knows about it
+				this.eventBus.emit("set_customer", profileCustomer);
+				
+				// Verify customer was set, retry if needed (max 5 retries)
+				this.$nextTick(() => {
+					if (this.customer !== profileCustomer && retryCount < 5) {
+						setTimeout(() => {
+							this.setCustomerFromPosProfile(retryCount + 1);
+						}, 200 * (retryCount + 1)); // Exponential backoff
+					}
+				});
+			}
+		};
+		// Watch for pos_profile object changes to auto-select customer
+		this.$watch(
+			() => this.pos_profile,
+			(newProfile) => {
+				if (newProfile && newProfile.customer) {
+					this.$nextTick(() => {
+						this.setCustomerFromPosProfile();
+					});
+				}
+			},
+			{ immediate: true, deep: true },
+		);
+		// Also watch pos_profile.customer specifically for when it changes
+		this.$watch(
+			() => this.pos_profile?.customer,
+			(profileCustomer) => {
+				if (profileCustomer) {
+					this.$nextTick(() => {
+						this.setCustomerFromPosProfile();
+					});
+				}
+			},
+			{ immediate: true },
+		);
 		this.$watch(
 			() => this.selectedCustomer,
 			(newCustomer) => {

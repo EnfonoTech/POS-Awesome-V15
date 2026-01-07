@@ -163,6 +163,11 @@ export default {
 		},
 		setActiveGiftCoupons() {
 			if (!this.customer) return;
+			if (!this.pos_profile || !this.pos_profile.company) {
+				// POS profile not initialized yet, skip for now
+				// Will be called again when customer changes after profile is loaded
+				return;
+			}
 			const vm = this;
 			frappe.call({
 				method: "posawesome.posawesome.api.offers.get_active_gift_coupons",
@@ -242,6 +247,12 @@ export default {
 		this.$nextTick(function () {
 			this.eventBus.on("register_pos_profile", (data) => {
 				this.pos_profile = data.pos_profile;
+				// Retry loading gift coupons if customer is already selected
+				if (this.customer) {
+					this.$nextTick(() => {
+						this.setActiveGiftCoupons();
+					});
+				}
 			});
 		});
 		this.eventBus.on("update_pos_coupons", (data) => {
