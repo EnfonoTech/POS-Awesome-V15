@@ -2816,15 +2816,25 @@ export default {
 
 /* Quick Customer Buttons */
 .quick-customer-btn {
-	min-width: 120px !important;
+	min-width: 80px !important;
 	white-space: nowrap;
 	font-size: 0.75rem;
-	padding: 8px 16px !important;
+	padding: 8px 12px !important;
 	min-height: 36px !important;
 	display: flex !important;
 	align-items: center !important;
 	justify-content: center !important;
 	text-align: center !important;
+	flex-shrink: 0;
+}
+
+/* Responsive adjustments for small screens */
+@media (max-width: 600px) {
+	.quick-customer-btn {
+		min-width: 60px !important;
+		padding: 6px 8px !important;
+		font-size: 0.65rem;
+	}
 }
 
 .quick-customers-container {
@@ -2833,7 +2843,7 @@ export default {
 }
 
 .quick-customer-btn-image {
-	padding: 4px 6px !important;
+	padding: 0 !important;
 	min-width: auto !important;
 	width: auto !important;
 	height: 40px !important;
@@ -2842,6 +2852,14 @@ export default {
 	aspect-ratio: auto;
 	background: transparent !important;
 	background-color: transparent !important;
+}
+
+/* Responsive adjustments for small screens */
+@media (max-width: 600px) {
+	.quick-customer-btn-image {
+		min-width: 40px !important;
+		max-width: 100px !important;
+	}
 }
 
 .quick-customer-btn-image::before {

@@ -1,8 +1,8 @@
 <template>
 	<!-- ? Disable dropdown if either readonly or loadingCustomers is true -->
 	<div class="customer-input-wrapper">
-		<div class="d-flex align-center gap-2">
-			<div class="flex-grow-1">
+		<div class="d-flex align-center gap-2 customer-row">
+			<div class="flex-grow-1 customer-input-container">
 		<Skeleton v-if="loadingCustomers" height="48" class="w-100" />
 		<v-autocomplete
 			v-else
@@ -110,8 +110,7 @@
 .customer-input-wrapper {
 	width: 100%;
 	max-width: 100%;
-	padding-right: 1.5rem;
-	/* Elegant space at the right edge */
+	padding-right: 0.1rem;
 	box-sizing: border-box;
 	display: flex;
 	flex-direction: column;
@@ -120,11 +119,33 @@
 
 .customer-autocomplete {
 	width: 100%;
+	min-width: 200px;
 	box-sizing: border-box;
 	border-radius: 12px;
 	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
 	transition: box-shadow 0.3s ease;
 	background-color: var(--pos-input-bg);
+}
+
+.customer-row {
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.customer-input-container {
+	min-width: 0; /* Allow flexbox to shrink */
+	flex: 1 1 auto;
+}
+
+/* Responsive adjustments for small screens */
+@media (max-width: 600px) {
+	.customer-autocomplete {
+		min-width: 150px;
+	}
+	
+	.customer-row {
+		gap: 0.25rem;
+	}
 }
 
 .customer-autocomplete:hover {
@@ -155,10 +176,24 @@
 }
 
 .home-customer-btn {
-	min-width: 140px;
+	min-width: 80px;
 	font-weight: 500;
 	min-height: 36px !important;
-	padding: 8px 16px !important;
+	padding: 8px 6px !important;
+	flex-shrink: 0;
+}
+
+/* Responsive adjustments for small screens */
+@media (max-width: 600px) {
+	.home-customer-btn {
+		min-width: 80px;
+		padding: 6px 8px !important;
+		font-size: 0.75rem;
+	}
+	
+	.home-customer-btn :deep(.v-icon) {
+		font-size: 16px !important;
+	}
 }
 
 .new-customer-button {
