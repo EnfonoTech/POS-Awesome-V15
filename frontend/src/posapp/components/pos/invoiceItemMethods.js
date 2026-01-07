@@ -674,8 +674,8 @@ export default {
 			// Clear customer preservation flags only if they exist
 			// This allows manually selected customers (via quick customer) to be preserved
 			if (this._customerFromSalesOrder || this._savedInvoiceCustomer) {
-				this._customerFromSalesOrder = null;
-				this._savedInvoiceCustomer = null;
+			this._customerFromSalesOrder = null;
+			this._savedInvoiceCustomer = null;
 			}
 			this.invoice_doc = "";
 			this.discount_amount = 0;
@@ -1260,8 +1260,8 @@ export default {
 
 				// Calculate amounts - ensure rate is not 0
 				if (new_item.rate > 0) {
-					new_item.amount = flt(item.qty) * new_item.rate; // Amount in USD
-					new_item.base_amount = new_item.amount / this.exchange_rate; // Convert to base currency
+				new_item.amount = flt(item.qty) * new_item.rate; // Amount in USD
+				new_item.base_amount = new_item.amount / this.exchange_rate; // Convert to base currency
 				} else {
 					// If rate is still 0, try to calculate from base_rate
 					new_item.amount = flt(item.qty) * (new_item.base_rate * this.exchange_rate);
@@ -1281,8 +1281,8 @@ export default {
 				
 				// Calculate amounts - ensure rate is not 0
 				if (new_item.rate > 0) {
-					new_item.amount = flt(item.qty) * new_item.rate;
-					new_item.base_amount = new_item.amount;
+				new_item.amount = flt(item.qty) * new_item.rate;
+				new_item.base_amount = new_item.amount;
 				} else {
 					// If rate is still 0, try to use base_rate
 					new_item.amount = flt(item.qty) * new_item.base_rate;
@@ -1911,9 +1911,9 @@ export default {
 			}
 
 			const isValid = this.validate();
-			if (!isValid) {
-				return;
-			}
+		if (!isValid) {
+			return;
+		}
 
 	// Save advances and sales_order BEFORE processing (from this.invoice_doc)
 	const savedAdvances = this.invoice_doc && this.invoice_doc.advances ? [...this.invoice_doc.advances] : [];
@@ -2367,7 +2367,7 @@ export default {
 							} else if (!item.price_list_rate && (force || price)) {
 								// Only set if we have a valid price
 								if (hasValidNewPrice) {
-									item.price_list_rate = price;
+								item.price_list_rate = price;
 									// Ensure base rate fields are also set
 									if (!item.base_price_list_rate) {
 										item.base_price_list_rate = basePrice;

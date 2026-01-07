@@ -128,6 +128,12 @@ def get_customer_info(customer):
     res["posa_discount"] = customer.posa_discount
     res["name"] = customer.name
     res["customer_name"] = customer.customer_name
+    
+    # Get sales person from sales team (first one if multiple)
+    if customer.sales_team and len(customer.sales_team) > 0:
+        res["sales_person"] = customer.sales_team[0].sales_person
+    else:
+        res["sales_person"] = None
     res["customer_group_price_list"] = frappe.get_value(
         "Customer Group", customer.customer_group, "default_price_list"
     )

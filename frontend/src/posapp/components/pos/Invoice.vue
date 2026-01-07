@@ -1840,26 +1840,26 @@ export default {
 				} else if (oldQty < 0) {
 					// Negative quantity: increment it toward zero (-3 -> -2, -2 -> -1)
 					newQty = oldQty + 1;
-				} else {
+			} else {
 					// oldQty is 0, remove the item
 					this.remove_item(item);
 					return;
-				}
+                        }
 				
 				// Final safety check: only remove if new quantity becomes 0 or positive
 				// This should only happen if oldQty was exactly -1, which becomes 0
 				if (newQty >= 0) {
-					this.remove_item(item);
+                                this.remove_item(item);
 					return;
-				}
+                        }
 				
 				// Update the quantity - it should always be negative at this point
 				item.qty = newQty;
 				
 				// Update related fields
-				this.calc_stock_qty(item, item.qty);
-				this.updateBundleChildrenQty(item);
-				this.$forceUpdate();
+                        this.calc_stock_qty(item, item.qty);
+                        this.updateBundleChildrenQty(item);
+                        this.$forceUpdate();
 			} else {
 				// For regular invoices, decrement quantity
 				const oldQty = item.qty || 0;

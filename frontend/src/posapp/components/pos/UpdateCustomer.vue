@@ -128,13 +128,12 @@
 									density="compact"
 									auto-select-first
 									color="primary"
-									:label="frappe._('Customer Group') + ' *'"
+									:label="frappe._('Customer Group')"
 									v-model="group"
 									:items="groups"
 									class="pos-themed-input"
 									:no-data-text="__('Group not found')"
 									hide-details
-									required
 								>
 								</v-autocomplete>
 							</v-col>
@@ -144,13 +143,12 @@
 									density="compact"
 									auto-select-first
 									color="primary"
-									:label="frappe._('Territory') + ' *'"
+									:label="frappe._('Territory')"
 									v-model="territory"
 									:items="territorys"
 									class="pos-themed-input"
 									:no-data-text="__('Territory not found')"
 									hide-details
-									required
 								>
 								</v-autocomplete>
 							</v-col>
@@ -530,26 +528,12 @@ export default {
 				return;
 			}
 
-			// Only validate group and territory if hideNonEssential is false
-			// When hidden, use defaults if not set
-			if (!this.hideNonEssential) {
+			// Use defaults if not set (for both hideNonEssential true and false)
 			if (!this.group) {
-				frappe.throw(__("Customer group is required"));
-				return;
+				this.group = frappe.defaults.get_user_default("Customer Group");
 			}
-
 			if (!this.territory) {
-				frappe.throw(__("Customer territory is required"));
-				return;
-				}
-			} else {
-				// When hideNonEssential is true, use defaults if not set
-				if (!this.group) {
-					this.group = frappe.defaults.get_user_default("Customer Group");
-				}
-				if (!this.territory) {
-					this.territory = frappe.defaults.get_user_default("Territory");
-				}
+				this.territory = frappe.defaults.get_user_default("Territory");
 			}
 
 			// Format birthday to YYYY-MM-DD if it exists and is in another format

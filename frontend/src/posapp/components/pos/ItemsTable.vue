@@ -1331,13 +1331,13 @@ export default {
 				// For example: -1 should be removed, but -2, -3, etc. should be reduced
 				if (absQty === 1) {
 					// Can't reduce further (would become 0), remove the item
-					this.removeItem(item);
+				this.removeItem(item);
 				} else if (absQty > 1) {
 					// Reduce quantity: subtractOne will handle the reduction correctly
 					// For -3, it should become -2; for 3, it should become -2
 					// DO NOT remove here - let subtractOne handle it
 					this.subtractOne(item);
-				} else {
+			} else {
 					// absQty is 0 or invalid, remove the item
 					this.removeItem(item);
 				}
@@ -1346,7 +1346,7 @@ export default {
 				if (currentQty <= 1) {
 					this.removeItem(item);
 				} else {
-					this.subtractOne(item);
+				this.subtractOne(item);
 				}
 			}
 		},

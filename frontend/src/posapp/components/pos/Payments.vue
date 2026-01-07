@@ -490,7 +490,7 @@
 				</v-row>
 
 				<!-- Customer Purchase Order (if enabled in POS profile) -->
-				<div v-if="pos_profile.posa_allow_customer_purchase_order && invoice_doc">
+				<div v-if="pos_profile.posa_allow_customer_purchase_order && invoice_doc && !isHomeCustomer">
 					<v-divider></v-divider>
 					<v-row class="pa-1" justify="center" align="start">
 						<v-col cols="6">
@@ -683,7 +683,7 @@
 							clearable
 							variant="solo"
 							color="primary"
-							:label="frappe._('Sales Person')"
+							:label="frappe._('Sales Person') + (isHomeCustomer ? ' *' : '')"
 							v-model="sales_person"
 							:items="sales_persons"
 							item-title="title"
@@ -692,6 +692,7 @@
 							:no-data-text="__('Sales Person not found')"
 							hide-details
 							:disabled="readonly"
+							:required="isHomeCustomer"
 						></v-select>
 					</v-col>
 				</v-row>
@@ -1432,6 +1433,16 @@ export default {
 		},
 		// Submit payment after validation
 		async submit(event, payment_received = false, print = false) {
+			// Validate sales person is required only for Home Customer
+			if (this.isHomeCustomer && !this.sales_person) {
+				this.eventBus.emit("show_message", {
+					title: __("Sales Person is required for Home Customer"),
+					color: "error",
+				});
+				frappe.utils.play_sound("error");
+				return;
+			}
+			
 			// Validate Online Delivery and Home Customer groups must be unpaid (credit sale only)
 			if (this.isOnlineDeliveryCustomer || this.isHomeCustomer) {
 				if (!this.is_credit_sale) {

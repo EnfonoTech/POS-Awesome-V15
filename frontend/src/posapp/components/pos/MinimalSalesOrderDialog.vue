@@ -156,20 +156,20 @@
 										</v-menu>
 									</v-col>
 									<v-col cols="12" md="7" class="d-flex justify-end">
-										<v-card variant="outlined" style="min-width: 280px;">
-											<v-card-text class="py-2 px-3">
-												<v-row dense align="center" no-gutters>
-													<v-col cols="6" class="text-right font-weight-medium">
-														{{ __("Total Amount") }}:
-													</v-col>
-													<v-col cols="6" class="text-right">
-														<span class="text-h6 font-weight-bold primary--text">
-															{{ currencySymbolValue }}{{ formatPrice(totalAmount) }}
-														</span>
-													</v-col>
-												</v-row>
-											</v-card-text>
-										</v-card>
+									<v-card variant="outlined" style="min-width: 280px;">
+										<v-card-text class="py-2 px-3">
+											<v-row dense align="center" no-gutters>
+												<v-col cols="6" class="text-right font-weight-medium">
+													{{ __("Total Amount") }}:
+												</v-col>
+												<v-col cols="6" class="text-right">
+													<span class="text-h6 font-weight-bold primary--text">
+														{{ currencySymbolValue }}{{ formatPrice(totalAmount) }}
+													</span>
+												</v-col>
+											</v-row>
+										</v-card-text>
+									</v-card>
 									</v-col>
 								</v-row>
 							</v-col>
