@@ -1842,10 +1842,17 @@ export default {
 		// Set full amount for a payment method (or negative for returns)
 		set_full_amount(idx) {
 			const isReturn = this.invoice_doc.is_return || this.invoiceType === "Return";
-			let totalAmount = this.invoice_doc.rounded_total || this.invoice_doc.grand_total;
+			// For sales order invoices, use balance amount after advance; otherwise use full amount
+			let totalAmount;
+			if (this.has_sales_order && this.balance_after_advance > 0) {
+				totalAmount = this.balance_after_advance;
+			} else {
+				totalAmount = this.invoice_doc.rounded_total || this.invoice_doc.grand_total;
+			}
 
 			console.log("Setting full amount for payment method idx:", idx);
 			console.log("Current payments:", JSON.stringify(this.invoice_doc.payments));
+			console.log("Has sales order:", this.has_sales_order, "Balance after advance:", this.balance_after_advance);
 
 			// Reset all payment amounts first
 			this.invoice_doc.payments.forEach((payment) => {
