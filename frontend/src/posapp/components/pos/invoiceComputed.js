@@ -58,20 +58,27 @@ export default {
 
 		if (!(typeof storeValue === "number" && !Number.isNaN(storeValue))) {
 			this.items.forEach((item) => {
-				// For returns, use absolute value for correct calculation
-				const qty = this.isReturnInvoice ? Math.abs(flt(item.qty)) : flt(item.qty);
+				// For returns, preserve the negative sign (don't use Math.abs)
+				// Quantities are already negative for returns (e.g., -1.00), so the calculation will result in negative total
+				const qty = flt(item.qty);
 				const rate = flt(item.rate);
 				sum += qty * rate;
 			});
-		} else if (this.isReturnInvoice) {
-			sum = Math.abs(sum);
+		}
+		// For return invoices, ensure the total is negative (don't convert to positive with Math.abs)
+		// If storeValue is positive but it's a return, we need to make it negative
+		if (this.isReturnInvoice) {
+			// Ensure the sum is negative for return invoices
+			if (sum > 0) {
+				sum = -sum;
+			}
 		}
 
-		// Subtract additional discount
+		// Subtract additional discount (for returns, this should increase the negative amount)
 		const additional_discount = this.flt(this.additional_discount);
 		sum -= additional_discount;
 
-		// Add delivery charges
+		// Add delivery charges (for returns, this should reduce the negative amount)
 		const delivery_charges = this.flt(this.delivery_charges_rate);
 		sum += delivery_charges;
 
