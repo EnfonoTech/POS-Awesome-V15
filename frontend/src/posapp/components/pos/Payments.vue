@@ -120,7 +120,7 @@
 
 				<!-- Payment Inputs (All Payment Methods) -->
 				<div v-if="is_cashback && invoice_doc && Array.isArray(invoice_doc.payments)">
-					<v-row class="payments pa-1" v-for="payment in invoice_doc.payments" :key="payment.name">
+					<v-row class="payments pa-1" v-for="(payment, index) in invoice_doc.payments" :key="payment.name">
 						<v-col cols="6" v-if="!is_mpesa_c2b_payment(payment)">
 							<v-text-field
 								density="compact"
@@ -150,7 +150,7 @@
 						<v-col cols="6" v-if="!is_mpesa_c2b_payment(payment)">
 							<v-btn 
 								block 
-								color="primary" 
+								:color="getPaymentModeColor(index)" 
 								theme="dark" 
 								class="mode-payment-btn" 
 								@click="set_full_amount(payment.idx)"
@@ -1822,6 +1822,23 @@ export default {
 				},
 			});
 		},
+		// Get payment mode color based on index (max 5 colors, then default)
+		getPaymentModeColor(index) {
+			// index is already 0-based from v-for
+			const idx = index || 0;
+			
+			// Define colors for first 5 payment modes
+			const colors = [
+				'success',    // 1st mode (index 0) - Green
+				'warning',    // 2nd mode (index 1) - Orange/Amber
+				'info',       // 3rd mode (index 2) - Cyan
+				'purple',     // 4th mode (index 3) - Purple
+				'primary',    // 5th mode (index 4) - Blue
+			];
+			
+			// Return color for index (0-4), or default to primary for 5+
+			return idx < colors.length ? colors[idx] : 'primary';
+		},
 		// Set full amount for a payment method (or negative for returns)
 		set_full_amount(idx) {
 			const isReturn = this.invoice_doc.is_return || this.invoiceType === "Return";
@@ -2665,13 +2682,7 @@ export default {
 	opacity: 0 !important;
 }
 
-.mode-payment-btn:hover,
-.mode-payment-btn:focus,
-.mode-payment-btn:focus-visible,
-.mode-payment-btn:active {
-	background-color: rgba(var(--v-theme-primary), 0.85) !important;
-}
-
+/* Primary color (1st mode) - keep blue behavior */
 .mode-payment-btn.color-primary:hover,
 .mode-payment-btn.color-primary:focus,
 .mode-payment-btn.color-primary:focus-visible,
@@ -2679,10 +2690,65 @@ export default {
 	background-color: rgba(var(--v-theme-primary), 0.85) !important;
 }
 
+.mode-payment-btn.color-primary:hover::before,
+.mode-payment-btn.color-primary:focus::before,
+.mode-payment-btn.color-primary:active::before {
+	opacity: 0 !important;
+}
+
+/* Success color (2nd mode) */
 .mode-payment-btn.color-success:hover,
 .mode-payment-btn.color-success:focus,
 .mode-payment-btn.color-success:focus-visible,
 .mode-payment-btn.color-success:active {
 	background-color: rgba(var(--v-theme-success), 0.85) !important;
+}
+
+.mode-payment-btn.color-success:hover::before,
+.mode-payment-btn.color-success:focus::before,
+.mode-payment-btn.color-success:active::before {
+	opacity: 0 !important;
+}
+
+/* Warning color (3rd mode) */
+.mode-payment-btn.color-warning:hover,
+.mode-payment-btn.color-warning:focus,
+.mode-payment-btn.color-warning:focus-visible,
+.mode-payment-btn.color-warning:active {
+	background-color: rgba(var(--v-theme-warning), 0.85) !important;
+}
+
+.mode-payment-btn.color-warning:hover::before,
+.mode-payment-btn.color-warning:focus::before,
+.mode-payment-btn.color-warning:active::before {
+	opacity: 0 !important;
+}
+
+/* Info color (4th mode) */
+.mode-payment-btn.color-info:hover,
+.mode-payment-btn.color-info:focus,
+.mode-payment-btn.color-info:focus-visible,
+.mode-payment-btn.color-info:active {
+	background-color: rgba(var(--v-theme-info), 0.85) !important;
+}
+
+.mode-payment-btn.color-info:hover::before,
+.mode-payment-btn.color-info:focus::before,
+.mode-payment-btn.color-info:active::before {
+	opacity: 0 !important;
+}
+
+/* Purple color (5th mode) */
+.mode-payment-btn.color-purple:hover,
+.mode-payment-btn.color-purple:focus,
+.mode-payment-btn.color-purple:focus-visible,
+.mode-payment-btn.color-purple:active {
+	background-color: rgba(var(--v-theme-purple), 0.85) !important;
+}
+
+.mode-payment-btn.color-purple:hover::before,
+.mode-payment-btn.color-purple:focus::before,
+.mode-payment-btn.color-purple:active::before {
+	opacity: 0 !important;
 }
 </style>
