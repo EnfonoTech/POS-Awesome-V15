@@ -1448,32 +1448,6 @@ export default {
 				return;
 			}
 			
-			// Validate Online Delivery and Home Customer groups must be unpaid (credit sale only)
-			if (this.isOnlineDeliveryCustomer || this.isHomeCustomer) {
-				if (!this.is_credit_sale) {
-					const customerGroup = this.isOnlineDeliveryCustomer ? "Online Delivery" : "Home Customer";
-					this.eventBus.emit("show_message", {
-						title: __("{0} customer group must use credit sale", [customerGroup]),
-						color: "error",
-					});
-					frappe.utils.play_sound("error");
-					return;
-				}
-				// Check if any payment has amount > 0
-				const hasPayments = this.invoice_doc.payments.some((payment) => {
-					const amount = this.flt(payment.amount);
-					return amount > 0;
-				});
-				if (hasPayments) {
-					const customerGroup = this.isOnlineDeliveryCustomer ? "Online Delivery" : "Home Customer";
-					this.eventBus.emit("show_message", {
-						title: __("{0} customer group must be unpaid. Please remove all payment amounts.", [customerGroup]),
-						color: "error",
-					});
-					frappe.utils.play_sound("error");
-					return;
-				}
-			}
 			
 			// Validate Walk-in Customer must pay full amount (only if remaining >= 1)
 			if (this.isWalkInCustomer && !this.is_credit_sale && !this.invoice_doc.is_return) {
