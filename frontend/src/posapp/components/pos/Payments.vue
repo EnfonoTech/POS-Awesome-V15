@@ -161,8 +161,9 @@
 									:icon="getPaymentModeIcon(payment.mode_of_payment)" 
 									size="40"
 									class="mr-2 payment-mode-icon"
+									:class="{ 'payment-icon-disabled': is_credit_sale }"
 									color="white"
-									@click="set_full_amount(payment.idx, payment.mode_of_payment)"
+									@click="!is_credit_sale && set_full_amount(payment.idx, payment.mode_of_payment)"
 								></v-icon>
 								{{ payment.mode_of_payment }}
 							</v-btn>
@@ -1381,25 +1382,7 @@ export default {
 			if (!this.invoice_doc.payments || !Array.isArray(this.invoice_doc.payments)) {
 				return;
 			}
-			// Check if any payment amount is set
-			let hasPaymentSet = false;
-			this.invoice_doc.payments.forEach((payment) => {
-				if (Math.abs(payment.amount) > 0) {
-					hasPaymentSet = true;
-				}
-			});
-			// If no payment set, set the default one
-			if (!hasPaymentSet) {
-				const default_payment = this.invoice_doc.payments.find((payment) => payment.default === 1);
-				if (default_payment) {
-					const amount = this.invoice_doc.rounded_total || this.invoice_doc.grand_total;
-					default_payment.amount = -Math.abs(amount);
-					if (default_payment.base_amount !== undefined) {
-						default_payment.base_amount = -Math.abs(amount);
-					}
-				}
-			}
-			// Ensure all set payments are negative
+			// Ensure all set payments are negative (don't set default - user must choose)
 			this.invoice_doc.payments.forEach((payment) => {
 				if (payment.amount > 0) {
 					payment.amount = -Math.abs(payment.amount);
@@ -1476,6 +1459,19 @@ export default {
 			// For return invoices, ensure payment amounts are negative
 			if (this.invoice_doc.is_return) {
 				this.ensureReturnPaymentsAreNegative();
+				// Validate that a payment mode is selected for returns
+				// Skip validation if credit return is enabled
+				if (!this.is_credit_return) {
+					// For returns, payments should be negative, so total_payments should be < 0
+					if (this.total_payments === 0 || Math.abs(this.total_payments) < 0.01) {
+						this.eventBus.emit("show_message", {
+							title: __("Please select a payment mode for return"),
+							color: "error",
+						});
+						frappe.utils.play_sound("error");
+						return;
+					}
+				}
 			}
 			// Validate total payments only if not credit sale and invoice total is not zero
 			if (
@@ -2539,28 +2535,22 @@ export default {
 						payment.amount = 0;
 						payment.base_amount = 0;
 					});
-					// Set default payment to negative amount for returns
-					if (default_payment) {
-						const amount = invoice_doc.rounded_total || invoice_doc.grand_total;
-						default_payment.amount = -Math.abs(amount);
-						if (default_payment.base_amount !== undefined) {
-							default_payment.base_amount = -Math.abs(amount);
-						}
-					}
-				} else if (default_payment) {
-					// For regular invoices, set positive amount
-					// But don't set if customer is Online Delivery or Home Customer (credit sale - must be 0)
-					const customerGroup = invoice_doc.customer_group || this.customerInfoFromStore?.customer_group;
-					const isCreditSaleCustomer = customerGroup === "Online Delivery" || customerGroup === "Home Customer";
-					
-					if (!isCreditSaleCustomer) {
-					// If payment amount is already set (e.g., adjusted for advances), keep it
-					// Otherwise, use full invoice total
-					if (!default_payment.amount || default_payment.amount === 0) {
-					default_payment.amount = this.flt(
-						invoice_doc.rounded_total || invoice_doc.grand_total,
-						this.currency_precision,
-					);
+					// No default payment - user must choose payment mode
+				} else {
+					// For regular invoices, ensure all payments start at 0
+					// User must manually select payment mode
+					if (invoice_doc.payments && Array.isArray(invoice_doc.payments)) {
+						const customerGroup = invoice_doc.customer_group || this.customerInfoFromStore?.customer_group;
+						const isCreditSaleCustomer = customerGroup === "Online Delivery" || customerGroup === "Home Customer";
+						
+						// Only set to 0 if not a credit sale customer (credit sale customers already have 0)
+						if (!isCreditSaleCustomer) {
+							invoice_doc.payments.forEach((payment) => {
+								payment.amount = 0;
+								if (payment.base_amount !== undefined) {
+									payment.base_amount = 0;
+								}
+							});
 						}
 					}
 					this.is_credit_return = false;
@@ -2788,7 +2778,7 @@ export default {
 .mode-payment-btn.color-warning.v-btn--variant-elevated,
 .mode-payment-btn.color-warning.v-btn--variant-flat {
 	color: white !important;
-	background-color: #E67E22 !important; /* Medium-dark orange */
+	background-color: #e27312 !important; /* Medium-dark orange */
 	background: #E67E22 !important; /* Medium-dark orange */
 	--v-theme-warning: #E67E22 !important; /* Override CSS variable */
 }
@@ -2912,8 +2902,23 @@ export default {
 	-webkit-user-select: none;
 }
 
+/* Disable icon when button is disabled */
+.payment-icon-disabled {
+	cursor: not-allowed !important;
+	pointer-events: none !important;
+	opacity: 0.6;
+}
+
 /* Ensure the icon area is fully clickable */
 .mode-payment-btn .payment-mode-icon {
 	pointer-events: auto !important;
+}
+
+/* Disable icon clicks when button is disabled */
+.mode-payment-btn:disabled .payment-mode-icon,
+.mode-payment-btn.v-btn--disabled .payment-mode-icon {
+	cursor: not-allowed !important;
+	pointer-events: none !important;
+	opacity: 0.6;
 }
 </style>
