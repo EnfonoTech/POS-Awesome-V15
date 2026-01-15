@@ -150,12 +150,20 @@
 						<v-col cols="6" v-if="!is_mpesa_c2b_payment(payment)">
 							<v-btn 
 								block 
-								:color="getPaymentModeColor(index)" 
+								:color="index === 1 ? undefined : getPaymentModeColor(index)" 
 								theme="dark" 
 								class="mode-payment-btn" 
-								@click="set_full_amount(payment.idx)"
+								:style="getPaymentModeStyle(index)"
+								@click="set_full_amount(payment.idx, payment.mode_of_payment)"
 								:disabled="is_credit_sale"
 							>
+								<v-icon 
+									:icon="getPaymentModeIcon(payment.mode_of_payment)" 
+									size="40"
+									class="mr-2 payment-mode-icon"
+									color="white"
+									@click="set_full_amount(payment.idx, payment.mode_of_payment)"
+								></v-icon>
 								{{ payment.mode_of_payment }}
 							</v-btn>
 						</v-col>
@@ -1818,8 +1826,41 @@ export default {
 			// Return color for index (0-4), or default to primary for 5+
 			return idx < colors.length ? colors[idx] : 'primary';
 		},
+		// Get payment mode button style (for custom colors like darker orange)
+		getPaymentModeStyle(index) {
+			const idx = index || 0;
+			// 2nd mode (index 1) is warning - use darker orange
+			if (idx === 1) {
+				return {
+					backgroundColor: '#E67E22',
+					background: '#E67E22',
+					color: 'white',
+					'--v-theme-warning': '#E67E22'
+				};
+			}
+			return {};
+		},
+		// Get payment mode icon based on payment mode name
+		getPaymentModeIcon(modeOfPayment) {
+			if (!modeOfPayment) return 'mdi-cash';
+			
+			const modeLower = modeOfPayment.toLowerCase();
+			
+			// Check for cash-related payment modes
+			if (modeLower.includes('cash')) {
+				return 'mdi-cash-multiple';
+			}
+			
+			// Check for card-related payment modes
+			if (modeLower.includes('card') || modeLower.includes('credit') || modeLower.includes('debit')) {
+				return 'mdi-credit-card';
+			}
+			
+			// Default icon for other payment modes
+			return 'mdi-wallet';
+		},
 		// Set full amount for a payment method (or negative for returns)
-		set_full_amount(idx) {
+		set_full_amount(idx, modeOfPayment = null) {
 			const isReturn = this.invoice_doc.is_return || this.invoiceType === "Return";
 			// For sales order invoices, use balance amount after advance; otherwise use full amount
 			let totalAmount;
@@ -1841,8 +1882,11 @@ export default {
 				}
 			});
 
-			// Get the clicked payment method's name from the button text
-			const clickedButton = event?.target?.textContent?.trim();
+			// Get the clicked payment method's name from parameter or button text
+			let clickedButton = modeOfPayment;
+			if (!clickedButton) {
+				clickedButton = event?.target?.textContent?.trim();
+			}
 			console.log("Clicked button text:", clickedButton);
 
 			// Set amount only for clicked payment method
@@ -2660,6 +2704,15 @@ export default {
 	transition: box-shadow 0.3s ease-in-out;
 }
 
+/* Force white text and icons for all payment mode buttons */
+.mode-payment-btn {
+	color: white !important;
+}
+
+.mode-payment-btn .v-icon {
+	color: white !important;
+}
+
 /* Lighten hover, active, and focus effects for mode of payment buttons - remove dark overlay */
 .mode-payment-btn:hover::before,
 .mode-payment-btn:focus::before,
@@ -2669,11 +2722,27 @@ export default {
 }
 
 /* Primary color (1st mode) - keep blue behavior */
+.mode-payment-btn.color-primary {
+	color: white !important;
+}
+
+.mode-payment-btn.color-primary .v-icon {
+	color: white !important;
+}
+
 .mode-payment-btn.color-primary:hover,
 .mode-payment-btn.color-primary:focus,
 .mode-payment-btn.color-primary:focus-visible,
 .mode-payment-btn.color-primary:active {
 	background-color: rgba(var(--v-theme-primary), 0.85) !important;
+	color: white !important;
+}
+
+.mode-payment-btn.color-primary:hover .v-icon,
+.mode-payment-btn.color-primary:focus .v-icon,
+.mode-payment-btn.color-primary:focus-visible .v-icon,
+.mode-payment-btn.color-primary:active .v-icon {
+	color: white !important;
 }
 
 .mode-payment-btn.color-primary:hover::before,
@@ -2683,11 +2752,27 @@ export default {
 }
 
 /* Success color (2nd mode) */
+.mode-payment-btn.color-success {
+	color: white !important;
+}
+
+.mode-payment-btn.color-success .v-icon {
+	color: white !important;
+}
+
 .mode-payment-btn.color-success:hover,
 .mode-payment-btn.color-success:focus,
 .mode-payment-btn.color-success:focus-visible,
 .mode-payment-btn.color-success:active {
 	background-color: rgba(var(--v-theme-success), 0.85) !important;
+	color: white !important;
+}
+
+.mode-payment-btn.color-success:hover .v-icon,
+.mode-payment-btn.color-success:focus .v-icon,
+.mode-payment-btn.color-success:focus-visible .v-icon,
+.mode-payment-btn.color-success:active .v-icon {
+	color: white !important;
 }
 
 .mode-payment-btn.color-success:hover::before,
@@ -2696,12 +2781,60 @@ export default {
 	opacity: 0 !important;
 }
 
-/* Warning color (3rd mode) */
+/* Warning color (2nd mode) - Darker Orange */
+.mode-payment-btn.color-warning,
+.mode-payment-btn.color-warning.v-btn,
+.v-btn.mode-payment-btn.color-warning,
+.mode-payment-btn.color-warning.v-btn--variant-elevated,
+.mode-payment-btn.color-warning.v-btn--variant-flat {
+	color: white !important;
+	background-color: #E67E22 !important; /* Medium-dark orange */
+	background: #E67E22 !important; /* Medium-dark orange */
+	--v-theme-warning: #E67E22 !important; /* Override CSS variable */
+}
+
+.mode-payment-btn.color-warning .v-icon,
+.mode-payment-btn.color-warning .v-btn__content .v-icon {
+	color: white !important;
+}
+
 .mode-payment-btn.color-warning:hover,
 .mode-payment-btn.color-warning:focus,
 .mode-payment-btn.color-warning:focus-visible,
-.mode-payment-btn.color-warning:active {
-	background-color: rgba(var(--v-theme-warning), 0.85) !important;
+.mode-payment-btn.color-warning:active,
+.v-btn.mode-payment-btn.color-warning:hover,
+.v-btn.mode-payment-btn.color-warning:focus,
+.v-btn.mode-payment-btn.color-warning:focus-visible,
+.v-btn.mode-payment-btn.color-warning:active {
+	background-color: #D46A1A !important; /* Slightly darker orange on hover */
+	background: #D46A1A !important; /* Slightly darker orange on hover */
+	color: white !important;
+	--v-theme-warning: #D46A1A !important; /* Override CSS variable on hover */
+}
+
+.mode-payment-btn.color-warning:hover .v-icon,
+.mode-payment-btn.color-warning:focus .v-icon,
+.mode-payment-btn.color-warning:focus-visible .v-icon,
+.mode-payment-btn.color-warning:active .v-icon {
+	color: white !important;
+}
+
+/* Override Vuetify's button overlay and background layers */
+.mode-payment-btn.color-warning::before,
+.mode-payment-btn.color-warning .v-btn__overlay,
+.mode-payment-btn.color-warning .v-btn__underlay {
+	background-color: #E67E22 !important;
+	opacity: 1 !important;
+}
+
+.mode-payment-btn.color-warning:hover::before,
+.mode-payment-btn.color-warning:focus::before,
+.mode-payment-btn.color-warning:active::before,
+.mode-payment-btn.color-warning:hover .v-btn__overlay,
+.mode-payment-btn.color-warning:focus .v-btn__overlay,
+.mode-payment-btn.color-warning:active .v-btn__overlay {
+	background-color: #D46A1A !important;
+	opacity: 1 !important;
 }
 
 .mode-payment-btn.color-warning:hover::before,
@@ -2711,11 +2844,27 @@ export default {
 }
 
 /* Info color (4th mode) */
+.mode-payment-btn.color-info {
+	color: white !important;
+}
+
+.mode-payment-btn.color-info .v-icon {
+	color: white !important;
+}
+
 .mode-payment-btn.color-info:hover,
 .mode-payment-btn.color-info:focus,
 .mode-payment-btn.color-info:focus-visible,
 .mode-payment-btn.color-info:active {
 	background-color: rgba(var(--v-theme-info), 0.85) !important;
+	color: white !important;
+}
+
+.mode-payment-btn.color-info:hover .v-icon,
+.mode-payment-btn.color-info:focus .v-icon,
+.mode-payment-btn.color-info:focus-visible .v-icon,
+.mode-payment-btn.color-info:active .v-icon {
+	color: white !important;
 }
 
 .mode-payment-btn.color-info:hover::before,
@@ -2725,16 +2874,46 @@ export default {
 }
 
 /* Purple color (5th mode) */
+.mode-payment-btn.color-purple {
+	color: white !important;
+}
+
+.mode-payment-btn.color-purple .v-icon {
+	color: white !important;
+}
+
 .mode-payment-btn.color-purple:hover,
 .mode-payment-btn.color-purple:focus,
 .mode-payment-btn.color-purple:focus-visible,
 .mode-payment-btn.color-purple:active {
 	background-color: rgba(var(--v-theme-purple), 0.85) !important;
+	color: white !important;
+}
+
+.mode-payment-btn.color-purple:hover .v-icon,
+.mode-payment-btn.color-purple:focus .v-icon,
+.mode-payment-btn.color-purple:focus-visible .v-icon,
+.mode-payment-btn.color-purple:active .v-icon {
+	color: white !important;
 }
 
 .mode-payment-btn.color-purple:hover::before,
 .mode-payment-btn.color-purple:focus::before,
 .mode-payment-btn.color-purple:active::before {
 	opacity: 0 !important;
+}
+
+/* Payment mode icon styling - make it large and fully clickable */
+.payment-mode-icon {
+	cursor: pointer;
+	pointer-events: auto !important;
+	flex-shrink: 0;
+	user-select: none;
+	-webkit-user-select: none;
+}
+
+/* Ensure the icon area is fully clickable */
+.mode-payment-btn .payment-mode-icon {
+	pointer-events: auto !important;
 }
 </style>
