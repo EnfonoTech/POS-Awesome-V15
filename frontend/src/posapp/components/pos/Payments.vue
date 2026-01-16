@@ -1429,6 +1429,27 @@ export default {
 		},
 		// Submit payment after validation
 		async submit(event, payment_received = false, print = false) {
+			// Safety check: Ensure credit sale is enabled for Online Delivery and Home Customer
+			// This handles cases where auto-toggle didn't work due to lag/async issues
+			if (this.invoice_doc && !this.invoice_doc.is_return) {
+				const customerGroup = this.customerInfoFromStore?.customer_group || 
+					this.customer_info?.customer_group || 
+					this.invoice_doc.customer_group;
+				
+				if ((customerGroup === "Online Delivery" || customerGroup === "Home Customer") && !this.is_credit_sale) {
+					// Force enable credit sale and clear all payments
+					this.is_credit_sale = true;
+					if (this.invoice_doc.payments && Array.isArray(this.invoice_doc.payments)) {
+						this.invoice_doc.payments.forEach((payment) => {
+							payment.amount = 0;
+							if (payment.base_amount !== undefined) {
+								payment.base_amount = 0;
+							}
+						});
+					}
+				}
+			}
+			
 			// Validate sales person is required only for Home Customer
 			if (this.isHomeCustomer && !this.sales_person) {
 				this.eventBus.emit("show_message", {
@@ -1627,6 +1648,27 @@ export default {
 		},
 		// Submit invoice to backend after all validations
 		submit_invoice(print) {
+			// Final safety check: Ensure credit sale is enabled for Online Delivery and Home Customer
+			// This is a last resort check before actual submission to handle any edge cases
+			if (this.invoice_doc && !this.invoice_doc.is_return) {
+				const customerGroup = this.customerInfoFromStore?.customer_group || 
+					this.customer_info?.customer_group || 
+					this.invoice_doc.customer_group;
+				
+				if ((customerGroup === "Online Delivery" || customerGroup === "Home Customer") && !this.is_credit_sale) {
+					// Force enable credit sale and clear all payments before submission
+					this.is_credit_sale = true;
+					if (this.invoice_doc.payments && Array.isArray(this.invoice_doc.payments)) {
+						this.invoice_doc.payments.forEach((payment) => {
+							payment.amount = 0;
+							if (payment.base_amount !== undefined) {
+								payment.base_amount = 0;
+							}
+						});
+					}
+				}
+			}
+			
 			// For return invoices, ensure payments are negative one last time
 			if (this.invoice_doc.is_return) {
 				this.ensureReturnPaymentsAreNegative();
@@ -2540,11 +2582,11 @@ export default {
 					// For regular invoices, ensure all payments start at 0
 					// User must manually select payment mode
 					if (invoice_doc.payments && Array.isArray(invoice_doc.payments)) {
-						const customerGroup = invoice_doc.customer_group || this.customerInfoFromStore?.customer_group;
-						const isCreditSaleCustomer = customerGroup === "Online Delivery" || customerGroup === "Home Customer";
-						
+					const customerGroup = invoice_doc.customer_group || this.customerInfoFromStore?.customer_group;
+					const isCreditSaleCustomer = customerGroup === "Online Delivery" || customerGroup === "Home Customer";
+					
 						// Only set to 0 if not a credit sale customer (credit sale customers already have 0)
-						if (!isCreditSaleCustomer) {
+					if (!isCreditSaleCustomer) {
 							invoice_doc.payments.forEach((payment) => {
 								payment.amount = 0;
 								if (payment.base_amount !== undefined) {
