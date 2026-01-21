@@ -1429,24 +1429,58 @@ export default {
 		},
 		// Submit payment after validation
 		async submit(event, payment_received = false, print = false) {
+			// CRITICAL FIX: Always use current customer, never fallback to invoice_doc
+			const currentCustomer = this.customer || 
+				this.customerInfoFromStore?.name || 
+				this.customer_info?.name;
+			
+			const currentCustomerGroup = this.customerInfoFromStore?.customer_group || 
+				this.customer_info?.customer_group;
+			
+			// Only use invoice_doc.customer_group if customer matches
+			let customerGroup = currentCustomerGroup;
+			if (!customerGroup && currentCustomer && this.invoice_doc?.customer === currentCustomer) {
+				customerGroup = this.invoice_doc.customer_group;
+			}
+			
 			// Safety check: Ensure credit sale is enabled for Online Delivery and Home Customer
-			// This handles cases where auto-toggle didn't work due to lag/async issues
-			if (this.invoice_doc && !this.invoice_doc.is_return) {
-				const customerGroup = this.customerInfoFromStore?.customer_group || 
-					this.customer_info?.customer_group || 
-					this.invoice_doc.customer_group;
-				
+			// BUT ONLY if customer matches
+			if (this.invoice_doc && !this.invoice_doc.is_return && customerGroup) {
 				if ((customerGroup === "Online Delivery" || customerGroup === "Home Customer") && !this.is_credit_sale) {
-					// Force enable credit sale and clear all payments
-					this.is_credit_sale = true;
-					if (this.invoice_doc.payments && Array.isArray(this.invoice_doc.payments)) {
-						this.invoice_doc.payments.forEach((payment) => {
-							payment.amount = 0;
-							if (payment.base_amount !== undefined) {
-								payment.base_amount = 0;
-							}
-						});
+					// Validate customer matches before forcing credit sale
+					if (currentCustomer && this.invoice_doc.customer === currentCustomer) {
+						// Force enable credit sale and clear all payments
+						this.is_credit_sale = true;
+						if (this.invoice_doc.payments && Array.isArray(this.invoice_doc.payments)) {
+							this.invoice_doc.payments.forEach((payment) => {
+								payment.amount = 0;
+								if (payment.base_amount !== undefined) {
+									payment.base_amount = 0;
+								}
+							});
+						}
+					} else {
+						console.warn(
+							`Customer mismatch: invoice_doc.customer=${this.invoice_doc.customer}, ` +
+							`currentCustomer=${currentCustomer}. Skipping credit sale enforcement.`
+						);
 					}
+				}
+			}
+			
+			// Ensure invoice_doc has current customer data before submission
+			if (this.invoice_doc && currentCustomer && this.invoice_doc.customer !== currentCustomer) {
+				console.warn(
+					`Syncing customer data: invoice_doc.customer=${this.invoice_doc.customer}, ` +
+					`currentCustomer=${currentCustomer}. Updating invoice_doc.`
+				);
+				this.invoice_doc.customer = currentCustomer;
+				if (currentCustomerGroup) {
+					this.invoice_doc.customer_group = currentCustomerGroup;
+				}
+				if (this.customerInfoFromStore?.customer_name || this.customer_info?.customer_name) {
+					this.invoice_doc.customer_name = this.customerInfoFromStore?.customer_name || this.customer_info?.customer_name;
+					this.invoice_doc.title = this.invoice_doc.customer_name;
 				}
 			}
 			
@@ -1648,24 +1682,60 @@ export default {
 		},
 		// Submit invoice to backend after all validations
 		submit_invoice(print) {
+			// CRITICAL FIX: Always use current customer, never fallback to invoice_doc
+			// Get current customer from the most reliable source
+			const currentCustomer = this.customer || 
+				this.customerInfoFromStore?.name || 
+				this.customer_info?.name;
+			
+			const currentCustomerGroup = this.customerInfoFromStore?.customer_group || 
+				this.customer_info?.customer_group;
+			
+			// Only use invoice_doc.customer_group if we have NO other source AND customer matches
+			let customerGroup = currentCustomerGroup;
+			if (!customerGroup && currentCustomer && this.invoice_doc?.customer === currentCustomer) {
+				customerGroup = this.invoice_doc.customer_group;
+			}
+			
 			// Final safety check: Ensure credit sale is enabled for Online Delivery and Home Customer
-			// This is a last resort check before actual submission to handle any edge cases
-			if (this.invoice_doc && !this.invoice_doc.is_return) {
-				const customerGroup = this.customerInfoFromStore?.customer_group || 
-					this.customer_info?.customer_group || 
-					this.invoice_doc.customer_group;
-				
+			// BUT ONLY if we have valid customer group data AND customer matches
+			if (this.invoice_doc && !this.invoice_doc.is_return && customerGroup) {
 				if ((customerGroup === "Online Delivery" || customerGroup === "Home Customer") && !this.is_credit_sale) {
-					// Force enable credit sale and clear all payments before submission
-					this.is_credit_sale = true;
-					if (this.invoice_doc.payments && Array.isArray(this.invoice_doc.payments)) {
-						this.invoice_doc.payments.forEach((payment) => {
-							payment.amount = 0;
-							if (payment.base_amount !== undefined) {
-								payment.base_amount = 0;
-							}
-						});
+					// Validate customer matches before forcing credit sale
+					if (currentCustomer && this.invoice_doc.customer === currentCustomer) {
+						// Force enable credit sale and clear all payments before submission
+						this.is_credit_sale = true;
+						if (this.invoice_doc.payments && Array.isArray(this.invoice_doc.payments)) {
+							this.invoice_doc.payments.forEach((payment) => {
+								payment.amount = 0;
+								if (payment.base_amount !== undefined) {
+									payment.base_amount = 0;
+								}
+							});
+						}
+					} else {
+						// Customer mismatch - log warning and don't force credit sale
+						console.warn(
+							`Customer mismatch detected: invoice_doc.customer=${this.invoice_doc.customer}, ` +
+							`currentCustomer=${currentCustomer}. Skipping credit sale enforcement.`
+						);
 					}
+				}
+			}
+			
+			// Ensure invoice_doc has current customer data before submission
+			if (this.invoice_doc && currentCustomer && this.invoice_doc.customer !== currentCustomer) {
+				console.warn(
+					`Syncing customer data: invoice_doc.customer=${this.invoice_doc.customer}, ` +
+					`currentCustomer=${currentCustomer}. Updating invoice_doc.`
+				);
+				this.invoice_doc.customer = currentCustomer;
+				if (currentCustomerGroup) {
+					this.invoice_doc.customer_group = currentCustomerGroup;
+				}
+				if (this.customerInfoFromStore?.customer_name || this.customer_info?.customer_name) {
+					this.invoice_doc.customer_name = this.customerInfoFromStore?.customer_name || this.customer_info?.customer_name;
+					this.invoice_doc.title = this.invoice_doc.customer_name;
 				}
 			}
 			

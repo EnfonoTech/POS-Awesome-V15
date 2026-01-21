@@ -500,14 +500,42 @@ def submit_invoice(invoice, data):
 
     invoice_name = invoice.get("name")
     
+    # CRITICAL: Validate customer consistency before processing
+    frontend_customer = invoice.get("customer")
+    if not frontend_customer:
+        frappe.throw(_("Customer is required for invoice submission"))
+    
     if not invoice_name or not frappe.db.exists(doctype, invoice_name):
         created = update_invoice(json.dumps(invoice))
         invoice_name = created.get("name")
         invoice_doc = frappe.get_doc(doctype, invoice_name)
     else:
         invoice_doc = frappe.get_doc(doctype, invoice_name)
+        
+        # CRITICAL FIX: Validate customer matches before updating
+        db_customer = invoice_doc.customer
+        if db_customer != frontend_customer:
+            frappe.log_error(
+                f"Customer mismatch detected for invoice {invoice_name}. "
+                f"Database customer: {db_customer}, Frontend customer: {frontend_customer}. "
+                f"Using database customer to prevent data corruption.",
+                "POS Customer Mismatch Warning"
+            )
+            # Use database customer, not frontend customer
+            invoice["customer"] = db_customer
+            invoice["customer_name"] = invoice_doc.customer_name
+            invoice["title"] = invoice_doc.title or invoice_doc.customer_name
+        
         invoice_without_advances = invoice.copy()
         invoice_without_advances.pop("advances", None)
+        
+        # Ensure customer fields are consistent before update
+        invoice_without_advances["customer"] = db_customer
+        if invoice_doc.customer_name:
+            invoice_without_advances["customer_name"] = invoice_doc.customer_name
+        if invoice_doc.title:
+            invoice_without_advances["title"] = invoice_doc.title
+        
         invoice_doc.update(invoice_without_advances)
         invoice_doc.set("advances", [])
         
@@ -693,6 +721,23 @@ def submit_invoice(invoice, data):
     # Save custom_customer_number from data if provided
     if data.get("custom_customer_number"):
         invoice_doc.custom_customer_number = data.get("custom_customer_number")
+
+    # Final validation: Ensure customer is consistent
+    if invoice_doc.customer != frontend_customer and invoice_doc.customer:
+        # Database customer takes precedence if mismatch
+        frappe.log_error(
+            f"Final customer validation: Using database customer {invoice_doc.customer} "
+            f"instead of frontend customer {frontend_customer} for invoice {invoice_name}",
+            "POS Customer Final Check"
+        )
+    
+    # Ensure title matches customer_name
+    if invoice_doc.customer_name and invoice_doc.title != invoice_doc.customer_name:
+        invoice_doc.title = invoice_doc.customer_name
+    elif not invoice_doc.title and invoice_doc.customer_name:
+        invoice_doc.title = invoice_doc.customer_name
+    elif not invoice_doc.title:
+        invoice_doc.title = invoice_doc.customer or invoice_doc.customer_name
 
     invoice_doc.flags.ignore_permissions = True
     frappe.flags.ignore_account_permission = True
