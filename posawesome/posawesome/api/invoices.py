@@ -1237,6 +1237,9 @@ def get_sales_invoice_list(page=1, items_per_page=25, filters=None, pos_profile=
     # Build SQL conditions
     conditions = "1=1"
     values = {}
+    
+    # Only show submitted invoices (docstatus = 1)
+    conditions += " AND si.docstatus = 1"
 
     if filters.get("invoice_name"):
         conditions += " AND si.name LIKE %(invoice_name)s"

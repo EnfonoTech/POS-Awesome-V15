@@ -157,7 +157,10 @@ def get_customer_info(customer):
 	    address.city,
 	    address.state,
 	    address.country,
-	    address.address_type
+	    address.pincode,
+	    address.address_type,
+	    address.custom_building_number,
+	    address.custom_area
 	FROM `tabAddress` address
 	INNER JOIN `tabDynamic Link` link
 	    ON (address.name = link.parent)
@@ -165,7 +168,7 @@ def get_customer_info(customer):
 	    link.link_doctype = 'Customer'
 	    AND link.link_name = %s
 	    AND address.disabled = 0
-	    AND address.address_type = 'Shipping'
+	    AND address.address_type = 'Billing'
 	ORDER BY address.creation DESC
 	LIMIT 1
 	""",
@@ -180,6 +183,10 @@ def get_customer_info(customer):
         res["city"] = addr.city or ""
         res["state"] = addr.state or ""
         res["country"] = addr.country or ""
+        res["pincode"] = addr.get("pincode") or ""
+        # Include ZATCA custom fields
+        res["custom_building_number"] = addr.get("custom_building_number") or ""
+        res["custom_area"] = addr.get("custom_area") or ""
 
     return res
 
@@ -194,51 +201,37 @@ def create_customer(
     mobile_no=None,
     email_id=None,
     referral_code=None,
-    birthday=None,
     customer_group=None,
     territory=None,
     customer_type=None,
-    gender=None,
     method="create",
     address_line1=None,
+    custom_building_number=None,
+    custom_area=None,
     city=None,
+    pincode=None,
     country=None,
 ):
     pos_profile = json.loads(pos_profile_doc)
 
-    # Format birthday to MySQL compatible format (YYYY-MM-DD) if provided
-    formatted_birthday = None
-    if birthday:
-        try:
-            # Try to parse date in DD-MM-YYYY format
-            if "-" in birthday:
-                date_parts = birthday.split("-")
-                if len(date_parts) == 3:
-                    day, month, year = date_parts
-                    formatted_birthday = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
-            # If format is already YYYY-MM-DD, use as is
-            elif len(birthday) == 10 and birthday[4] == "-" and birthday[7] == "-":
-                formatted_birthday = birthday
-        except Exception:
-            frappe.log_error(f"Error formatting birthday: {birthday}", "POS Awesome")
-
     if method == "create":
         is_exist = frappe.db.exists("Customer", {"customer_name": customer_name})
         if pos_profile.get("posa_allow_duplicate_customer_names") or not is_exist:
-            customer = frappe.get_doc(
-                {
-                    "doctype": "Customer",
-                    "customer_name": customer_name,
-                    "posa_referral_company": company,
-                    "tax_id": tax_id,
-                    "mobile_no": mobile_no,
-                    "email_id": email_id,
-                    "posa_referral_code": referral_code,
-                    "posa_birthday": formatted_birthday,
-                    "customer_type": customer_type,
-                    "gender": gender,
-                }
-            )
+            customer_dict = {
+                "doctype": "Customer",
+                "customer_name": customer_name,
+                "posa_referral_company": company,
+                "tax_id": tax_id,
+                "mobile_no": mobile_no,
+                "email_id": email_id,
+                "posa_referral_code": referral_code,
+                "customer_type": customer_type,
+            }
+            # Map tax_id to custom_vat_registration_number for ZATCA compliance
+            if tax_id:
+                customer_dict["custom_vat_registration_number"] = tax_id
+            
+            customer = frappe.get_doc(customer_dict)
             if customer_group:
                 customer.customer_group = customer_group
             else:
@@ -250,34 +243,37 @@ def create_customer(
 
             customer.save()
 
-            if address_line1 or city:
+            if address_line1 or city or custom_building_number or custom_area or pincode:
                 args = {
-                    "name": f"{customer.customer_name} - Shipping",
+                    "name": customer.customer_name,
                     "doctype": "Customer",
                     "customer": customer.name,
                     "address_line1": address_line1 or "",
                     "address_line2": "",
+                    "custom_building_number": custom_building_number or "",
+                    "custom_area": custom_area or "",
                     "city": city or "",
                     "state": "",
-                    "pincode": "",
+                    "pincode": pincode or "",
                     "country": country or "",
                 }
                 make_address(json.dumps(args))
 
             return customer
         else:
-            frappe.throw(_("Customer already exists"))
+            frappe.throw(_("Customer already exists with this name."))
 
     elif method == "update":
         customer_doc = frappe.get_doc("Customer", customer_id)
         customer_doc.customer_name = customer_name
         customer_doc.tax_id = tax_id
+        # Map tax_id to custom_vat_registration_number for ZATCA compliance
+        if tax_id:
+            customer_doc.custom_vat_registration_number = tax_id
         customer_doc.mobile_no = mobile_no
         customer_doc.email_id = email_id
         customer_doc.posa_referral_code = referral_code
-        customer_doc.posa_birthday = formatted_birthday
         customer_doc.customer_type = customer_type
-        customer_doc.gender = gender
         customer_doc.save()
 
         # ensure contact details are synced correctly
@@ -301,18 +297,26 @@ def create_customer(
             address_doc.address_line1 = address_line1 or ""
             address_doc.city = city or ""
             address_doc.country = country or ""
+            if pincode:
+                address_doc.pincode = pincode
+            if custom_building_number:
+                address_doc.custom_building_number = custom_building_number
+            if custom_area:
+                address_doc.custom_area = custom_area
             address_doc.save()
         else:
-            if address_line1 or city:
+            if address_line1 or city or custom_building_number or custom_area or pincode:
                 args = {
-                    "name": f"{customer_doc.customer_name} - Shipping",
+                    "name": customer_doc.customer_name,
                     "doctype": "Customer",
                     "customer": customer_doc.name,
                     "address_line1": address_line1 or "",
                     "address_line2": "",
+                    "custom_building_number": custom_building_number or "",
+                    "custom_area": custom_area or "",
                     "city": city or "",
                     "state": "",
-                    "pincode": "",
+                    "pincode": pincode or "",
                     "country": country or "",
                 }
                 make_address(json.dumps(args))
@@ -384,20 +388,25 @@ def get_customer_addresses(customer):
 @frappe.whitelist()
 def make_address(args):
     args = json.loads(args)
-    address = frappe.get_doc(
-        {
-            "doctype": "Address",
-            "address_title": args.get("name"),
-            "address_line1": args.get("address_line1"),
-            "address_line2": args.get("address_line2"),
-            "city": args.get("city"),
-            "state": args.get("state"),
-            "pincode": args.get("pincode"),
-            "country": args.get("country"),
-            "address_type": "Shipping",
-            "links": [{"link_doctype": args.get("doctype"), "link_name": args.get("customer")}],
-        }
-    ).insert()
+    address_dict = {
+        "doctype": "Address",
+        "address_line1": args.get("address_line1"),
+        "address_line2": args.get("address_line2"),
+        "city": args.get("city"),
+        "state": args.get("state"),
+        "pincode": args.get("pincode"),
+        "country": args.get("country"),
+        "address_type": "Billing",
+        "links": [{"link_doctype": args.get("doctype"), "link_name": args.get("customer")}],
+    }
+    # Add ZATCA custom fields if provided
+    if args.get("custom_building_number"):
+        address_dict["custom_building_number"] = args.get("custom_building_number")
+    if args.get("custom_area"):
+        address_dict["custom_area"] = args.get("custom_area")
+    
+    # Don't set address_title - let ERPNext automatically add "Billing" suffix
+    address = frappe.get_doc(address_dict).insert()
 
     return address
 

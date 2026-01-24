@@ -32,7 +32,7 @@
 								<v-text-field
 									density="compact"
 									color="primary"
-									:label="frappe._('Tax ID')"
+									:label="frappe._('Tax ID / VAT ID')"
 									class="pos-themed-input"
 									hide-details
 									v-model="tax_id"
@@ -48,23 +48,57 @@
 									v-model="mobile_no"
 								></v-text-field>
 							</v-col>
-							<v-col cols="12" v-if="!hideNonEssential">
+							<v-col cols="12" v-if="!hideNonEssential || hasTaxId">
 								<v-text-field
 									density="compact"
 									color="primary"
-									:label="__('Address Line 1')"
-									hide-details
+									:label="__('Address Line 1') + (hasTaxId ? ' *' : '')"
+									:error-messages="hasTaxId && !address_line1 ? [__('Address Line 1 is required for ZATCA compliance')] : []"
 									class="pos-themed-input"
 									v-model="address_line1"
 								></v-text-field>
 							</v-col>
 
-							<v-col cols="12" sm="6" v-if="!hideNonEssential">
+							<v-col cols="12" sm="6" v-if="!hideNonEssential || hasTaxId">
+								<v-text-field
+									density="compact"
+									color="primary"
+									:label="__('Building Number') + (hasTaxId ? ' *' : '')"
+									:error-messages="hasTaxId && !custom_building_number ? [__('Building Number is required for ZATCA compliance')] : []"
+									class="pos-themed-input"
+									v-model="custom_building_number"
+								></v-text-field>
+							</v-col>
+
+							<v-col cols="12" sm="6" v-if="!hideNonEssential || hasTaxId">
+								<v-text-field
+									density="compact"
+									color="primary"
+									:label="__('Area') + (hasTaxId ? ' *' : '')"
+									:error-messages="hasTaxId && !custom_area ? [__('Area is required for ZATCA compliance')] : []"
+									class="pos-themed-input"
+									v-model="custom_area"
+								></v-text-field>
+							</v-col>
+
+							<v-col cols="12" sm="6" v-if="!hideNonEssential || hasTaxId">
 								<v-text-field
 									v-model="city"
 									variant="outlined"
 									density="compact"
-									:label="__('City')"
+									:label="__('City') + (hasTaxId ? ' *' : '')"
+									:error-messages="hasTaxId && !city ? [__('City is required for ZATCA compliance')] : []"
+									class="pos-themed-input"
+								></v-text-field>
+							</v-col>
+
+							<v-col cols="12" sm="6" v-if="!hideNonEssential || hasTaxId">
+								<v-text-field
+									v-model="pincode"
+									variant="outlined"
+									density="compact"
+									:label="__('Postal Code') + (hasTaxId ? ' *' : '')"
+									:error-messages="hasTaxId && !pincode ? [__('Postal Code is required for ZATCA compliance')] : []"
 									class="pos-themed-input"
 								></v-text-field>
 							</v-col>
@@ -91,15 +125,6 @@
 								></v-text-field>
 							</v-col>
 							<v-col cols="6" v-if="!hideNonEssential">
-								<v-select
-									density="compact"
-									label="Gender"
-									:items="genders"
-									v-model="gender"
-									class="pos-themed-input"
-								></v-select>
-							</v-col>
-							<v-col cols="6" v-if="!hideNonEssential">
 								<v-text-field
 									density="compact"
 									color="primary"
@@ -107,19 +132,6 @@
 									class="pos-themed-input"
 									hide-details
 									v-model="referral_code"
-								></v-text-field>
-							</v-col>
-							<v-col cols="6" v-if="!hideNonEssential">
-								<v-text-field
-									v-model="birthday"
-									:label="frappe._('Birthday (DD-MM-YYYY)')"
-									density="compact"
-									clearable
-									hide-details
-									color="primary"
-									placeholder="DD-MM-YYYY"
-									@update:model-value="formatBirthdayOnInput"
-									class="pos-themed-input"
 								></v-text-field>
 							</v-col>
 							<v-col cols="6" v-if="!hideNonEssential">
@@ -227,19 +239,18 @@ export default {
 		tax_id: "",
 		mobile_no: "",
 		address_line1: "",
+		custom_building_number: "",
+		custom_area: "",
 		city: "",
+		pincode: "",
 		country: "Pakistan",
 		email_id: "",
 		referral_code: "",
-		birthday: "",
-		birthday_menu: false,
 		group: "",
 		groups: [],
 		territory: "",
 		territorys: [],
-		genders: [],
 		customer_type: "Individual",
-		gender: "",
 		loyalty_points: null,
 		loyalty_program: null,
 		hideNonEssential: true,
@@ -283,7 +294,7 @@ export default {
 			"Yemen",
 		],
 	}),
-	watch: {
+		watch: {
 		hideNonEssential(val) {
 			if (typeof localStorage !== "undefined") {
 				localStorage.setItem("posawesome_hide_non_essential_fields", JSON.stringify(val));
@@ -311,59 +322,20 @@ export default {
 				}
 			}
 		},
-		birthday(newVal) {
-			// Check if the user has entered 8 digits without separators (e.g., 04111994)
-			if (newVal && /^\d{8}$/.test(newVal)) {
-				try {
-					const day = newVal.substring(0, 2);
-					const month = newVal.substring(2, 4);
-					const year = newVal.substring(4);
-
-					// Format it as a hyphenated date for display
-					this.birthday = `${day}-${month}-${year}`;
-
-					// Update calendar (implemented below)
-					this.updateCalendarDate(day, month, year);
-				} catch (error) {
-					console.error("Error processing 8-digit date:", error);
-				}
-			}
-			// Check if the date is already in DD-MM-YYYY format
-			else if (newVal && /^\d{2}-\d{2}-\d{4}$/.test(newVal)) {
-				try {
-					const parts = newVal.split("-");
-					const day = parts[0];
-					const month = parts[1];
-					const year = parts[2];
-
-					// Update calendar to show the correct month
-					this.updateCalendarDate(day, month, year);
-				} catch (error) {
-					console.error("Error processing formatted date:", error);
-				}
-			}
-		},
-
-		// Add a watcher for the calendar menu to ensure it shows the right date when opened
-		birthday_menu(isOpen) {
-			if (isOpen && this.birthday && /^\d{2}-\d{2}-\d{4}$/.test(this.birthday)) {
-				try {
-					const parts = this.birthday.split("-");
-					const day = parts[0];
-					const month = parts[1];
-					const year = parts[2];
-
-					// Update calendar date when menu opens
-					this.$nextTick(() => {
-						this.updateCalendarDate(day, month, year);
-					});
-				} catch (error) {
-					console.error("Error updating calendar on menu open:", error);
-				}
+		tax_id(newVal) {
+			// Set customer_type to "Company" if tax_id is present
+			if (newVal && newVal.trim()) {
+				this.customer_type = "Company";
+			} else {
+				this.customer_type = "Individual";
 			}
 		},
 	},
-	computed: {},
+	computed: {
+		hasTaxId() {
+			return !!(this.tax_id && this.tax_id.trim());
+		},
+	},
 	methods: {
 		// Check if a value looks like a valid phone number
 		isValidPhoneNumber(value) {
@@ -376,29 +348,6 @@ export default {
 			// Also check that non-digit characters are minimal (only allowed phone chars)
 			return digitCount >= 7 && digitCount <= 15 && /^[\d\s\-\(\)\+]+$/.test(value);
 		},
-		// Add a new method to update calendar date
-		updateCalendarDate(day, month, year) {
-			// First close the date picker if it's open
-			const wasOpen = this.birthday_menu;
-			this.birthday_menu = false;
-
-			// Use nextTick to ensure DOM updates
-			this.$nextTick(() => {
-				// Format date in YYYY-MM-DD format for Vuetify
-				const tempDate = `${year}-${month}-${day}`;
-
-				// Try to directly set the calendar's date
-				setTimeout(() => {
-					if (this.$refs.birthday_menu) {
-						this.$refs.birthday_menu.date = tempDate;
-						// Optionally reopen menu if it was open
-						if (wasOpen) {
-							this.birthday_menu = true;
-						}
-					}
-				}, 50);
-			});
-		},
 		confirm_close() {
 			// Check if any data has been entered
 			if (
@@ -407,8 +356,7 @@ export default {
 				this.mobile_no ||
 				this.address_line1 ||
 				this.email_id ||
-				this.referral_code ||
-				this.birthday
+				this.referral_code
 			) {
 				this.confirmDialog = true;
 			} else {
@@ -429,16 +377,17 @@ export default {
 			this.tax_id = "";
 			this.mobile_no = "";
 			this.address_line1 = "";
+			this.custom_building_number = "";
+			this.custom_area = "";
 			this.city = "";
+			this.pincode = "";
 			this.country = (this.pos_profile && this.pos_profile.posa_default_country) || "Pakistan";
 			this.email_id = "";
 			this.referral_code = "";
-			this.birthday = "";
 			this.group = frappe.defaults.get_user_default("Customer Group");
 			this.territory = frappe.defaults.get_user_default("Territory");
 			this.customer_id = "";
 			this.customer_type = "Individual";
-			this.gender = "";
 			this.loyalty_points = null;
 			this.loyalty_program = null;
 		},
@@ -478,34 +427,6 @@ export default {
 					}
 				});
 		},
-		getGenders() {
-			const vm = this;
-			frappe.db
-				.get_list("Gender", {
-					fields: ["name"],
-					page_length: 10,
-				})
-				.then((data) => {
-					if (data.length > 0) {
-						data.forEach((el) => {
-							vm.genders.push(el.name);
-						});
-					}
-				});
-		},
-		formatBirthdayOnInput() {
-			// Handle 8-digit format (DDMMYYYY)
-			if (this.birthday && /^\d{8}$/.test(this.birthday)) {
-				try {
-					const day = this.birthday.substring(0, 2);
-					const month = this.birthday.substring(2, 4);
-					const year = this.birthday.substring(4);
-					this.birthday = `${day}-${month}-${year}`;
-				} catch (error) {
-					console.error("Error formatting date:", error);
-				}
-			}
-		},
 		async submit_dialog() {
 			const vm = this;
 			// When hide non essential is enabled, only set mobile_no if customer_name is a valid phone number
@@ -524,8 +445,40 @@ export default {
 			}
 			
 			if (!this.customer_name) {
-				frappe.throw(__("Customer Name is required"));
+				this.eventBus.emit("show_message", {
+					title: __("Customer Name is required"),
+					color: "error",
+				});
 				return;
+			}
+
+			// ZATCA validation: If tax_id is present, validate required address fields
+			if (this.hasTaxId) {
+				const missingFields = [];
+				if (!this.address_line1 || !this.address_line1.trim()) {
+					missingFields.push(__("Address Line 1"));
+				}
+				if (!this.custom_building_number || !this.custom_building_number.trim()) {
+					missingFields.push(__("Building Number"));
+				}
+				if (!this.custom_area || !this.custom_area.trim()) {
+					missingFields.push(__("Area"));
+				}
+				if (!this.city || !this.city.trim()) {
+					missingFields.push(__("City"));
+				}
+				if (!this.pincode || !this.pincode.trim()) {
+					missingFields.push(__("Postal Code"));
+				}
+
+				if (missingFields.length > 0) {
+					this.eventBus.emit("show_message", {
+						title: __("For ZATCA compliance, the following fields are required when Tax ID / VAT ID is provided: {0}", 
+							missingFields.join(", ")),
+						color: "error",
+					});
+					return;
+				}
 			}
 
 			// Use defaults if not set (for both hideNonEssential true and false)
@@ -536,56 +489,9 @@ export default {
 				this.territory = frappe.defaults.get_user_default("Territory");
 			}
 
-			// Format birthday to YYYY-MM-DD if it exists and is in another format
-			let formatted_birthday = null;
-			if (this.birthday) {
-				try {
-					// First check if it's a date without separators (e.g., 04111994 for 04-11-1994)
-					if (/^\d{8}$/.test(this.birthday)) {
-						const day = this.birthday.substring(0, 2);
-						const month = this.birthday.substring(2, 4);
-						const year = this.birthday.substring(4);
-						formatted_birthday = `${year}-${month}-${day}`;
-					}
-					// Check if it's in DD-MM-YYYY format
-					else if (/^\d{1,2}-\d{1,2}-\d{4}$/.test(this.birthday)) {
-						const parts = this.birthday.split("-");
-						if (parts.length === 3) {
-							const day = parts[0].padStart(2, "0");
-							const month = parts[1].padStart(2, "0");
-							const year = parts[2];
-							formatted_birthday = `${year}-${month}-${day}`;
-						}
-					}
-					// Handle DD/MM/YYYY format
-					else if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(this.birthday)) {
-						const parts = this.birthday.split("/");
-						if (parts.length === 3) {
-							const day = parts[0].padStart(2, "0");
-							const month = parts[1].padStart(2, "0");
-							const year = parts[2];
-							formatted_birthday = `${year}-${month}-${day}`;
-						}
-					}
-					// For any other format, try to use the browser's date parsing
-					else if (this.birthday) {
-						try {
-							const date = new Date(this.birthday);
-							// Check if the date is valid
-							if (!isNaN(date.getTime())) {
-								const year = date.getFullYear();
-								const month = String(date.getMonth() + 1).padStart(2, "0");
-								const day = String(date.getDate()).padStart(2, "0");
-								formatted_birthday = `${year}-${month}-${day}`;
-							}
-						} catch (e) {
-							console.error("Failed to parse date:", e);
-						}
-					}
-				} catch (error) {
-					console.error("Error formatting date:", error);
-					formatted_birthday = null;
-				}
+			// Set customer_type to "Company" if tax_id is present
+			if (this.hasTaxId) {
+				this.customer_type = "Company";
 			}
 
 			// Create args object to use in callback
@@ -595,15 +501,16 @@ export default {
 				tax_id: this.tax_id,
 				mobile_no: this.mobile_no,
 				address_line1: this.address_line1,
+				custom_building_number: this.custom_building_number,
+				custom_area: this.custom_area,
 				city: this.city,
+				pincode: this.pincode,
 				country: this.country,
 				email_id: this.email_id,
 				referral_code: this.referral_code,
-				birthday: formatted_birthday || this.birthday,
 				customer_group: this.group,
 				territory: this.territory,
 				customer_type: this.customer_type,
-				gender: this.gender,
 			};
 			const apiArgs = {
 				...args,
@@ -634,7 +541,7 @@ export default {
 				method: "posawesome.posawesome.api.customers.create_customer",
 				args: apiArgs,
 				callback: async (r) => {
-					if (!r.exc && r.message.name) {
+					if (!r.exc && r.message && r.message.name) {
 						let text = __("Customer created successfully.");
 						if (vm.customer_id) {
 							text = __("Customer updated successfully.");
@@ -656,45 +563,48 @@ export default {
 						vm.close_dialog();
 					} else {
 						frappe.utils.play_sound("error");
+						// Handle error messages from backend
+						let errorMessage = __("Customer creation failed.");
+						if (r.exc) {
+							// Try to extract error message from exception
+							try {
+								const excData = JSON.parse(r.exc);
+								if (excData.message) {
+									errorMessage = excData.message;
+								} else if (excData.exc) {
+									// Check if exc contains the error message
+									if (typeof excData.exc === "string") {
+										if (excData.exc.includes("already exists") || excData.exc.includes("Customer already exists")) {
+											errorMessage = __("Customer already exists with this name.");
+										} else {
+											errorMessage = excData.exc;
+										}
+									}
+								}
+							} catch (e) {
+								// If parsing fails, check if r.exc is a string
+								if (typeof r.exc === "string") {
+									if (r.exc.includes("already exists") || r.exc.includes("Customer already exists")) {
+										errorMessage = __("Customer already exists with this name.");
+									} else {
+										// Try to extract message from the exception string
+										const match = r.exc.match(/message[:\s]+([^\\n]+)/i);
+										if (match && match[1]) {
+											errorMessage = match[1].trim();
+										} else {
+											errorMessage = r.exc;
+										}
+									}
+								}
+							}
+						}
 						vm.eventBus.emit("show_message", {
-							title: __("Customer creation failed."),
+							title: errorMessage,
 							color: "error",
 						});
 					}
 				},
 			});
-		},
-		onDateSelect() {
-			// Close the menu
-			this.birthday_menu = false;
-
-			// Format date if it's a JavaScript Date object or full date string (from date picker)
-			if (this.birthday) {
-				try {
-					// Handle both JavaScript Date objects and strings with GMT
-					let dateObj;
-					if (typeof this.birthday === "object") {
-						dateObj = this.birthday;
-					} else if (
-						typeof this.birthday === "string" &&
-						(this.birthday.includes("GMT") || this.birthday.includes("T"))
-					) {
-						dateObj = new Date(this.birthday);
-					} else {
-						// Already formatted or something else, leave it
-						return;
-					}
-
-					const year = dateObj.getFullYear();
-					const month = String(dateObj.getMonth() + 1).padStart(2, "0");
-					const day = String(dateObj.getDate()).padStart(2, "0");
-
-					// Format as DD-MM-YYYY
-					this.birthday = `${day}-${month}-${year}`;
-				} catch (error) {
-					console.error("Error formatting date from picker:", error);
-				}
-			}
 		},
 	},
 	created: function () {
@@ -718,20 +628,27 @@ export default {
 				this.customer_name = data.customer_name;
 				this.customer_id = data.name;
 				this.address_line1 = data.address_line1 || "";
+				this.custom_building_number = data.custom_building_number || "";
+				this.custom_area = data.custom_area || "";
 				this.city = data.city || "";
+				this.pincode = data.pincode || "";
 				this.country =
 					data.country || (this.pos_profile && this.pos_profile.posa_default_country) || "Pakistan";
 				this.tax_id = data.tax_id;
 				this.mobile_no = data.mobile_no;
 				this.email_id = data.email_id;
 				this.referral_code = data.referral_code;
-				this.birthday = data.birthday;
 				// Set customer group - use default_customer_group if provided, otherwise use existing customer_group
 				this.group = data.default_customer_group || data.customer_group;
 				this.territory = data.territory;
 				this.loyalty_points = data.loyalty_points;
 				this.loyalty_program = data.loyalty_program;
-				this.gender = data.gender;
+				// Set customer_type based on tax_id
+				if (data.tax_id) {
+					this.customer_type = "Company";
+				} else {
+					this.customer_type = data.customer_type || "Individual";
+				}
 				
 				// When hide non essential is enabled and customer_name is empty, use mobile_no if it exists
 				if (this.hideNonEssential && !this.customer_name && this.mobile_no) {
@@ -761,7 +678,6 @@ export default {
 		});
 		this.getCustomerGroups();
 		this.getCustomerTerritorys();
-		this.getGenders();
 		// set default values for customer group and territory from user defaults
 		this.group = frappe.defaults.get_user_default("Customer Group");
 		this.territory = frappe.defaults.get_user_default("Territory");
