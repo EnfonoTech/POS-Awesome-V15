@@ -393,17 +393,6 @@
 														</span>
 														<span class="card-item-uom">{{ item._display_uom || item.stock_uom || "" }}</span>
 													</div>
-													<v-btn
-														icon
-														size="x-small"
-														variant="text"
-														:color="isFavorite(item.item_code) ? 'warning' : 'grey-lighten-1'"
-														@click.stop="toggleFavorite(item.item_code)"
-														class="favorite-btn-after-rate"
-														style="min-width: 24px; width: 24px; height: 24px;"
-													>
-														<v-icon size="small">{{ isFavorite(item.item_code) ? 'mdi-star' : 'mdi-star-outline' }}</v-icon>
-													</v-btn>
 													<div
 														v-if="
 															pos_profile.posa_allow_multi_currency &&
