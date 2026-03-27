@@ -2787,16 +2787,37 @@ export default {
 			this.pendingScanCode = sCode;
 
 			this.$nextTick(() => {
+				const searchCode = this.get_search(sCode);
+				let foundByBarcode = this.lookupItemByBarcode(searchCode);
+				if (!foundByBarcode && Array.isArray(this.items)) {
+					foundByBarcode = this.items.find((item) => {
+						const barcodeMatch =
+							item.barcode === searchCode ||
+							(Array.isArray(item.item_barcode) &&
+								item.item_barcode.some((b) => b.barcode === searchCode)) ||
+							(Array.isArray(item.barcodes) &&
+								item.barcodes.some((bc) => String(bc) === searchCode));
+						return barcodeMatch || item.item_code === searchCode;
+					});
+				}
 				if (this.displayedItems.length == 0) {
-					this.eventBus.emit("show_message", {
-						title: `No Item has this barcode "${sCode}"`,
-						color: "error",
-					});
-					this.showScanError({
-						message: `${this.__("Item not found")}: ${sCode}`,
-						code: sCode,
-						details: this.__("Please verify the barcode or search manually."),
-					});
+					if (foundByBarcode && this.isItemBlockedFromSale(foundByBarcode)) {
+						this.showScanError({
+							message: this.__("This item is disabled."),
+							code: sCode,
+							details: this.__("Enable the item in Stock > Item or choose another product."),
+						});
+					} else {
+						this.eventBus.emit("show_message", {
+							title: `No Item has this barcode "${sCode}"`,
+							color: "error",
+						});
+						this.showScanError({
+							message: `${this.__("Item not found")}: ${sCode}`,
+							code: sCode,
+							details: this.__("Please verify the barcode or search manually."),
+						});
+					}
 				} else {
 					this.enter_event();
 				}
@@ -3238,6 +3259,14 @@ export default {
 			}
 
 			if (foundItem) {
+				if (this.isItemBlockedFromSale(foundItem)) {
+					this.showScanError({
+						message: this.__("This item is disabled."),
+						code: scannedCode,
+						details: this.__("Enable the item in Stock > Item or choose another product."),
+					});
+					return;
+				}
 				console.log("Found item by processed code:", foundItem);
 				await this.addScannedItemToInvoice(foundItem, searchCode, qtyFromBarcode);
 				return;
@@ -3256,6 +3285,14 @@ export default {
 
 				if (res && res.message) {
 					const newItem = res.message;
+					if (newItem.__pos_item_blocked) {
+						this.showScanError({
+							message: this.__("This item is disabled."),
+							code: scannedCode,
+							details: this.__("Enable the item in Stock > Item or choose another product."),
+						});
+						return;
+					}
 					this.items.push(newItem);
 					this.indexItem(newItem);
 
@@ -3373,8 +3410,33 @@ export default {
 			}
 			return index.get(normalized) || index.get(normalized.toLowerCase()) || null;
 		},
+		isItemBlockedFromSale(item) {
+			if (!item) {
+				return true;
+			}
+			const d = typeof this.flt === "function" ? this.flt(item.disabled) : Number(item.disabled);
+			if (d === 1) {
+				return true;
+			}
+			if (item.is_sales_item === 0 || item.is_sales_item === false) {
+				return true;
+			}
+			if (item.is_fixed_asset === 1 || item.is_fixed_asset === true) {
+				return true;
+			}
+			return false;
+		},
 		async addScannedItemToInvoice(item, scannedCode, qtyFromBarcode = null) {
 			console.log("Adding scanned item to invoice:", item, scannedCode);
+
+			if (this.isItemBlockedFromSale(item)) {
+				this.showScanError({
+					message: this.__("This item is disabled."),
+					code: scannedCode || this.pendingScanCode || "",
+					details: this.__("Enable the item in Stock > Item or choose another product."),
+				});
+				return;
+			}
 
 			// Clone the item to avoid mutating list data
 			const newItem = { ...item };

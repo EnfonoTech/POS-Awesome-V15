@@ -1013,6 +1013,14 @@ def get_items_from_barcode(selling_price_list, currency, barcode):
     )
     if search_item:
         item_doc = frappe.get_cached_doc("Item", search_item.item_code)
+        # Align with POS item search: do not sell disabled / non-sales / fixed-asset items
+        if item_doc.disabled or not item_doc.is_sales_item or item_doc.is_fixed_asset:
+            # Frontend shows a specific message (not generic "item not found")
+            return {
+                "__pos_item_blocked": 1,
+                "item_code": item_doc.name,
+                "item_name": item_doc.item_name,
+            }
         item_price = frappe.db.get_value(
             "Item Price",
             {
