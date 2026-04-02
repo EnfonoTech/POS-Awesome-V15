@@ -1648,7 +1648,11 @@ export default {
 					const itemsToCheck = this.invoice_doc.items.filter((it) => !it.is_bundle);
 					const stockCheck = await frappe.call({
 						method: "posawesome.posawesome.api.invoices.validate_cart_items",
-						args: { items: JSON.stringify(itemsToCheck) },
+						args: {
+							items: JSON.stringify(itemsToCheck),
+							pos_profile: this.pos_profile?.name,
+							update_stock: this.invoice_doc?.update_stock ?? 1,
+						},
 					});
 					if (stockCheck.message && stockCheck.message.length) {
 						const msg = stockCheck.message

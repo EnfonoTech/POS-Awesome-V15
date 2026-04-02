@@ -142,8 +142,8 @@ def _should_block(pos_profile):
 
 
 def _validate_stock_on_invoice(invoice_doc):
-    if invoice_doc.doctype == "Sales Invoice" and not cint(getattr(invoice_doc, "update_stock", 0)):
-        frappe.logger().debug("Skipping stock validation for Sales Invoice without stock update")
+    if not cint(getattr(invoice_doc, "update_stock", 0)):
+        frappe.logger().debug("Skipping stock validation: update_stock is disabled on invoice")
         return
     items_to_check = [d.as_dict() for d in invoice_doc.items if d.get("is_stock_item")]
     if hasattr(invoice_doc, "packed_items"):
@@ -191,7 +191,7 @@ def _auto_set_return_batches(invoice_doc):
 
 
 @frappe.whitelist()
-def validate_cart_items(items, pos_profile=None):
+def validate_cart_items(items, pos_profile=None, update_stock=None):
     """Validate cart items for available stock.
 
     Returns a list of item dicts where requested quantity exceeds availability.
@@ -203,6 +203,9 @@ def validate_cart_items(items, pos_profile=None):
 
     if pos_profile and not frappe.db.exists("POS Profile", pos_profile):
         pos_profile = None
+
+    if update_stock is not None and not cint(update_stock):
+        return []
 
     if not _should_block(pos_profile):
         return []
@@ -714,7 +717,8 @@ def submit_invoice(invoice, data):
 
     # if frappe.get_value("POS Profile", invoice_doc.pos_profile, "posa_auto_set_batch"):
     #     set_batch_nos(invoice_doc, "warehouse", throw=True)
-    set_batch_nos_for_bundels(invoice_doc, "warehouse", throw=True)
+    if cint(getattr(invoice_doc, "update_stock", 0)):
+        set_batch_nos_for_bundels(invoice_doc, "warehouse", throw=True)
 
     _validate_stock_on_invoice(invoice_doc)
 

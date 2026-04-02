@@ -322,7 +322,7 @@ export default {
 	},
 
 	// Load an invoice (or return invoice) from data, set all fields accordingly
-	async load_invoice(data = {}) {
+	async load_invoice(data = {}, options = {}) {
 		this.clear_invoice();
 		if (data.is_return) {
 			this.invoiceType = "Return";
@@ -433,6 +433,16 @@ export default {
 		this.discount_amount = data.discount_amount;
 		this.additional_discount_percentage = data.additional_discount_percentage;
 		this.additional_discount = data.discount_amount;
+		if (!options.preserveUserUpdateStock) {
+			if (data.update_stock === 0 || data.update_stock === 1) {
+				this.invoice_update_stock = data.update_stock ? 1 : 0;
+				if (this.eventBus) {
+					this.eventBus.emit("pos_invoice_update_stock", this.invoice_update_stock);
+				}
+			}
+		} else {
+			this.applyUserUpdateStockToInvoiceDoc(this.invoice_doc);
+		}
 		
 		// If invoice has sales_order but no advances, fetch them
 		// This handles the case when invoice is reloaded from backend
@@ -1129,7 +1139,39 @@ export default {
 			});
 		}
 
+		if (isReturn) {
+			doc.update_stock = 1;
+		} else {
+			doc.update_stock = this.getEffectiveInvoiceUpdateStock();
+		}
+
 		return doc;
+	},
+
+	getEffectiveInvoiceUpdateStock() {
+		if (this.isReturnInvoice) {
+			return 1;
+		}
+		const raw = this.invoice_update_stock;
+		if (raw === 0) {
+			return 0;
+		}
+		if (raw === 1) {
+			return 1;
+		}
+		return this.pos_profile?.update_stock ? 1 : 0;
+	},
+
+	// Keep draft doc.update_stock aligned with the POS toggle after server responses (update/reload).
+	applyUserUpdateStockToInvoiceDoc(doc) {
+		if (!doc || typeof doc !== "object" || doc.is_return) {
+			return;
+		}
+		const dt = doc.doctype;
+		if (dt && dt !== "Sales Invoice" && dt !== "POS Invoice") {
+			return;
+		}
+		doc.update_stock = this.getEffectiveInvoiceUpdateStock();
 	},
 
 	// Get invoice doc from order doc (for sales order to invoice conversion)
@@ -1190,7 +1232,7 @@ export default {
 			}
 		});
 		doc.items = newItems;
-		doc.update_stock = 1;
+		doc.update_stock = this.getEffectiveInvoiceUpdateStock();
 		doc.is_pos = 1;
 		doc.payments = this.get_payments();
 		return doc;
@@ -1415,6 +1457,7 @@ export default {
 			// When offline, simply merge the passed doc with the current invoice_doc
 			// to allow offline invoice creation without server calls
 			this.invoice_doc = Object.assign({}, this.invoice_doc || {}, doc);
+			this.applyUserUpdateStockToInvoiceDoc(this.invoice_doc);
 			return this.invoice_doc;
 		}
 
@@ -1436,6 +1479,7 @@ export default {
 			const message = response?.message;
 			if (message) {
 				this.invoice_doc = message;
+				this.applyUserUpdateStockToInvoiceDoc(this.invoice_doc);
 				if (message.exchange_rate_date) {
 					this.exchange_rate_date = message.exchange_rate_date;
 					const posting_backend = this.formatDateForBackend(this.posting_date_display);
@@ -1465,6 +1509,7 @@ export default {
 		if (isOffline()) {
 			// Offline mode - merge doc locally without server update
 			this.invoice_doc = Object.assign({}, this.invoice_doc || {}, doc);
+			this.applyUserUpdateStockToInvoiceDoc(this.invoice_doc);
 			return this.invoice_doc;
 		}
 
@@ -1479,6 +1524,7 @@ export default {
 			const message = response?.message;
 			if (message) {
 				this.invoice_doc = message;
+				this.applyUserUpdateStockToInvoiceDoc(this.invoice_doc);
 				if (message.exchange_rate_date) {
 					this.exchange_rate_date = message.exchange_rate_date;
 					const posting_backend = this.formatDateForBackend(this.posting_date_display);
@@ -1601,7 +1647,7 @@ export default {
 				}
 				// Load invoice - the load_invoice function will use the invoice's customer
 				// since it has a name (existing invoice from backend)
-				await this.load_invoice(doc);
+				await this.load_invoice(doc, { preserveUserUpdateStock: true });
 				return doc;
 			}
 			return null;
@@ -2066,6 +2112,8 @@ export default {
 				}
 			}
 		}
+			this.applyUserUpdateStockToInvoiceDoc(invoice_doc);
+
 			if (typeof this.paymentVisible !== "undefined") {
 				this.paymentVisible = true;
 			}
@@ -2484,7 +2532,7 @@ export default {
 						uom: item.uom,
 						tax_category: "",
 						transaction_type: "selling",
-						update_stock: this.pos_profile.update_stock,
+						update_stock: this.getEffectiveInvoiceUpdateStock(),
 						price_list: this.get_price_list(),
 						has_batch_no: item.has_batch_no,
 						has_serial_no: item.has_serial_no,
@@ -2613,7 +2661,12 @@ export default {
                         this.update_qty_limits(item);
                         
                         // Restore frozen max_qty after update_qty_limits sets it from reduced available_qty
-                        if (this.fatehPosSettings?.freeze_stock_during_entry && item?.item_code) {
+                        if (
+                                this.getEffectiveInvoiceUpdateStock &&
+                                this.getEffectiveInvoiceUpdateStock() !== 0 &&
+                                this.fatehPosSettings?.freeze_stock_during_entry &&
+                                item?.item_code
+                        ) {
                                 const frozen = this.frozenStockQuantities?.get(item.item_code);
                                 if (frozen && frozen.max_qty !== undefined && frozen.max_qty !== null) {
                                         item.max_qty = frozen.max_qty;
@@ -3277,8 +3330,41 @@ export default {
 		}
 	},
 
+	refresh_all_item_qty_limits() {
+		if (Array.isArray(this.items)) {
+			for (const row of this.items) {
+				if (row && this.update_qty_limits) {
+					this.update_qty_limits(row);
+				}
+			}
+		}
+		if (Array.isArray(this.packed_items)) {
+			for (const row of this.packed_items) {
+				if (row && this.update_qty_limits) {
+					this.update_qty_limits(row);
+				}
+			}
+		}
+		if (typeof this.$forceUpdate === "function") {
+			this.$forceUpdate();
+		}
+	},
+
 	// Update quantity limits based on available stock (simplified - validation handled centrally)
         update_qty_limits(item) {
+                if (!item) {
+                        return;
+                }
+
+                if (
+                        typeof this.getEffectiveInvoiceUpdateStock === "function" &&
+                        this.getEffectiveInvoiceUpdateStock() === 0
+                ) {
+                        item.max_qty = undefined;
+                        item.disable_increment = false;
+                        return;
+                }
+
                 if (item && item.is_stock_item === 0) {
                         item.max_qty = undefined;
                         item.disable_increment = false;

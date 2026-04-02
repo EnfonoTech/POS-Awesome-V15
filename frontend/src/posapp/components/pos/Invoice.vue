@@ -212,6 +212,33 @@
 									</v-list-item>
 								</template>
 							</v-autocomplete>
+							<div
+								v-if="pos_profile && invoiceType === 'Invoice' && !isReturnInvoice"
+								class="pos-update-stock-inline"
+							>
+								<v-tooltip location="bottom">
+									<template #activator="{ props: tipProps }">
+										<span v-bind="tipProps" class="d-inline-flex align-center">
+											<v-switch
+												v-model="invoice_update_stock"
+												:label="__('Update stock')"
+												:true-value="1"
+												:false-value="0"
+												color="primary"
+												density="compact"
+												hide-details
+												inset
+												class="pos-update-stock-switch pos-update-stock-switch--inline"
+											/>
+										</span>
+									</template>
+									<span>{{
+										__(
+											"When off, items can be sold without warehouse stock; invoice does not reduce inventory.",
+										)
+									}}</span>
+								</v-tooltip>
+							</div>
 						</div>
 						<v-btn
 							density="compact"
@@ -512,9 +539,11 @@ export default {
 			pendingScanCode: "",
 			awaitingScanResult: false,
 			scanDebounceId: null,
-			scanQueuedCode: "",
-			search_from_scanner: false,
-			packedItemsHeaders: [
+                        scanQueuedCode: "",
+                        search_from_scanner: false,
+			/** 1 = post invoice with stock ledger (default); 0 = billing-only */
+			invoice_update_stock: 1,
+                        packedItemsHeaders: [
 				{ title: __("No."), key: "index" },
 				{ title: __("Parent Item"), key: "parent_item" },
 				{ title: __("Item Code"), key: "item_code" },
@@ -953,6 +982,11 @@ export default {
                                 });
                                 // After stock coordinator updates, freeze any newly set values, then restore frozen values
                                 if (this.fatehPosSettings?.freeze_stock_during_entry) {
+                                        const skipRestoreMaxQty =
+                                                this.invoiceType === "Invoice" &&
+                                                !this.isReturnInvoice &&
+                                                typeof this.getEffectiveInvoiceUpdateStock === "function" &&
+                                                this.getEffectiveInvoiceUpdateStock() === 0;
                                         items.forEach((item) => {
                                                 if (item?.item_code) {
                                                         // Try to freeze again in case stock coordinator just set values
@@ -960,7 +994,11 @@ export default {
                                                         // Restore frozen values if they exist
                                                         const frozen = this.frozenStockQuantities.get(item.item_code);
                                                         if (frozen) {
-                                                                if (frozen.max_qty !== undefined && frozen.max_qty !== null) {
+                                                                if (
+                                                                        !skipRestoreMaxQty &&
+                                                                        frozen.max_qty !== undefined &&
+                                                                        frozen.max_qty !== null
+                                                                ) {
                                                                         item.max_qty = frozen.max_qty;
                                                                 }
                                                                 if (frozen.actual_qty !== undefined && frozen.actual_qty !== null) {
@@ -978,7 +1016,17 @@ export default {
                                 });
                         });
 
-                        this.$forceUpdate();
+                        if (
+                                this.invoiceType === "Invoice" &&
+                                !this.isReturnInvoice &&
+                                typeof this.getEffectiveInvoiceUpdateStock === "function" &&
+                                this.getEffectiveInvoiceUpdateStock() === 0 &&
+                                typeof this.refresh_all_item_qty_limits === "function"
+                        ) {
+                                this.refresh_all_item_qty_limits();
+                        } else {
+                                this.$forceUpdate();
+                        }
                 },
                 freezeStockQuantity(item) {
                         // Store the current actual_qty and max_qty as frozen if freeze_stock_during_entry is enabled
@@ -1324,6 +1372,15 @@ export default {
 		},
                 shouldEnforceStockLimits(item) {
                         if (!item) {
+                                return false;
+                        }
+
+                        if (
+                                this.invoiceType === "Invoice" &&
+                                !this.isReturnInvoice &&
+                                typeof this.getEffectiveInvoiceUpdateStock === "function" &&
+                                this.getEffectiveInvoiceUpdateStock() === 0
+                        ) {
                                 return false;
                         }
 
@@ -1966,9 +2023,16 @@ export default {
 
                         this.fetch_price_lists();
                         this.update_price_list();
+			this.invoice_update_stock = this.pos_profile.update_stock ? 1 : 0;
+			this.eventBus.emit("pos_invoice_update_stock", this.invoice_update_stock);
+			this.$nextTick(() => {
+				this.eventBus.emit("update_invoice_type", this.invoiceType);
+			});
                 },
                 handleClearInvoice() {
                         this.clear_invoice();
+			this.invoice_update_stock = this.pos_profile?.update_stock ? 1 : 0;
+			this.eventBus.emit("pos_invoice_update_stock", this.invoice_update_stock);
                         // Clear frozen stock when invoice is cleared
                         this.clearFrozenStock();
                         // Clear credit sale when invoice is cleared
@@ -2816,10 +2880,21 @@ export default {
 .search-fields-container {
 	display: flex;
 	align-items: center;
+	flex-wrap: wrap;
 	gap: 8px;
 	flex: 1 1 auto;
 	margin-right: auto;
 	min-width: 0;
+}
+
+.pos-update-stock-inline {
+	flex: 0 0 auto;
+	align-self: center;
+}
+
+.pos-update-stock-switch--inline :deep(.v-label) {
+	white-space: nowrap;
+	font-size: 0.8125rem;
 }
 
 .item-search-field {

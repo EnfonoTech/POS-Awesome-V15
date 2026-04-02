@@ -688,6 +688,8 @@ export default {
 		clearingSearch: false,
 		fatehPosSettings: {}, // Fateh POS Settings
 		frozenStockQuantities: new Map(), // Store frozen stock quantities when freeze_stock_during_entry is enabled
+		invoice_pos_update_stock: 1,
+		pos_invoice_type: "Invoice",
 	}),
 
 	watch: {
@@ -1775,6 +1777,15 @@ export default {
 			}
 			await this.add_item(item);
 		},
+		enforceStockAtPos() {
+			if (this.pos_invoice_type && this.pos_invoice_type !== "Invoice") {
+				return true;
+			}
+			return this.invoice_pos_update_stock === 1;
+		},
+		getDetailUpdateStockFlag() {
+			return this.enforceStockAtPos() ? 1 : 0;
+		},
 		async add_item(item, options = {}) {
 			const { suppressNegativeWarning = false } = options;
 			item = { ...item };
@@ -1795,6 +1806,7 @@ export default {
 				this.eventBus,
 				this.blockSaleBeyondAvailableQty,
 				!suppressNegativeWarning,
+				!this.enforceStockAtPos(),
 			);
 
 			if (!isValid) {
@@ -1937,7 +1949,11 @@ export default {
 							: null;
 				const requestedQty = Math.abs(new_item.qty || 1);
 
-				if (availableQty !== null && availableQty < requestedQty) {
+				if (
+					this.enforceStockAtPos() &&
+					availableQty !== null &&
+					availableQty < requestedQty
+				) {
 					const negativeStockEnabled = this.isNegativeStockEnabled();
 					const shouldBlock =
 						!negativeStockEnabled && (this.blockSaleBeyondAvailableQty || availableQty <= 0);
@@ -3501,7 +3517,7 @@ export default {
 							uom: newItem.uom || newItem.stock_uom,
 							tax_category: "",
 							transaction_type: "selling",
-							update_stock: this.pos_profile.update_stock,
+							update_stock: this.getDetailUpdateStockFlag(),
 							price_list: priceList,
 							has_batch_no: newItem.has_batch_no,
 							has_serial_no: newItem.has_serial_no,
@@ -3601,7 +3617,11 @@ export default {
 						? newItem.actual_qty
 						: null;
 
-			if (availableQty !== null && availableQty < requestedQty) {
+			if (
+				this.enforceStockAtPos() &&
+				availableQty !== null &&
+				availableQty < requestedQty
+			) {
 				const formattedAvailable = this.format_number
 					? this.format_number(availableQty, this.hide_qty_decimals ? 0 : this.float_precision)
 					: availableQty;
@@ -4192,9 +4212,21 @@ export default {
 		});
 
 		// Event listeners
+		this._onPosInvoiceUpdateStock = (val) => {
+			this.invoice_pos_update_stock = val ? 1 : 0;
+		};
+		this.eventBus.on("pos_invoice_update_stock", this._onPosInvoiceUpdateStock);
+
+		this._onUpdateInvoiceType = (t) => {
+			this.pos_invoice_type = t || "Invoice";
+		};
+		this.eventBus.on("update_invoice_type", this._onUpdateInvoiceType);
+
 		this.eventBus.on("register_pos_profile", async (data) => {
 			this.pos_profile = data.pos_profile;
 			this.stock_settings = data.stock_settings || {};
+			this.invoice_pos_update_stock = this.pos_profile.update_stock ? 1 : 0;
+			this.pos_invoice_type = this.pos_profile.posa_default_sales_order ? "Order" : "Invoice";
 			this.get_items_groups();
 			await this.initializeItems();
 			this.items_view = this.pos_profile.posa_default_card_view ? "card" : "list";
@@ -4425,6 +4457,12 @@ export default {
                 this.eventBus.off("cart_quantities_updated", this.handleCartQuantitiesUpdated);
                 this.eventBus.off("invoice_stock_adjusted", this.handleInvoiceStockAdjusted);
                 this.eventBus.off("update_customer_price_list");
+		if (this._onPosInvoiceUpdateStock) {
+			this.eventBus.off("pos_invoice_update_stock", this._onPosInvoiceUpdateStock);
+		}
+		if (this._onUpdateInvoiceType) {
+			this.eventBus.off("update_invoice_type", this._onUpdateInvoiceType);
+		}
 		this.eventBus.off("force_reload_items");
 		this.eventBus.off("focus_item_search");
 		this.eventBus.off("scan_barcode");

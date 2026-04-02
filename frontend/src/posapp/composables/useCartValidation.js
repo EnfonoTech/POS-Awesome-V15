@@ -32,6 +32,7 @@ export function useCartValidation() {
 		eventBus,
 		blockSaleBeyondAvailableQty = false,
 		showNegativeStockWarning = true,
+		skipStockValidation = false,
 	) {
 		isValidating.value = true;
 		validationError.value = null;
@@ -51,6 +52,10 @@ export function useCartValidation() {
 					});
 				}
 				return false;
+			}
+
+			if (skipStockValidation) {
+				return true;
 			}
 
 			// Step 3: Zero stock validation (if enabled)
@@ -90,7 +95,12 @@ export function useCartValidation() {
                                 }
 
                                 // Step 5: Server-side stock validation
-                                const stockValidationResult = await validateStockOnServer(item, requestedQty, posProfile);
+                                const stockValidationResult = await validateStockOnServer(
+					item,
+					requestedQty,
+					posProfile,
+					1,
+				);
 
                                 if (!stockValidationResult.isValid) {
                                         if (eventBus) {
@@ -121,6 +131,7 @@ export function useCartValidation() {
 				eventBus,
 				blockSaleBeyondAvailableQty,
 				showNegativeStockWarning,
+				skipStockValidation,
 			);
 		} finally {
 			isValidating.value = false;
@@ -134,7 +145,7 @@ export function useCartValidation() {
 	 * @param {Object} posProfile - POS profile settings
 	 * @returns {Promise<Object>} - Validation result object
 	 */
-	async function validateStockOnServer(item, requestedQty, posProfile) {
+	async function validateStockOnServer(item, requestedQty, posProfile, updateStock = 1) {
 		try {
 			// Prepare item for validation
 			const testItem = {
@@ -153,6 +164,7 @@ export function useCartValidation() {
 				args: {
 					items: JSON.stringify([testItem]),
 					pos_profile: posProfile?.name,
+					update_stock: updateStock,
 				},
 			});
 
@@ -193,8 +205,13 @@ export function useCartValidation() {
 		eventBus,
 		blockSaleBeyondAvailableQty = false,
 		showNegativeStockWarning = true,
+		skipStockValidation = false,
 	) {
 		console.warn("Using fallback validation due to server validation failure");
+
+		if (skipStockValidation) {
+			return true;
+		}
 
                 const isStockItem = parseBooleanSetting(item?.is_stock_item);
 
@@ -255,6 +272,7 @@ export function useCartValidation() {
 		eventBus,
 		blockSaleBeyondAvailableQty = false,
 		showNegativeStockWarning = true,
+		skipStockValidation = false,
 	) {
 		const validItems = [];
 		const invalidItems = [];
@@ -268,6 +286,7 @@ export function useCartValidation() {
 				eventBus,
 				blockSaleBeyondAvailableQty,
 				showNegativeStockWarning,
+				skipStockValidation,
 			);
 
 			if (isValid) {
