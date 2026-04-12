@@ -31,6 +31,7 @@
   "cash_transfer_account",
   "section_break_return_settings",
   "default_return_reason",
+  "max_billing_only_invoices_pending_dn_per_day",
   "section_break_scale_barcode",
   "scale_barcode_prefixes"
  ],
@@ -162,6 +163,7 @@
    "description": "Select additional warehouses to display stock quantities in the item details. The POS profile warehouse is already shown by default.",
    "fieldname": "warehouse_stock_warehouses",
    "fieldtype": "Table",
+   "ignore_user_permissions": 1,
    "label": "Additional Warehouses for Stock Display",
    "options": "Fateh POS Warehouse Stock"
   },
@@ -199,6 +201,13 @@
    "label": "Default Return Reason"
   },
   {
+   "default": "0",
+   "description": "Maximum submitted POS invoices per calendar day per POS Profile with Update stock off that still need a Delivery Note. Set 0 for no limit.",
+   "fieldname": "max_billing_only_invoices_pending_dn_per_day",
+   "fieldtype": "Int",
+   "label": "Max billing-only invoices pending delivery note (per day)"
+  },
+  {
    "fieldname": "section_break_scale_barcode",
    "fieldtype": "Section Break",
    "label": "Scale Barcode Settings"
@@ -214,7 +223,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2025-12-28 16:54:51.089544",
+ "modified": "2026-04-12 09:44:22.983383",
  "modified_by": "Administrator",
  "module": "POSAwesome",
  "name": "Fateh POS Settings",

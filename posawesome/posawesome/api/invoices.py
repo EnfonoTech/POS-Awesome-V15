@@ -16,6 +16,7 @@ from frappe.utils import (
     cint,
     cstr,
     flt,
+    formatdate,
     getdate,
     money_in_words,
     nowdate,
@@ -56,6 +57,128 @@ def _apply_item_name_overrides(invoice_doc, overrides=None):
         else:
             item.item_name = default_name
             item.name_overridden = 0
+
+
+def _pos_invoice_sql_context_for_profile(pos_profile):
+    """Match get_sales_invoice_list table choice (POS Invoice vs Sales Invoice)."""
+    use_pos_invoice = False
+    if pos_profile:
+        use_pos_invoice = cint(
+            frappe.db.get_value(
+                "POS Profile",
+                pos_profile,
+                "create_pos_invoice_instead_of_sales_invoice",
+            )
+        )
+    table_name = "tabPOS Invoice" if use_pos_invoice else "tabSales Invoice"
+    doctype_name = "POS Invoice" if use_pos_invoice else "Sales Invoice"
+    if use_pos_invoice and pos_profile:
+        pos_count = frappe.db.count("POS Invoice", filters={"pos_profile": pos_profile})
+        if not pos_count:
+            table_name = "tabSales Invoice"
+            doctype_name = "Sales Invoice"
+            use_pos_invoice = False
+    item_table = "`tabPOS Invoice Item`" if doctype_name == "POS Invoice" else "`tabSales Invoice Item`"
+    return {
+        "table_name": table_name,
+        "doctype_name": doctype_name,
+        "item_table": item_table,
+        "use_pos_invoice": use_pos_invoice,
+    }
+
+
+def _get_max_billing_only_invoices_pending_dn_per_day():
+    if not frappe.db.exists("DocType", "Fateh POS Settings"):
+        return 0
+    try:
+        doc = frappe.get_cached_doc("Fateh POS Settings", "Fateh POS Settings")
+    except Exception:
+        return 0
+    return cint(getattr(doc, "max_billing_only_invoices_pending_dn_per_day", None) or 0)
+
+
+def count_billing_only_invoices_pending_delivery_note(pos_profile, posting_date, exclude_invoice_name=None):
+    """Submitted POS billing-only invoices (update_stock off) with qty left to deliver, same posting date."""
+    if not pos_profile:
+        return 0
+    ctx = _pos_invoice_sql_context_for_profile(pos_profile)
+    tn = ctx["table_name"]
+    if tn not in ("tabSales Invoice", "tabPOS Invoice"):
+        return 0
+    conditions = """
+        si.pos_profile = %(pos_profile)s
+        AND si.docstatus = 1
+        AND IFNULL(si.is_return, 0) = 0
+        AND IFNULL(si.is_pos, 0) = 1
+        AND IFNULL(si.update_stock, 0) = 0
+        AND si.posting_date = %(posting_date)s
+    """
+    conditions += f"""
+        AND EXISTS (
+            SELECT 1 FROM {ctx["item_table"]} sii
+            WHERE sii.parent = si.name
+            AND sii.parenttype = %(dn_item_parenttype)s
+            AND IFNULL(sii.delivered_by_supplier, 0) = 0
+            AND (sii.qty - IFNULL(sii.delivered_qty, 0)) > 0.0000001
+        )
+    """
+    values = {
+        "pos_profile": pos_profile,
+        "posting_date": getdate(posting_date or nowdate()),
+        "dn_item_parenttype": ctx["doctype_name"],
+    }
+    if exclude_invoice_name:
+        conditions += " AND si.name != %(exclude_invoice)s"
+        values["exclude_invoice"] = exclude_invoice_name
+    row = frappe.db.sql(
+        f"SELECT COUNT(*) AS c FROM `{tn}` si WHERE {conditions}",
+        values,
+        as_dict=True,
+    )
+    return cint(row[0].c) if row else 0
+
+
+def _validate_billing_only_dn_daily_quota_before_submit(invoice_doc):
+    if not invoice_doc or not getattr(invoice_doc, "pos_profile", None):
+        return
+    if not cint(getattr(invoice_doc, "is_pos", 0)):
+        return
+    if cint(getattr(invoice_doc, "update_stock", 0)):
+        return
+    max_lim = _get_max_billing_only_invoices_pending_dn_per_day()
+    if max_lim <= 0:
+        return
+    pd = getdate(invoice_doc.posting_date or nowdate())
+    cnt = count_billing_only_invoices_pending_delivery_note(invoice_doc.pos_profile, pd)
+    if cnt >= max_lim:
+        frappe.throw(
+            _(
+                "Limit of {0} billing-only invoice(s) (Update stock off) awaiting delivery has been reached for this POS on {1}. Create delivery notes for existing invoices or keep Update stock on."
+            ).format(max_lim, formatdate(pd))
+        )
+
+
+@frappe.whitelist()
+def get_billing_only_dn_quota_status(pos_profile, posting_date=None):
+    pos_profile = cstr(pos_profile or "").strip()
+    if not pos_profile:
+        return {
+            "max": 0,
+            "current": 0,
+            "at_limit": False,
+            "can_turn_off_update_stock": True,
+        }
+    posting_date = getdate(posting_date or nowdate())
+    max_lim = _get_max_billing_only_invoices_pending_dn_per_day()
+    current = count_billing_only_invoices_pending_delivery_note(pos_profile, posting_date)
+    at_limit = max_lim > 0 and current >= max_lim
+    can_turn_off = max_lim == 0 or current < max_lim
+    return {
+        "max": max_lim,
+        "current": current,
+        "at_limit": at_limit,
+        "can_turn_off_update_stock": can_turn_off,
+    }
 
 
 def _get_available_stock(item):
@@ -747,7 +870,10 @@ def submit_invoice(invoice, data):
     frappe.flags.ignore_account_permission = True
     invoice_doc.posa_is_printed = 1
     invoice_doc.save()
-    
+
+    if invoice_doc.docstatus == 0:
+        _validate_billing_only_dn_daily_quota_before_submit(invoice_doc)
+
     payment_entry_data = None
     if invoice_doc.doctype == "Sales Invoice" and hasattr(invoice_doc, 'sales_order') and invoice_doc.sales_order:
         invoice_doc.calculate_taxes_and_totals()
@@ -885,6 +1011,9 @@ def submit_in_background_job(kwargs):
 
     invoice_doc.remarks = "\n".join(items)
     invoice_doc.save()
+
+    if invoice_doc.docstatus == 0:
+        _validate_billing_only_dn_daily_quota_before_submit(invoice_doc)
 
     invoice_doc.submit()
     redeeming_customer_credit(invoice_doc, data, is_payment_entry, total_cash, cash_account, payments)

@@ -210,8 +210,23 @@ export default {
 	posting_date: {
 		handler(newVal) {
 			this.posting_date_display = this.formatDateForDisplay(newVal);
+			if (typeof this.refreshBillingOnlyDnQuota === "function") {
+				this.$nextTick(() => {
+					this.refreshBillingOnlyDnQuota();
+				});
+			}
 		},
 		immediate: true,
+	},
+	pos_profile: {
+		deep: true,
+		handler() {
+			if (typeof this.refreshBillingOnlyDnQuota === "function") {
+				this.$nextTick(() => {
+					this.refreshBillingOnlyDnQuota();
+				});
+			}
+		},
 	},
 	// Update posting_date when user changes the display value
 	posting_date_display(newVal) {

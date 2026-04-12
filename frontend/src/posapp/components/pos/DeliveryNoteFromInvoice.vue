@@ -615,6 +615,7 @@ export default {
 						title: __("Delivery Note {0} submitted", [summary.name]),
 						color: "success",
 					});
+					this.eventBus.emit("billing_only_dn_pending_changed");
 				}
 				await this.loadInvoices();
 			} catch (e) {

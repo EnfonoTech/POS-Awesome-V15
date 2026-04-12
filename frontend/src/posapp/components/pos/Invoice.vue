@@ -220,7 +220,9 @@
 									<template #activator="{ props: tipProps }">
 										<span v-bind="tipProps" class="d-inline-flex align-center">
 											<v-switch
-												v-model="invoice_update_stock"
+												:model-value="invoice_update_stock"
+												@update:model-value="onInvoiceUpdateStockChange"
+												:disabled="updateStockSwitchDisabled"
 												:label="__('Update stock')"
 												:true-value="1"
 												:false-value="0"
@@ -528,6 +530,12 @@ export default {
 			quickItemOptions: [],
 			quickCustomers: [], // Quick customer buttons from Fateh POS Settings
 			fatehPosSettings: {}, // Fateh POS Settings data
+			billingOnlyDnQuota: {
+				max: 0,
+				current: 0,
+				at_limit: false,
+				can_turn_off_update_stock: true,
+			},
 			frozenStockQuantities: new Map(), // Store frozen stock quantities when freeze_stock_during_entry is enabled
 			warehouseStockData: new Map(), // Store stock quantities for additional warehouses: Map<item_code, Map<warehouse, qty>>
 			// Scanner-related properties (matching ItemsSelector)
@@ -608,6 +616,13 @@ export default {
 			set(value) {
 				this.invoiceStore.setPackedItems(value);
 			},
+		},
+		updateStockSwitchDisabled() {
+			const q = this.billingOnlyDnQuota;
+			if (!q || !q.max) {
+				return false;
+			}
+			return Boolean(q.at_limit && this.invoice_update_stock === 1);
 		},
                 ...invoiceComputed,
         },
@@ -2027,12 +2042,14 @@ export default {
 			this.eventBus.emit("pos_invoice_update_stock", this.invoice_update_stock);
 			this.$nextTick(() => {
 				this.eventBus.emit("update_invoice_type", this.invoiceType);
+				this.refreshBillingOnlyDnQuota();
 			});
                 },
                 handleClearInvoice() {
                         this.clear_invoice();
 			this.invoice_update_stock = this.pos_profile?.update_stock ? 1 : 0;
 			this.eventBus.emit("pos_invoice_update_stock", this.invoice_update_stock);
+			this.refreshBillingOnlyDnQuota();
                         // Clear frozen stock when invoice is cleared
                         this.clearFrozenStock();
                         // Clear credit sale when invoice is cleared
@@ -2132,12 +2149,70 @@ export default {
 				
 				// Store settings for use in column initialization
 				this.fatehPosSettings = msg;
+				await this.refreshBillingOnlyDnQuota();
 			} catch (error) {
 				console.warn("Could not load Fateh POS Settings:", error);
 				this.enableQuickItemSearch = false;
 				this.quickCustomers = [];
 				this.fatehPosSettings = {};
 			}
+		},
+		async refreshBillingOnlyDnQuota() {
+			const posProfileName = this.pos_profile?.name;
+			if (!posProfileName) {
+				this.billingOnlyDnQuota = {
+					max: 0,
+					current: 0,
+					at_limit: false,
+					can_turn_off_update_stock: true,
+				};
+				return;
+			}
+			try {
+				const res = await frappe.call({
+					method: "posawesome.posawesome.api.invoices.get_billing_only_dn_quota_status",
+					args: {
+						pos_profile: posProfileName,
+						posting_date: this.posting_date || frappe.datetime.nowdate(),
+					},
+				});
+				const m = res?.message;
+				this.billingOnlyDnQuota = {
+					max: Number(m?.max) || 0,
+					current: Number(m?.current) || 0,
+					at_limit: Boolean(m?.at_limit),
+					can_turn_off_update_stock: m?.can_turn_off_update_stock !== false,
+				};
+			} catch (e) {
+				console.warn("refreshBillingOnlyDnQuota failed:", e);
+				this.billingOnlyDnQuota = {
+					max: 0,
+					current: 0,
+					at_limit: false,
+					can_turn_off_update_stock: true,
+				};
+			}
+		},
+		async onInvoiceUpdateStockChange(val) {
+			const n = Number(val) === 1 ? 1 : 0;
+			if (
+				n === 0 &&
+				this.invoiceType === "Invoice" &&
+				!this.isReturnInvoice &&
+				this.pos_profile
+			) {
+				await this.refreshBillingOnlyDnQuota();
+				if (!this.billingOnlyDnQuota.can_turn_off_update_stock) {
+					this.eventBus.emit("show_message", {
+						title: __(
+							"Daily limit reached for billing-only invoices (Update stock off) pending delivery for this POS. Create delivery notes for existing invoices or keep Update stock on.",
+						),
+						color: "error",
+					});
+					return;
+				}
+			}
+			this.invoice_update_stock = n;
 		},
 		async loadQuickCustomerImages() {
 			const customerNames = this.quickCustomers
@@ -2532,6 +2607,9 @@ export default {
                                                 this.setCustomerFromPosProfile();
                                         });
                                 }
+                        },
+                        billing_only_dn_pending_changed: () => {
+                                this.refreshBillingOnlyDnQuota();
                         },
                 };
 
