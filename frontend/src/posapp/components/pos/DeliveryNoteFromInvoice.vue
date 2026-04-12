@@ -572,18 +572,45 @@ export default {
 			this.loadInvoices();
 		},
 		parseServerError(e) {
+			let raw = "";
 			if (e?.message && typeof e.message === "string" && e.message !== "error") {
-				return e.message;
+				raw = e.message;
 			}
-			if (e?.exc && typeof e.exc === "string") {
+			if (!raw && e?.exc && typeof e.exc === "string") {
 				try {
 					const parsed = JSON.parse(e.exc);
 					if (Array.isArray(parsed) && parsed[0]) {
-						return parsed[0];
+						raw = parsed[0];
 					}
 				} catch {
 					/* ignore */
 				}
+			}
+			if (raw) {
+				const low = raw.toLowerCase();
+				const mandatoryBatchSerial = /serial\s*no.*batch\s*no.*mandatory/i.test(raw);
+				const noStockShort = /no stock available in this warehouse/i.test(low);
+				if (mandatoryBatchSerial) {
+					let m = raw.match(/item\s+(.+?)(?=not\s+enough|no\s+stock|$)/i);
+					if (!m) {
+						m = raw.match(/item\s+([^\s.]+)/i);
+					}
+					const code = m ? m[1].replace(/[.,;:]+$/, "").trim() : "";
+					if (code) {
+						return __("No stock available in this warehouse for item {0}.", [code]);
+					}
+					return __("No stock available in this warehouse.");
+				}
+				if (noStockShort) {
+					const m = raw.match(/for item\s+([^\s.]+)/i);
+					if (m) {
+						return __("No stock available in this warehouse for item {0}.", [
+							m[1].replace(/[.,;:]+$/, ""),
+						]);
+					}
+					return __("No stock available in this warehouse.");
+				}
+				return raw;
 			}
 			return __("Could not create Delivery Note");
 		},

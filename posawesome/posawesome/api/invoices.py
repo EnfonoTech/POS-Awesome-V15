@@ -2,6 +2,7 @@
 # For license information, please see license.txt
 
 import json
+import re
 
 import frappe
 from erpnext.accounts.doctype.sales_invoice.sales_invoice import get_bank_cash_account
@@ -1615,6 +1616,38 @@ def _serialize_delivery_note_summary(dn_name: str) -> dict:
     }
 
 
+def _cleanup_draft_delivery_note(dn_name):
+    """Remove draft DN left after a failed submit (e.g. stock / batch validation)."""
+    if not dn_name or not frappe.db.exists("Delivery Note", dn_name):
+        return
+    try:
+        doc = frappe.get_doc("Delivery Note", dn_name)
+        if doc.docstatus == 0:
+            frappe.delete_doc("Delivery Note", dn_name, force=1, ignore_permissions=True)
+    except Exception:
+        frappe.log_error(frappe.get_traceback(), "POS: cleanup draft Delivery Note after failed submit")
+
+
+def _raise_friendly_dn_stock_error_if_serial_batch_mandatory(exc):
+    """
+    ERPNext Stock Ledger throws "Serial / Batch mandatory" when batch/serial stock cannot
+    be allocated (often no stock). Replace with a short warehouse message; clear prior
+    messages so the client does not show duplicate text.
+    """
+    err = cstr(getattr(exc, "message", None) or exc or "")
+    low = err.lower()
+    if "mandatory" not in low:
+        return
+    if not (("serial no" in low or "serial_no" in low) and ("batch no" in low or "batch_no" in low)):
+        return
+    m = re.search(r"item\s+([^\s.]+)", err, re.IGNORECASE)
+    item_ref = (m.group(1) if m else "").strip()
+    frappe.clear_messages()
+    if item_ref:
+        frappe.throw(_("No stock available in this warehouse for item {0}.").format(item_ref))
+    frappe.throw(_("No stock available in this warehouse."))
+
+
 def _make_delivery_note_from_pos_invoice(source_name, target_doc=None):
     """Map POS Invoice to Delivery Note (standard SI link fields are cleared before insert)."""
     from frappe.model.mapper import get_mapped_doc
@@ -1707,7 +1740,12 @@ def create_delivery_note_from_invoice(invoice_name, pos_profile=None):
         if not dn or not getattr(dn, "items", None):
             frappe.throw(_("Nothing left to deliver against this invoice"))
         dn.insert()
-        dn.submit()
+        try:
+            dn.submit()
+        except frappe.ValidationError as e:
+            _cleanup_draft_delivery_note(dn.name)
+            _raise_friendly_dn_stock_error_if_serial_batch_mandatory(e)
+            raise
         return _serialize_delivery_note_summary(dn.name)
 
     dn = _make_delivery_note_from_pos_invoice(invoice_name)
@@ -1719,5 +1757,10 @@ def create_delivery_note_from_invoice(invoice_name, pos_profile=None):
         row.si_detail = None
 
     dn.insert(ignore_links=True)
-    dn.submit()
+    try:
+        dn.submit()
+    except frappe.ValidationError as e:
+        _cleanup_draft_delivery_note(dn.name)
+        _raise_friendly_dn_stock_error_if_serial_batch_mandatory(e)
+        raise
     return _serialize_delivery_note_summary(dn.name)
