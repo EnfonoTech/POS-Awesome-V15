@@ -222,7 +222,6 @@
 											<v-switch
 												:model-value="invoice_update_stock"
 												@update:model-value="onInvoiceUpdateStockChange"
-												:disabled="updateStockSwitchDisabled"
 												:label="__('Update stock')"
 												:true-value="1"
 												:false-value="0"
@@ -616,13 +615,6 @@ export default {
 			set(value) {
 				this.invoiceStore.setPackedItems(value);
 			},
-		},
-		updateStockSwitchDisabled() {
-			const q = this.billingOnlyDnQuota;
-			if (!q || !q.max) {
-				return false;
-			}
-			return Boolean(q.at_limit && this.invoice_update_stock === 1);
 		},
                 ...invoiceComputed,
         },
@@ -2356,7 +2348,7 @@ export default {
 						method: "frappe.client.get_list",
 						args: {
 							doctype: "Item",
-							fields: ["item_code", "item_name"],
+							fields: ["name", "item_code", "item_name"],
 							filters: codeFilters,
 							order_by: "item_name asc",
 						},
@@ -2367,7 +2359,7 @@ export default {
 						method: "frappe.client.get_list",
 						args: {
 							doctype: "Item",
-							fields: ["item_code", "item_name"],
+							fields: ["name", "item_code", "item_name"],
 							filters: nameFilters,
 							order_by: "item_name asc",
 						},
@@ -2468,7 +2460,7 @@ export default {
 						method: "frappe.client.get_list",
 						args: {
 							doctype: "Item",
-							fields: ["item_code", "item_name"],
+							fields: ["name", "item_code", "item_name"],
 							filters: filters,
 							limit: 50, // Limit initial list to 50 for performance
 							order_by: "item_name asc",
@@ -2517,13 +2509,17 @@ export default {
 					}
 				}
 
-				this.quickItemOptions = results.map((item) => ({
-					title: `${item.item_code} - ${item.item_name || item.item_code}`,
-					value: item.item_code,
-					item_code: item.item_code,
-					item_name: item.item_name || item.item_code,
-					rate: item.rate || null,
-				}));
+				this.quickItemOptions = results.map((item) => {
+					const itemId = item.name || item.item_code;
+					const itemLabel = item.item_name || item.item_code;
+					return {
+						title: `${itemId} - ${itemLabel}`,
+						value: item.item_code,
+						item_code: item.item_code,
+						item_name: itemLabel,
+						rate: item.rate || null,
+					};
+				});
 			} catch (e) {
 				console.error("Quick item search failed", e);
 				this.quickItemOptions = [];

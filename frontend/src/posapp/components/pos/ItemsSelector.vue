@@ -1786,6 +1786,50 @@ export default {
 		getDetailUpdateStockFlag() {
 			return this.enforceStockAtPos() ? 1 : 0;
 		},
+		/**
+		 * When stock is positive but below the requested qty (e.g. 0.5 vs default 1),
+		 * sell the remaining quantity instead of blocking — unless negative stock is allowed
+		 * (then the full request is kept for server policy).
+		 */
+		clampRequestedQtyToAvailable(item, requestedQty) {
+			const req = Math.abs(Number(requestedQty) || 0);
+			if (!req) {
+				return req;
+			}
+			if (!this.enforceStockAtPos() || this.isNegativeStockEnabled()) {
+				return req;
+			}
+			if (!parseBooleanSetting(item?.is_stock_item)) {
+				return req;
+			}
+			const avail =
+				typeof item.actual_qty === "number"
+					? item.actual_qty
+					: typeof item.available_qty === "number"
+						? item.available_qty
+						: null;
+			if (avail === null || !Number.isFinite(avail) || avail <= 0) {
+				return req;
+			}
+			if (req <= avail) {
+				return req;
+			}
+			const prec = Math.min(Math.max(Number(this.float_precision) || 3, 0), 6);
+			const clamped = Number(Math.min(req, avail).toFixed(prec));
+			if (clamped <= 0) {
+				return req;
+			}
+			if (clamped < req && this.eventBus?.emit) {
+				const label = this.format_number
+					? this.format_number(clamped, prec)
+					: String(clamped);
+				this.eventBus.emit("show_message", {
+					title: this.__("Quantity set to available stock ({0})", [label]),
+					color: "info",
+				});
+			}
+			return clamped;
+		},
 		async add_item(item, options = {}) {
 			const { suppressNegativeWarning = false } = options;
 			item = { ...item };
@@ -1797,7 +1841,8 @@ export default {
 			}
 
 			// Validate item before adding to cart
-			const requestedQty = this.qty != null ? Math.abs(this.qty) : 1;
+			let requestedQty = this.qty != null ? Math.abs(this.qty) : 1;
+			requestedQty = this.clampRequestedQtyToAvailable(item, requestedQty);
 			const isValid = await this.cartValidation.validateCartItem(
 				item,
 				requestedQty,
@@ -1893,7 +1938,14 @@ export default {
 			if (!item.qty || (item.qty === 1 && !hasBarcodeQty)) {
 				let qtyVal = requestedQty;
 				if (this.hide_qty_decimals) {
-					qtyVal = Math.trunc(qtyVal);
+					const t = Math.trunc(qtyVal);
+					// Keep fractional qty when truncating would drop a valid partial sale (e.g. 0.5)
+					if (qtyVal > 0 && t === 0) {
+						const prec = Math.min(Math.max(Number(this.float_precision) || 3, 0), 6);
+						qtyVal = Number(qtyVal.toFixed(prec));
+					} else {
+						qtyVal = t;
+					}
 				}
 				item.qty = qtyVal;
 			}
@@ -1947,7 +1999,9 @@ export default {
 						: typeof new_item.actual_qty === "number"
 							? new_item.actual_qty
 							: null;
-				const requestedQty = Math.abs(new_item.qty || 1);
+				let requestedQty = Math.abs(new_item.qty || 1);
+				requestedQty = this.clampRequestedQtyToAvailable(new_item, requestedQty);
+				new_item.qty = requestedQty;
 
 				if (
 					this.enforceStockAtPos() &&
@@ -3609,7 +3663,9 @@ export default {
 
 			const requestedQtyRaw =
 				qtyFromBarcode !== null && !isNaN(qtyFromBarcode) ? qtyFromBarcode : (newItem.qty ?? 1);
-			const requestedQty = Math.abs(requestedQtyRaw || 1);
+			let requestedQty = Math.abs(requestedQtyRaw || 1);
+			requestedQty = this.clampRequestedQtyToAvailable(newItem, requestedQty);
+			newItem.qty = requestedQty;
 			const availableQty =
 				typeof newItem.available_qty === "number"
 					? newItem.available_qty
