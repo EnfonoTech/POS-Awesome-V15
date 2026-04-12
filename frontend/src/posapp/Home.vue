@@ -45,6 +45,7 @@ import Navbar from "./components/Navbar.vue";
 import POS from "./components/pos/Pos.vue";
 import Payments from "./components/payments/Pay.vue";
 import SalesInvoiceList from "./components/pos/SalesInvoiceList.vue";
+import DeliveryNoteFromInvoice from "./components/pos/DeliveryNoteFromInvoice.vue";
 import AppLoadingOverlay from "./components/ui/LoadingOverlay.vue";
 import UpdatePrompt from "./components/ui/UpdatePrompt.vue";
 import { useLoading } from "./composables/useLoading.js";
@@ -153,6 +154,7 @@ export default {
 		POS,
 		Payments,
 		InvoiceList: SalesInvoiceList,
+		DeliveryNote: DeliveryNoteFromInvoice,
 		AppLoadingOverlay,
 		UpdatePrompt,
 	},

@@ -1253,6 +1253,26 @@ def get_sales_invoice_list(page=1, items_per_page=25, filters=None, pos_profile=
         conditions += " AND si.customer_name LIKE %(customer_name)s"
         values["customer_name"] = f"%{filters['customer_name']}%"
 
+    if filters.get("customer"):
+        conditions += " AND si.customer = %(customer)s"
+        values["customer"] = cstr(filters["customer"]).strip()
+
+    if cint(filters.get("for_delivery_note")):
+        # Billing-only POS invoices (update stock off) with quantity still to deliver
+        conditions += " AND IFNULL(si.update_stock, 0) = 0"
+        conditions += " AND IFNULL(si.is_return, 0) = 0"
+        item_table = "`tabPOS Invoice Item`" if use_pos_invoice else "`tabSales Invoice Item`"
+        conditions += f"""
+            AND EXISTS (
+                SELECT 1 FROM {item_table} sii
+                WHERE sii.parent = si.name
+                AND sii.parenttype = %(dn_item_parenttype)s
+                AND IFNULL(sii.delivered_by_supplier, 0) = 0
+                AND (sii.qty - IFNULL(sii.delivered_qty, 0)) > 0.0000001
+            )
+        """
+        values["dn_item_parenttype"] = doctype_name
+
     if filters.get("from_date"):
         conditions += " AND si.posting_date >= %(from_date)s"
         values["from_date"] = filters["from_date"]
@@ -1315,6 +1335,7 @@ def get_sales_invoice_list(page=1, items_per_page=25, filters=None, pos_profile=
             si.outstanding_amount,
             si.paid_amount,
             si.pos_profile,
+            si.update_stock,
             '{doctype_name}' AS doctype
         FROM `{table_name}` si
         WHERE {conditions}
@@ -1361,3 +1382,213 @@ def get_sales_invoice_list(page=1, items_per_page=25, filters=None, pos_profile=
             "has_more": has_more,
         },
     }
+
+
+@frappe.whitelist()
+def get_invoice_delivery_preview(invoice_name, pos_profile=None):
+    """
+    Lines to deliver with warehouse and available stock (before creating a Delivery Note).
+    """
+    invoice_name = cstr(invoice_name or "").strip()
+    if not invoice_name:
+        frappe.throw(_("Invoice is required"))
+
+    pos_profile = cstr(pos_profile or "").strip() or None
+
+    doctype = None
+    if frappe.db.exists("POS Invoice", invoice_name):
+        doctype = "POS Invoice"
+    elif frappe.db.exists("Sales Invoice", invoice_name):
+        doctype = "Sales Invoice"
+    else:
+        frappe.throw(_("Invoice {0} not found").format(frappe.bold(invoice_name)))
+
+    doc = frappe.get_doc(doctype, invoice_name)
+    doc.check_permission("read")
+
+    if pos_profile and doc.get("pos_profile") and doc.get("pos_profile") != pos_profile:
+        frappe.throw(_("This invoice does not belong to the active POS Profile"))
+
+    set_wh = doc.get("set_warehouse") or ""
+    lines = []
+
+    for row in doc.get("items") or []:
+        if getattr(row, "delivered_by_supplier", 0):
+            continue
+        qty_to_deliver = flt(row.qty) - flt(row.delivered_qty or 0)
+        if qty_to_deliver <= 0:
+            continue
+
+        wh = row.warehouse or set_wh or ""
+        is_stock = cint(frappe.db.get_value("Item", row.item_code, "is_stock_item") or 0)
+        stock_in_wh = None
+        if is_stock:
+            if getattr(row, "batch_no", None) and wh:
+                stock_in_wh = flt(get_batch_qty(row.batch_no, wh) or 0)
+            elif wh:
+                stock_in_wh = flt(get_stock_availability(row.item_code, wh))
+            else:
+                stock_in_wh = 0.0
+
+        lines.append(
+            {
+                "item_code": row.item_code or "",
+                "item_name": row.item_name or "",
+                "warehouse": wh,
+                "uom": row.uom or "",
+                "invoice_qty": flt(row.qty),
+                "delivered_qty": flt(row.delivered_qty or 0),
+                "qty_to_deliver": qty_to_deliver,
+                "stock_in_warehouse": stock_in_wh,
+                "is_stock_item": is_stock,
+                "batch_no": getattr(row, "batch_no", None) or "",
+            }
+        )
+
+    return {
+        "invoice_name": doc.name,
+        "doctype": doctype,
+        "customer_name": doc.customer_name or "",
+        "set_warehouse": set_wh,
+        "lines": lines,
+    }
+
+
+def _serialize_delivery_note_summary(dn_name: str) -> dict:
+    """Return display-safe totals and lines for POS UI (no desk redirect)."""
+    dn = frappe.get_doc("Delivery Note", dn_name)
+    dn.check_permission("read")
+    items = []
+    for row in dn.items:
+        items.append(
+            {
+                "item_code": row.item_code or "",
+                "item_name": row.item_name or "",
+                "qty": flt(row.qty),
+                "uom": row.uom or "",
+                "rate": flt(row.rate),
+                "amount": flt(row.amount),
+            }
+        )
+    return {
+        "name": dn.name,
+        "doctype": dn.doctype,
+        "docstatus": dn.docstatus,
+        "customer": dn.customer,
+        "customer_name": dn.customer_name or "",
+        "posting_date": str(dn.posting_date) if dn.posting_date else None,
+        "company": dn.company,
+        "currency": dn.currency,
+        "items": items,
+        "net_total": flt(dn.net_total),
+        "total_taxes_and_charges": flt(dn.total_taxes_and_charges),
+        "grand_total": flt(dn.grand_total),
+    }
+
+
+def _make_delivery_note_from_pos_invoice(source_name, target_doc=None):
+    """Map POS Invoice to Delivery Note (standard SI link fields are cleared before insert)."""
+    from frappe.model.mapper import get_mapped_doc
+
+    def set_missing_values(source, target):
+        target.run_method("set_missing_values")
+        target.run_method("set_po_nos")
+        target.run_method("calculate_taxes_and_totals")
+
+    def update_item(source_doc, target_doc, source_parent):
+        target_doc.qty = flt(source_doc.qty) - flt(source_doc.delivered_qty)
+        target_doc.stock_qty = target_doc.qty * flt(source_doc.conversion_factor)
+        target_doc.base_amount = target_doc.qty * flt(source_doc.base_rate)
+        target_doc.amount = target_doc.qty * flt(source_doc.rate)
+
+    return get_mapped_doc(
+        "POS Invoice",
+        source_name,
+        {
+            "POS Invoice": {"doctype": "Delivery Note", "validation": {"docstatus": ["=", 1]}},
+            "POS Invoice Item": {
+                "doctype": "Delivery Note Item",
+                "field_map": {
+                    "name": "si_detail",
+                    "parent": "against_sales_invoice",
+                    "serial_no": "serial_no",
+                    "sales_order": "against_sales_order",
+                    "so_detail": "so_detail",
+                    "cost_center": "cost_center",
+                },
+                "postprocess": update_item,
+                "condition": lambda doc: doc.delivered_by_supplier != 1,
+            },
+            "Sales Taxes and Charges": {"doctype": "Sales Taxes and Charges", "reset_value": True},
+            "Sales Team": {
+                "doctype": "Sales Team",
+                "field_map": {"incentives": "incentives"},
+                "add_if_empty": True,
+            },
+        },
+        target_doc,
+        set_missing_values,
+    )
+
+
+@frappe.whitelist()
+def create_delivery_note_from_invoice(invoice_name, pos_profile=None):
+    """
+    Create and submit a Delivery Note from a submitted billing-only POS/Sales invoice.
+    Sales Invoice uses ERPNext's standard mapper; POS Invoice uses a POS-specific map
+    and clears against_sales_invoice lines because that link only allows Sales Invoice.
+    """
+    from erpnext.accounts.doctype.sales_invoice.sales_invoice import make_delivery_note
+
+    invoice_name = cstr(invoice_name or "").strip()
+    if not invoice_name:
+        frappe.throw(_("Invoice is required"))
+
+    pos_profile = cstr(pos_profile or "").strip() or None
+
+    doctype = None
+    if frappe.db.exists("POS Invoice", invoice_name):
+        doctype = "POS Invoice"
+    elif frappe.db.exists("Sales Invoice", invoice_name):
+        doctype = "Sales Invoice"
+    else:
+        frappe.throw(_("Invoice {0} not found").format(frappe.bold(invoice_name)))
+
+    doc = frappe.get_doc(doctype, invoice_name)
+    doc.check_permission("read")
+
+    if pos_profile and doc.get("pos_profile") and doc.get("pos_profile") != pos_profile:
+        frappe.throw(_("This invoice does not belong to the active POS Profile"))
+
+    if doc.docstatus != 1:
+        frappe.throw(_("Submit the invoice before creating a Delivery Note"))
+
+    if doc.get("is_return"):
+        frappe.throw(_("Delivery Note cannot be created from a return invoice here"))
+
+    if cint(doc.get("update_stock")) != 0:
+        frappe.throw(
+            _(
+                "This invoice already updates stock on submission. Use the Delivery Note list only for billing-only invoices (Update stock off)."
+            )
+        )
+
+    if doctype == "Sales Invoice":
+        dn = make_delivery_note(invoice_name)
+        if not dn or not getattr(dn, "items", None):
+            frappe.throw(_("Nothing left to deliver against this invoice"))
+        dn.insert()
+        dn.submit()
+        return _serialize_delivery_note_summary(dn.name)
+
+    dn = _make_delivery_note_from_pos_invoice(invoice_name)
+    if not dn or not getattr(dn, "items", None):
+        frappe.throw(_("Nothing left to deliver against this invoice"))
+
+    for row in dn.items:
+        row.against_sales_invoice = None
+        row.si_detail = None
+
+    dn.insert(ignore_links=True)
+    dn.submit()
+    return _serialize_delivery_note_summary(dn.name)

@@ -27,9 +27,9 @@
 		<v-list density="compact" nav v-model:selected="activeItem" selected-class="active-item">
 			<v-list-item
 				v-for="(item, index) in items"
-				:key="item.text"
+				:key="item.page || item.text"
 				:value="index"
-				@click="changePage(item.text)"
+				@click="changePage(item.page || item.text)"
 				class="drawer-item"
 			>
 				<template v-slot:prepend>

@@ -201,9 +201,10 @@ export default {
 			mini: true,
 			item: 0,
 			items: [
-				{ text: "POS", icon: "mdi-network-pos" },
-				{ text: "Payments", icon: "mdi-credit-card" },
-				{ text: "InvoiceList", icon: "mdi-file-document-multiple" },
+				{ text: "POS", page: "POS", icon: "mdi-network-pos" },
+				{ text: "Payments", page: "Payments", icon: "mdi-credit-card" },
+				{ text: "Delivery Note", page: "DeliveryNote", icon: "mdi-truck-delivery-outline" },
+				{ text: "Invoice List", page: "InvoiceList", icon: "mdi-file-document-multiple" },
 			],
 			company: "FATEH POS",
 			companyImg: posLogo,
