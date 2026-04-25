@@ -239,6 +239,26 @@
 										)
 									}}</span>
 								</v-tooltip>
+								<v-tooltip
+									v-if="billingOnlyDnQuota.max > 0"
+									location="bottom"
+								>
+									<template #activator="{ props: countTipProps }">
+										<v-chip
+											v-bind="countTipProps"
+											size="small"
+											:color="billingOnlyDnQuota.at_limit ? 'error' : 'primary'"
+											variant="flat"
+											label
+											class="ml-2 pos-update-stock-count"
+										>
+											<span class="font-weight-bold">{{ billingOnlyDnQuota.current }}</span>
+											<span class="mx-1 opacity-70">/</span>
+											<span>{{ billingOnlyDnQuota.max }}</span>
+										</v-chip>
+									</template>
+									<span>{{ __("Daily billing-only invoices") }}: {{ billingOnlyDnQuota.current }}/{{ billingOnlyDnQuota.max }}</span>
+								</v-tooltip>
 							</div>
 						</div>
 						<v-btn
@@ -2196,9 +2216,7 @@ export default {
 				await this.refreshBillingOnlyDnQuota();
 				if (!this.billingOnlyDnQuota.can_turn_off_update_stock) {
 					this.eventBus.emit("show_message", {
-						title: __(
-							"Daily limit reached for billing-only invoices (Update stock off) pending delivery for this POS. Create delivery notes for existing invoices or keep Update stock on.",
-						),
+						title: __("Daily limit reached"),
 						color: "error",
 					});
 					return;
@@ -2964,11 +2982,21 @@ export default {
 .pos-update-stock-inline {
 	flex: 0 0 auto;
 	align-self: center;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
 }
 
 .pos-update-stock-switch--inline :deep(.v-label) {
 	white-space: nowrap;
 	font-size: 0.8125rem;
+}
+
+.pos-update-stock-count {
+	font-size: 0.8125rem;
+	letter-spacing: 0.3px;
+	height: 26px !important;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 
 .item-search-field {
