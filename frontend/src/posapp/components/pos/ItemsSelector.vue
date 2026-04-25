@@ -3661,9 +3661,46 @@ export default {
 				newItem._barcode_qty = true;
 			}
 
-			const requestedQtyRaw =
-				qtyFromBarcode !== null && !isNaN(qtyFromBarcode) ? qtyFromBarcode : (newItem.qty ?? 1);
+			const isWeightedScan = qtyFromBarcode !== null && !isNaN(qtyFromBarcode);
+			const requestedQtyRaw = isWeightedScan ? qtyFromBarcode : (newItem.qty ?? 1);
 			let requestedQty = Math.abs(requestedQtyRaw || 1);
+
+			// For weighted items (scale barcode) with update_stock enabled, enforce strict
+			// stock check before clamping: if scanned weight exceeds available warehouse
+			// stock, reject the scan and don't add the item to the cart.
+			if (
+				isWeightedScan &&
+				this.enforceStockAtPos() &&
+				parseBooleanSetting(newItem.is_stock_item)
+			) {
+				// Prefer the base (warehouse) stock so cart-reserved qty doesn't skew the
+				// reported availability. Falls back to live actual/available qty.
+				const indexedItem = newItem.item_code ? this.lookupItemByBarcode(newItem.item_code) : null;
+				let stockAvail = this.getBaseActualQty(indexedItem || newItem);
+				if (stockAvail === null) {
+					stockAvail =
+						typeof newItem.actual_qty === "number"
+							? newItem.actual_qty
+							: typeof newItem.available_qty === "number"
+								? newItem.available_qty
+								: null;
+				}
+				if (stockAvail !== null && requestedQty > stockAvail) {
+					this.showScanError({
+						message: this.__("No stock for {0}", [
+							newItem.item_name || newItem.item_code || scannedCode,
+						]),
+						code: scannedCode,
+						details: formatStockShortageError(
+							newItem.item_name || newItem.item_code || scannedCode,
+							stockAvail,
+							requestedQty,
+						),
+					});
+					return;
+				}
+			}
+
 			requestedQty = this.clampRequestedQtyToAvailable(newItem, requestedQty);
 			newItem.qty = requestedQty;
 			const availableQty =
