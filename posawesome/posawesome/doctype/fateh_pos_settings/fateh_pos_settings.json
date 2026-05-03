@@ -24,6 +24,7 @@
   "show_batch_column_by_default",
   "default_customer_for_payments",
   "freeze_stock_during_entry",
+  "default_update_stock",
   "section_break_warehouse_stock",
   "warehouse_stock_warehouses",
   "section_break_cash_transfer",
@@ -155,6 +156,13 @@
    "label": "Freeze Stock During Entry"
   },
   {
+   "default": "1",
+   "description": "Default value for the per-invoice Update Stock toggle in POS. Overrides the POS Profile setting.",
+   "fieldname": "default_update_stock",
+   "fieldtype": "Check",
+   "label": "Default Update Stock"
+  },
+  {
    "fieldname": "section_break_warehouse_stock",
    "fieldtype": "Section Break",
    "label": "Warehouse Stock Display"
@@ -223,7 +231,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-04-12 09:44:22.983383",
+ "modified": "2026-05-03 13:45:00.000000",
  "modified_by": "Administrator",
  "module": "POSAwesome",
  "name": "Fateh POS Settings",

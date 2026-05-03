@@ -178,7 +178,12 @@ export default {
 	invoiceType(val) {
 		this.eventBus.emit("update_invoice_type", this.invoiceType);
 		if (val !== "Invoice") {
-			this.invoice_update_stock = this.pos_profile?.update_stock ? 1 : 0;
+			this.invoice_update_stock =
+				typeof this.getDefaultUpdateStock === "function"
+					? this.getDefaultUpdateStock()
+					: this.pos_profile?.update_stock
+						? 1
+						: 0;
 			this.eventBus.emit("pos_invoice_update_stock", this.invoice_update_stock);
 		}
 	},

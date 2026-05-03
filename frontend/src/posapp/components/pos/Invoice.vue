@@ -2050,7 +2050,7 @@ export default {
 
                         this.fetch_price_lists();
                         this.update_price_list();
-			this.invoice_update_stock = this.pos_profile.update_stock ? 1 : 0;
+			this.invoice_update_stock = this.getDefaultUpdateStock();
 			this.eventBus.emit("pos_invoice_update_stock", this.invoice_update_stock);
 			this.$nextTick(() => {
 				this.eventBus.emit("update_invoice_type", this.invoiceType);
@@ -2059,7 +2059,7 @@ export default {
                 },
                 handleClearInvoice() {
                         this.clear_invoice();
-			this.invoice_update_stock = this.pos_profile?.update_stock ? 1 : 0;
+			this.invoice_update_stock = this.getDefaultUpdateStock();
 			this.eventBus.emit("pos_invoice_update_stock", this.invoice_update_stock);
 			this.refreshBillingOnlyDnQuota();
                         // Clear frozen stock when invoice is cleared
@@ -2140,6 +2140,19 @@ export default {
                                 this.customersStore.setSelectedCustomer(this.pos_profile.customer);
                         }
                 },
+		// Returns the default value for the per-invoice Update Stock toggle.
+		// Prefers Fateh POS Settings; falls back to POS Profile when the setting
+		// is unset (legacy installs without the field).
+		getDefaultUpdateStock() {
+			const fateh = this.fatehPosSettings;
+			if (fateh && Object.prototype.hasOwnProperty.call(fateh, "default_update_stock")) {
+				const v = fateh.default_update_stock;
+				if (v !== null && v !== undefined && v !== "") {
+					return Number(v) === 1 ? 1 : 0;
+				}
+			}
+			return this.pos_profile?.update_stock ? 1 : 0;
+		},
 		async loadFatehPosSettings() {
 			try {
 				const res = await frappe.call({
