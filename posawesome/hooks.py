@@ -311,6 +311,8 @@ fixtures = [
                     "POS Invoice-posa_pos_opening_shift-no_copy",
                     "Sales Invoice Reference-sales_invoice-reqd",
                     "Sales Invoice-update_outstanding_for_self-default",
+                    "POS Profile-update_stock-hidden",
+                    "POS Profile-update_stock-read_only",
                 ),
             ]
         ],
