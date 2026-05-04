@@ -120,7 +120,18 @@ def count_billing_only_invoices_pending_delivery_note(pos_profile, posting_date,
             WHERE sii.parent = si.name
             AND sii.parenttype = %(dn_item_parenttype)s
             AND IFNULL(sii.delivered_by_supplier, 0) = 0
-            AND (sii.qty - IFNULL(sii.delivered_qty, 0)) > 0.0000001
+            AND (
+                sii.qty
+                - IFNULL(sii.delivered_qty, 0)
+                - IFNULL((
+                    SELECT SUM(ABS(rsii.qty))
+                    FROM {ctx["item_table"]} rsii
+                    JOIN `{tn}` rsi ON rsi.name = rsii.parent
+                    WHERE rsi.return_against = si.name
+                    AND rsi.docstatus = 1
+                    AND rsii.item_code = sii.item_code
+                ), 0)
+            ) > 0.0000001
         )
     """
     values = {
@@ -467,6 +478,15 @@ def update_invoice(data):
     # Preserve provided item names for manual overrides
     overrides = {d.idx: {"item_name": d.item_name} for d in invoice_doc.items}
     locked_items = {}
+    # For returns, update_stock must match the original invoice. ERPNext throws
+    # "'Update Stock' can not be checked because items are not delivered via X"
+    # when a return tries to deduct stock against a billing-only parent.
+    if invoice_doc.is_return and invoice_doc.get("return_against"):
+        parent_update_stock = frappe.db.get_value(
+            invoice_doc.doctype, invoice_doc.return_against, "update_stock"
+        )
+        if parent_update_stock is not None:
+            invoice_doc.update_stock = cint(parent_update_stock)
     if invoice_doc.is_return:
         # Set custom_return_reason if not already set (mandatory field for returns)
         # For Sales Invoice returns, it must be provided from frontend
@@ -561,7 +581,10 @@ def update_invoice(data):
 
         # Update payment amounts
         for payment in invoice_doc.payments:
-            payment.base_amount = flt(payment.amount * conversion_rate, payment.precision("base_amount"))
+            payment.base_amount = flt(
+                flt(payment.amount) * conversion_rate,
+                payment.precision("base_amount"),
+            )
 
         # Update invoice level amounts
         invoice_doc.base_total = flt(invoice_doc.total * conversion_rate, invoice_doc.precision("base_total"))
@@ -592,18 +615,30 @@ def update_invoice(data):
             else:
                 tax.included_in_print_rate = 1 if inclusive else 0
 
-    # For return invoices, payments should be negative amounts
+    # For return invoices, payments should be negative amounts.
+    # Coerce missing amounts (None) to 0.0; auto-added payment rows from the
+    # POS Profile may arrive without an amount set.
     if invoice_doc.is_return:
         for payment in invoice_doc.payments:
-            payment.amount = -abs(payment.amount)
-            payment.base_amount = -abs(payment.base_amount)
+            payment.amount = -abs(flt(payment.amount))
+            payment.base_amount = -abs(flt(payment.base_amount))
 
-        invoice_doc.paid_amount = flt(sum(p.amount for p in invoice_doc.payments))
-        invoice_doc.base_paid_amount = flt(sum(p.base_amount for p in invoice_doc.payments))
+        invoice_doc.paid_amount = flt(sum(flt(p.amount) for p in invoice_doc.payments))
+        invoice_doc.base_paid_amount = flt(sum(flt(p.base_amount) for p in invoice_doc.payments))
 
     invoice_doc.flags.ignore_permissions = True
     frappe.flags.ignore_account_permission = True
     invoice_doc.docstatus = 0
+
+    # Re-coerce update_stock for returns right before save: set_missing_values()
+    # above can re-pull the POS Profile default and clobber the earlier coercion.
+    if invoice_doc.is_return and invoice_doc.get("return_against"):
+        parent_update_stock = frappe.db.get_value(
+            invoice_doc.doctype, invoice_doc.return_against, "update_stock"
+        )
+        if parent_update_stock is not None:
+            invoice_doc.update_stock = cint(parent_update_stock)
+
     invoice_doc.save()
 
     # Return both the invoice doc and the updated data
@@ -672,6 +707,19 @@ def submit_invoice(invoice, data):
                 payment_row = invoice_doc.append("payments", {})
                 payment_row.update(payment)
     
+    # For returns, force update_stock to match the parent invoice. ERPNext
+    # rejects update_stock=1 returns whose parent had update_stock=0
+    # (validate_return_against in sales_and_purchase_return.py). The frontend
+    # may resend update_stock=1 when the cashier toggle is on, so re-coerce
+    # here too — update_invoice's fix is bypassed when submit_invoice loads an
+    # existing draft and replays the payload via invoice_doc.update(...).
+    if invoice_doc.is_return and invoice_doc.get("return_against"):
+        parent_update_stock = frappe.db.get_value(
+            invoice_doc.doctype, invoice_doc.return_against, "update_stock"
+        )
+        if parent_update_stock is not None:
+            invoice_doc.update_stock = cint(parent_update_stock)
+
     # Set custom_return_reason for return invoices if not already set
     if invoice_doc.is_return and not invoice_doc.get("custom_return_reason"):
         # For Sales Invoice returns, return reason is mandatory
@@ -870,6 +918,17 @@ def submit_invoice(invoice, data):
     invoice_doc.flags.ignore_permissions = True
     frappe.flags.ignore_account_permission = True
     invoice_doc.posa_is_printed = 1
+
+    # Re-coerce update_stock for returns right before save (idempotent with the
+    # earlier coercion); upstream calls like set_missing_values can pull the
+    # POS Profile default back in.
+    if invoice_doc.is_return and invoice_doc.get("return_against"):
+        parent_update_stock = frappe.db.get_value(
+            invoice_doc.doctype, invoice_doc.return_against, "update_stock"
+        )
+        if parent_update_stock is not None:
+            invoice_doc.update_stock = cint(parent_update_stock)
+
     invoice_doc.save()
 
     if invoice_doc.docstatus == 0:
@@ -942,7 +1001,17 @@ def submit_invoice(invoice, data):
             )
     else:
         invoice_doc.submit()
-        
+
+        # Auto-create return DN against the original DN(s) when the parent SI
+        # was billing-only. Wrapped so a DN failure does not unwind the return.
+        try:
+            _auto_create_return_delivery_note(invoice_doc)
+        except Exception:
+            frappe.log_error(
+                frappe.get_traceback(),
+                "POSawesome: auto-create return DN dispatcher failed",
+            )
+
         if payment_entry_data and invoice_doc.doctype == "Sales Invoice":
             posting_date = invoice_doc.get("posting_date") or nowdate()
             
@@ -1011,12 +1080,28 @@ def submit_in_background_job(kwargs):
     items.append(grand_total)
 
     invoice_doc.remarks = "\n".join(items)
+
+    # Re-coerce update_stock for returns right before save.
+    if invoice_doc.is_return and invoice_doc.get("return_against"):
+        parent_update_stock = frappe.db.get_value(
+            invoice_doc.doctype, invoice_doc.return_against, "update_stock"
+        )
+        if parent_update_stock is not None:
+            invoice_doc.update_stock = cint(parent_update_stock)
+
     invoice_doc.save()
 
     if invoice_doc.docstatus == 0:
         _validate_billing_only_dn_daily_quota_before_submit(invoice_doc)
 
     invoice_doc.submit()
+    try:
+        _auto_create_return_delivery_note(invoice_doc)
+    except Exception:
+        frappe.log_error(
+            frappe.get_traceback(),
+            "POSawesome: auto-create return DN (background) failed",
+        )
     redeeming_customer_credit(invoice_doc, data, is_payment_entry, total_cash, cash_account, payments)
 
 
@@ -1392,13 +1477,28 @@ def get_sales_invoice_list(page=1, items_per_page=25, filters=None, pos_profile=
         conditions += " AND IFNULL(si.update_stock, 0) = 0"
         conditions += " AND IFNULL(si.is_return, 0) = 0"
         item_table = "`tabPOS Invoice Item`" if use_pos_invoice else "`tabSales Invoice Item`"
+        # Show the invoice when at least one line still has positive
+        # (qty - delivered_qty - returned_qty). Returned qty is summed from
+        # submitted return invoices against this SI, matched by item_code so
+        # partial returns leave the unreturned remainder visible.
         conditions += f"""
             AND EXISTS (
                 SELECT 1 FROM {item_table} sii
                 WHERE sii.parent = si.name
                 AND sii.parenttype = %(dn_item_parenttype)s
                 AND IFNULL(sii.delivered_by_supplier, 0) = 0
-                AND (sii.qty - IFNULL(sii.delivered_qty, 0)) > 0.0000001
+                AND (
+                    sii.qty
+                    - IFNULL(sii.delivered_qty, 0)
+                    - IFNULL((
+                        SELECT SUM(ABS(rsii.qty))
+                        FROM {item_table} rsii
+                        JOIN `{table_name}` rsi ON rsi.name = rsii.parent
+                        WHERE rsi.return_against = si.name
+                        AND rsi.docstatus = 1
+                        AND rsii.item_code = sii.item_code
+                    ), 0)
+                ) > 0.0000001
             )
         """
         values["dn_item_parenttype"] = doctype_name
@@ -1648,6 +1748,104 @@ def _raise_friendly_dn_stock_error_if_serial_batch_mandatory(exc):
     frappe.throw(_("No stock available in this warehouse."))
 
 
+def _auto_create_return_delivery_note(invoice_doc):
+    """For a billing-only return invoice (parent had update_stock=0), create
+    return Delivery Note(s) against the original DN(s) so stock is put back.
+
+    No-op when:
+      * the invoice is not a return,
+      * it has no return_against,
+      * its own update_stock is 1 (the invoice itself moves stock),
+      * the parent invoice already moved stock through itself, or
+      * no submitted, non-return DN is linked to the parent SI.
+    """
+    if not invoice_doc.is_return or not invoice_doc.get("return_against"):
+        return None
+    if cint(getattr(invoice_doc, "update_stock", 0)):
+        return None
+    parent_update_stock = frappe.db.get_value(
+        invoice_doc.doctype, invoice_doc.return_against, "update_stock"
+    )
+    if cint(parent_update_stock):
+        return None
+
+    parent_name = invoice_doc.return_against
+    dn_rows = frappe.db.sql(
+        """SELECT dn.name AS dn_name, dni.item_code, dni.qty AS delivered_qty,
+                  dni.uom, dni.name AS dni_name
+           FROM `tabDelivery Note Item` dni
+           JOIN `tabDelivery Note` dn ON dn.name = dni.parent
+           WHERE dni.against_sales_invoice = %s
+             AND dn.docstatus = 1
+             AND IFNULL(dn.is_return, 0) = 0""",
+        parent_name,
+        as_dict=True,
+    )
+    if not dn_rows:
+        return None
+
+    from erpnext.controllers.sales_and_purchase_return import make_return_doc
+
+    # item_code -> [{dn_name, dni_name, delivered_qty}]
+    candidates_by_item = {}
+    for r in dn_rows:
+        candidates_by_item.setdefault(r["item_code"], []).append(r)
+
+    # dn_name -> {item_code: qty_to_return}
+    dn_to_items = {}
+    for item in invoice_doc.items:
+        return_qty = abs(flt(item.qty))
+        if return_qty <= 0:
+            continue
+        remaining = return_qty
+        for cand in candidates_by_item.get(item.item_code, []):
+            if remaining <= 0:
+                break
+            available = flt(cand["delivered_qty"])
+            if available <= 0:
+                continue
+            take = min(remaining, available)
+            bucket = dn_to_items.setdefault(cand["dn_name"], {})
+            bucket[item.item_code] = bucket.get(item.item_code, 0) + take
+            remaining -= take
+
+    if not dn_to_items:
+        return None
+
+    created = []
+    for dn_name, items_qty in dn_to_items.items():
+        try:
+            return_dn = make_return_doc("Delivery Note", dn_name)
+            kept_rows = []
+            for row in return_dn.items:
+                qty_to_return = items_qty.get(row.item_code)
+                if not qty_to_return:
+                    continue
+                row.qty = -abs(flt(qty_to_return))
+                kept_rows.append(row)
+            if not kept_rows:
+                continue
+            return_dn.set("items", kept_rows)
+            return_dn.flags.ignore_permissions = True
+            frappe.flags.ignore_account_permission = True
+            return_dn.insert()
+            return_dn.submit()
+            created.append(return_dn.name)
+        except Exception:
+            frappe.log_error(
+                frappe.get_traceback(),
+                f"POSawesome: auto-create return DN against {dn_name} failed",
+            )
+
+    if created:
+        frappe.msgprint(
+            _("Return Delivery Note(s) created: {0}").format(", ".join(created)),
+            indicator="green",
+            alert=True,
+        )
+    return created
+
+
 def _make_delivery_note_from_pos_invoice(source_name, target_doc=None):
     """Map POS Invoice to Delivery Note (standard SI link fields are cleared before insert)."""
     from frappe.model.mapper import get_mapped_doc
@@ -1693,6 +1891,47 @@ def _make_delivery_note_from_pos_invoice(source_name, target_doc=None):
     )
 
 
+def _returned_qty_by_item(parent_invoice_name, doctype="Sales Invoice"):
+    """Return {item_code: total_returned_qty} across submitted return invoices."""
+    item_table = "Sales Invoice Item" if doctype == "Sales Invoice" else "POS Invoice Item"
+    rows = frappe.db.sql(
+        f"""SELECT rsii.item_code, SUM(ABS(rsii.qty)) AS qty
+            FROM `tab{item_table}` rsii
+            JOIN `tab{doctype}` rsi ON rsi.name = rsii.parent
+            WHERE rsi.return_against = %s
+              AND rsi.docstatus = 1
+            GROUP BY rsii.item_code""",
+        parent_invoice_name,
+        as_dict=True,
+    )
+    return {r["item_code"]: flt(r["qty"]) for r in rows}
+
+
+def _trim_dn_items_by_returned(dn, returned):
+    """Reduce each DN row's qty by the returned bucket for that item; drop empty rows."""
+    if not returned:
+        return
+    bucket = dict(returned)
+    kept = []
+    for row in dn.items:
+        available = flt(row.qty)
+        if available <= 0:
+            continue
+        consume = min(available, bucket.get(row.item_code, 0))
+        if consume > 0:
+            bucket[row.item_code] = bucket[row.item_code] - consume
+            row.qty = flt(available - consume)
+        if flt(row.qty) <= 0:
+            continue
+        # Derived fields will be recomputed by calculate_taxes_and_totals on
+        # set_missing_values, but keep stock_qty/amount consistent for safety.
+        row.stock_qty = flt(row.qty) * flt(row.conversion_factor or 1)
+        row.amount = flt(row.qty) * flt(row.rate or 0)
+        row.base_amount = flt(row.qty) * flt(row.base_rate or row.rate or 0)
+        kept.append(row)
+    dn.set("items", kept)
+
+
 @frappe.whitelist()
 def create_delivery_note_from_invoice(invoice_name, pos_profile=None):
     """
@@ -1735,8 +1974,12 @@ def create_delivery_note_from_invoice(invoice_name, pos_profile=None):
             )
         )
 
+    returned = _returned_qty_by_item(invoice_name, doctype)
+
     if doctype == "Sales Invoice":
         dn = make_delivery_note(invoice_name)
+        if dn and getattr(dn, "items", None):
+            _trim_dn_items_by_returned(dn, returned)
         if not dn or not getattr(dn, "items", None):
             frappe.throw(_("Nothing left to deliver against this invoice"))
         dn.insert()
@@ -1749,6 +1992,8 @@ def create_delivery_note_from_invoice(invoice_name, pos_profile=None):
         return _serialize_delivery_note_summary(dn.name)
 
     dn = _make_delivery_note_from_pos_invoice(invoice_name)
+    if dn and getattr(dn, "items", None):
+        _trim_dn_items_by_returned(dn, returned)
     if not dn or not getattr(dn, "items", None):
         frappe.throw(_("Nothing left to deliver against this invoice"))
 
