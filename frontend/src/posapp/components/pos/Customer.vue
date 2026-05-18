@@ -253,6 +253,7 @@ export default {
 		const tempSelectedCustomer = ref(null);
 		const isMenuOpen = ref(false);
 		const customerDropdown = ref(null);
+		const currentSearchText = ref("");
                 const readonlyState = ref(false);
 
                 let scrollContainer = null;
@@ -355,6 +356,10 @@ export default {
 				return;
 			}
 
+			if (val) {
+				currentSearchText.value = "";
+			}
+
 			tempSelectedCustomer.value = val;
 
 			if (isMenuOpen.value && val) {
@@ -366,6 +371,9 @@ export default {
 
 		const onCustomerSearch = (value) => {
 			const term = value || "";
+			if (isMenuOpen.value) {
+				currentSearchText.value = term;
+			}
 			if (isCustomerBackgroundLoading.value) {
 				customersStore.queueSearch(term);
 				return;
@@ -383,6 +391,9 @@ export default {
 			});
 
 			if (!matched) {
+				const searchText = event.target.value?.trim() || "";
+				closeCustomerMenu();
+				eventBus?.emit("open_update_customer", searchText ? { customer_name: searchText } : null);
 				return;
 			}
 
@@ -396,11 +407,16 @@ export default {
 		};
 
 		const new_customer = () => {
-			eventBus?.emit("open_update_customer", null);
+			const searchText = currentSearchText.value.trim();
+			eventBus?.emit("open_update_customer", searchText ? { customer_name: searchText } : null);
 		};
 
 		const new_home_customer = () => {
-			eventBus?.emit("open_update_customer", { default_customer_group: "Home Customer" });
+			const searchText = currentSearchText.value.trim();
+			eventBus?.emit("open_update_customer", {
+				default_customer_group: "Home Customer",
+				...(searchText ? { customer_name: searchText } : {}),
+			});
 		};
 
                 const edit_customer = () => {
