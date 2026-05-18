@@ -4,6 +4,33 @@
 		<!-- Cancel Sale Confirmation Dialog -->
 		<CancelSaleDialog v-model="cancel_dialog" @confirm="cancel_invoice" />
 
+		<!-- Discount Limit Dialog -->
+		<v-dialog v-model="discountLimitError.show" max-width="420px" persistent>
+			<v-card>
+				<v-card-title class="d-flex align-center gap-2 pa-4">
+					<v-icon color="error" size="28">mdi-alert-circle</v-icon>
+					<span class="text-h6 text-error">{{ __("Discount Limit Exceeded") }}</span>
+				</v-card-title>
+				<v-divider />
+				<v-card-text class="pa-4">
+					<p>
+						{{ __("Additional discount cannot exceed") }}
+						<strong>{{ discountLimitError.maxPct }}%</strong>.
+					</p>
+					<p class="mt-2">
+						{{ __("It has been reduced to the maximum allowed amount of") }}
+						<strong>{{ discountLimitError.maxAmountFormatted }}</strong>.
+					</p>
+				</v-card-text>
+				<v-divider />
+				<v-card-actions class="pa-3 justify-end">
+					<v-btn color="error" variant="elevated" @click="discountLimitError.show = false">
+						{{ __("OK") }}
+					</v-btn>
+				</v-card-actions>
+			</v-card>
+		</v-dialog>
+
 		<!-- Scan Error Dialog - VERSION 2.0.3: Removed, ItemsSelector handles error notifications -->
 
 		<!-- Main Invoice Card (contains all invoice content) -->
@@ -448,7 +475,7 @@
 			:balance_after_advance="balance_after_advance"
 			:has_sales_order="has_sales_order"
 			:fatehPosSettings="fatehPosSettings"
-			@update:additional_discount="(val) => (additional_discount = val)"
+			@update:additional_discount="onAdditionalDiscountUpdate"
 			@update:additional_discount_percentage="(val) => (additional_discount_percentage = val)"
 			@update_discount_umount="update_discount_umount"
 			@save-and-clear="handleSaveAndClear"
@@ -597,6 +624,7 @@ export default {
                         show_column_selector: false, // Column selector dialog visibility
                         invoiceHeight: null,
                         paymentVisible: false, // Track current payment view state
+                        discountLimitError: { show: false, maxPct: 0, maxAmountFormatted: "" },
                         _busHandlers: {},
                         scanAudioContext: null, // Audio context for scan tones
                 };
@@ -643,6 +671,31 @@ export default {
                 ...shortcutMethods,
 		...offerMethods,
 		...invoiceItemMethods,
+		showDiscountLimitError(maxPct, maxAmount) {
+			this.discountLimitError = {
+				show: true,
+				maxPct,
+				maxAmountFormatted: format_currency(maxAmount, this.pos_profile.currency),
+			};
+		},
+		onAdditionalDiscountUpdate(val) {
+			const maxPct = parseFloat(this.pos_profile?.posa_max_discount_allowed) || 0;
+			const amount = parseFloat(val) || 0;
+			if (maxPct > 0) {
+				const base = this.Total;
+				if (base > 0) {
+					const enteredPct = (amount / base) * 100;
+					if (enteredPct > maxPct + 0.0001) {
+						const factor = Math.pow(10, this.currency_precision || 2);
+						const maxAmount = Math.floor((base * maxPct) / 100 * factor) / factor;
+						this.showDiscountLimitError(maxPct, maxAmount);
+						this.additional_discount = maxAmount;
+						return;
+					}
+				}
+			}
+			this.additional_discount = amount;
+		},
                 focusCustomerSearchField() {
                         const customerComponent = this.$refs.customerComponent;
                         if (!customerComponent) {

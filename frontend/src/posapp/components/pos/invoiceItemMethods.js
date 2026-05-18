@@ -1956,7 +1956,7 @@ export default {
 				return;
 			}
 
-			const isValid = this.validate();
+			const isValid = await this.validate();
 		if (!isValid) {
 			return;
 		}
@@ -2136,6 +2136,22 @@ export default {
 
 	// Validate invoice before payment/submit (return logic, quantity, rates, etc)
 	async validate() {
+
+		// Validate additional discount does not exceed posa_max_discount_allowed
+		const maxDiscountPct = parseFloat(this.pos_profile?.posa_max_discount_allowed) || 0;
+		if (maxDiscountPct > 0 && this.additional_discount > 0) {
+			const base = this.Total;
+			if (base > 0) {
+				const currentPct = (this.additional_discount / base) * 100;
+				if (currentPct > maxDiscountPct + 0.0001) {
+					const factor = Math.pow(10, this.currency_precision || 2);
+					const maxAmount = Math.floor((base * maxDiscountPct) / 100 * factor) / factor;
+					this.additional_discount = maxAmount;
+					this.showDiscountLimitError(maxDiscountPct, maxAmount);
+					return false;
+				}
+			}
+		}
 
 		// For all returns, check if amounts are negative
 		if (this.isReturnInvoice) {
