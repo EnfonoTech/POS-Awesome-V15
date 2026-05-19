@@ -930,7 +930,7 @@ export default {
 				},
 				{ title: __("Discount %"), key: "discount_value", align: "end", required: false },
 				{ title: __("Discount Amount"), key: "discount_amount", align: "end", required: false },
-				{ title: __("Rate"), key: "rate", align: "center", required: true },
+				{ title: __("Rate"), key: "rate", align: "center", required: true, minWidth: "130px" },
 				{ title: __("Amount"), key: "amount", align: "center", required: true },
 				{ title: __("Batch No"), key: "batch_no", align: "start", required: false, width: "160px" },
 				{ title: __("Offer?"), key: "posa_is_offer", align: "center", required: false },

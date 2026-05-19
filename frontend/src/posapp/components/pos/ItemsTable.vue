@@ -125,7 +125,26 @@
 
 			<!-- Rate column -->
 			<template v-slot:item.rate="{ item }">
-				<div class="currency-display right-aligned">
+				<div
+					v-if="pos_profile.posa_allow_user_to_edit_rate && !item.posa_is_replace && !item.posa_offer_applied"
+					class="inline-rate-field"
+					@click.stop
+				>
+					<div class="inline-rate-wrapper">
+						<span class="inline-rate-symbol">{{ currencySymbol(displayCurrency) }}</span>
+						<input
+							class="inline-rate-input"
+							type="text"
+							:value="formatCurrency(item.rate)"
+							@change="[
+								setFormatedCurrency(item, 'rate', null, false, $event),
+								calcPrices(item, $event.target.value, $event),
+							]"
+							@focus="$event.target.select()"
+						/>
+					</div>
+				</div>
+				<div v-else class="currency-display right-aligned">
 					<span class="currency-symbol">{{ currencySymbol(displayCurrency) }}</span>
 					<span class="amount-value" :class="{ 'negative-number': isNegative(item.rate) }">
 						{{ formatCurrency(item.rate) }}
@@ -3714,5 +3733,47 @@ body[dir="rtl"] .number-field-rtl {
 		grid-template-columns: 1fr;
 		gap: 8px;
 	}
+}
+
+.inline-rate-field {
+	width: 100%;
+	min-width: 120px;
+}
+
+.inline-rate-wrapper {
+	display: flex;
+	align-items: center;
+	border: 1.5px solid #b0bec5;
+	border-radius: 6px;
+	padding: 4px 8px;
+	gap: 4px;
+	width: 100%;
+	box-sizing: border-box;
+	transition: border-color 0.2s, box-shadow 0.2s;
+	background: transparent;
+}
+
+.inline-rate-wrapper:focus-within {
+	border-color: rgb(var(--v-theme-primary));
+	box-shadow: 0 0 0 2px rgba(var(--v-theme-primary), 0.15);
+}
+
+.inline-rate-symbol {
+	font-size: 0.78rem;
+	opacity: 0.6;
+	white-space: nowrap;
+	flex-shrink: 0;
+}
+
+.inline-rate-input {
+	border: none;
+	outline: none;
+	background: transparent;
+	width: 100%;
+	font-size: 0.88rem;
+	font-weight: 500;
+	color: inherit;
+	text-align: right;
+	min-width: 0;
 }
 </style>
