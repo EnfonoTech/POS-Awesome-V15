@@ -560,14 +560,27 @@
 					<v-col
 						cols="6"
 						v-if="invoice_doc && pos_profile.posa_allow_credit_sale && !invoice_doc.is_return"
+						class="d-flex align-center"
 					>
-						<v-switch 
-							v-model="is_credit_sale" 
-							:label="frappe._('Credit Sale?')"
+						<v-btn
 							:color="is_credit_sale ? 'warning' : 'primary'"
-						:disabled="(isOnlineDeliveryCustomer && is_credit_sale) || (isHomeCustomer && is_credit_sale) || isWalkInCustomer"
-						:readonly="(isOnlineDeliveryCustomer && is_credit_sale) || (isHomeCustomer && is_credit_sale) || isWalkInCustomer"
-						></v-switch>
+							:variant="is_credit_sale ? 'elevated' : 'outlined'"
+							:disabled="(isOnlineDeliveryCustomer && is_credit_sale) || (isHomeCustomer && is_credit_sale)"
+							@click="is_credit_sale = !is_credit_sale"
+							rounded="pill"
+							size="default"
+							class="credit-sale-toggle-btn font-weight-bold"
+						>
+							<v-icon start size="16">{{ is_credit_sale ? 'mdi-credit-card-check' : 'mdi-credit-card-clock-outline' }}</v-icon>
+							{{ frappe._('Credit Sale') }}
+							<v-chip
+								size="x-small"
+								:color="is_credit_sale ? 'white' : 'primary'"
+								:variant="is_credit_sale ? 'elevated' : 'tonal'"
+								class="ml-1 font-weight-bold"
+								label
+							>{{ is_credit_sale ? frappe._('ON') : frappe._('OFF') }}</v-chip>
+						</v-btn>
 					</v-col>
 					<v-col cols="6" v-if="invoice_doc && invoice_doc.is_return && pos_profile.use_cashback">
 						<v-switch
@@ -894,12 +907,6 @@ export default {
 			// Prioritize current customer info store/data over invoice_doc which might be stale
 			const customerGroup = this.customerInfoFromStore?.customer_group || this.customer_info?.customer_group || this.invoice_doc.customer_group;
 			return customerGroup === "Home Customer";
-		},
-		// Check if customer is Walk-in Customer
-		isWalkInCustomer() {
-			if (!this.invoice_doc) return false;
-			const customer = this.invoice_doc.customer || this.customerInfoFromStore?.name || this.customer_info?.name;
-			return customer === "Walk-in Customer";
 		},
 		// Check if invoice has sales order (from invoice_doc or items)
 		has_sales_order() {
@@ -1402,14 +1409,8 @@ export default {
 			const customerGroup = this.customerInfoFromStore?.customer_group || this.customer_info?.customer_group || this.invoice_doc.customer_group;
 			const customer = this.customerInfoFromStore?.name || this.customer_info?.name || this.invoice_doc.customer;
 			
-			// Simple logic: Walk-in Customer = OFF, Home Customer or Online Delivery = ON
-			if (customer === "Walk-in Customer") {
-				this._updatingCreditSale = true;
-				this.is_credit_sale = false;
-				this.$nextTick(() => {
-					this._updatingCreditSale = false;
-				});
-			} else if (customerGroup === "Home Customer" || customerGroup === "Online Delivery") {
+			// Home Customer or Online Delivery = auto credit sale ON
+			if (customerGroup === "Home Customer" || customerGroup === "Online Delivery") {
 				// First clear all payments, then set credit sale
 				if (this.invoice_doc.payments && Array.isArray(this.invoice_doc.payments)) {
 					this.invoice_doc.payments.forEach((payment) => {
@@ -1494,22 +1495,6 @@ export default {
 				return;
 			}
 			
-			
-			// Validate Walk-in Customer must pay full amount (only if remaining >= 1)
-			if (this.isWalkInCustomer && !this.is_credit_sale && !this.invoice_doc.is_return) {
-				const grandTotal = this.invoice_doc.rounded_total || this.invoice_doc.grand_total || 0;
-				const totalPayments = this.total_payments || 0;
-				const diff = this.flt(grandTotal - totalPayments, this.currency_precision);
-				
-				if (diff >= 1) { // Only validate if remaining amount is 1 or more
-					this.eventBus.emit("show_message", {
-						title: __("Walk-in Customer must pay full amount. Remaining: {0}", [this.formatCurrency(diff)]),
-						color: "error",
-					});
-					frappe.utils.play_sound("error");
-					return;
-				}
-			}
 			
 			// For return invoices, ensure payment amounts are negative
 			if (this.invoice_doc.is_return) {
@@ -2615,14 +2600,10 @@ export default {
 					this.is_credit_sale = this._pendingCreditSaleState;
 					this._pendingCreditSaleState = null;
 				} else if (!invoice_doc.is_return) {
-					// Simple logic: Walk-in Customer = OFF, Home Customer or Online Delivery = ON
 					const customerGroup = invoice_doc.customer_group || this.customerInfoFromStore?.customer_group;
-					const customer = invoice_doc.customer || this.customerInfoFromStore?.name;
-					
+
 					this._updatingCreditSale = true;
-					if (customer === "Walk-in Customer") {
-						this.is_credit_sale = false;
-					} else if (customerGroup === "Online Delivery" || customerGroup === "Home Customer") {
+					if (customerGroup === "Online Delivery" || customerGroup === "Home Customer") {
 						this.is_credit_sale = true;
 						// Set all payment amounts to 0 for credit sale customers
 						if (invoice_doc.payments && Array.isArray(invoice_doc.payments)) {
@@ -2762,6 +2743,19 @@ export default {
 </script>
 
 <style scoped>
+.credit-sale-toggle-btn {
+	letter-spacing: 0.03em;
+	transition: all 0.25s ease;
+	border-width: 2px;
+	min-width: 140px !important;
+	max-width: 200px !important;
+}
+
+.credit-sale-toggle-btn:not(:disabled):hover {
+	transform: translateY(-1px);
+	box-shadow: 0 4px 12px rgba(0,0,0,0.15) !important;
+}
+
 .v-text-field {
 	composes: pos-form-field;
 }

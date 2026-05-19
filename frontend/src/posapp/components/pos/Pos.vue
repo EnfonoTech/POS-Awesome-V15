@@ -112,7 +112,7 @@ export default {
 			coupons: false,
 			itemsLoaded: false,
 			customersLoaded: false,
-			hideLeftPanel: true, // VERSION 2.0.1 - Default hide left panel
+			hideLeftPanel: false,
 		};
 	},
 
@@ -201,54 +201,18 @@ export default {
 			this.eventBus.on("toggle-item-panel", () => {
 				this.toggleLeftPanel();
 			});
-			// VERSION 2.0.2 - Listen for pay event to unhide left panel, hide when closed
 			this.eventBus.on("show_payment", (data) => {
-				const wasPaymentOpen = this.payment;
 				this.payment = data === "true";
 				this.showOffers = false;
 				this.coupons = false;
-				// VERSION 2.0.2 - Unhide left panel when pay is clicked
-				if (this.payment && this.hideLeftPanel) {
-					this.hideLeftPanel = false;
-				}
-				// VERSION 2.0.2 - Hide left panel when payment is closed/cancelled
-				if (wasPaymentOpen && !this.payment) {
-					this.hideLeftPanel = true;
-					this.$nextTick(() => {
-						this.$forceUpdate();
-					});
-				}
 			});
-			// VERSION 2.0.2 - Also listen for close_payments event
 			this.eventBus.on("close_payments", () => {
-				if (this.payment) {
-					this.payment = false;
-					this.hideLeftPanel = true;
-					this.$nextTick(() => {
-						this.$forceUpdate();
-					});
-				} else {
-					// Even if payment wasn't open, ensure panel is hidden
-					if (!this.hideLeftPanel) {
-						this.hideLeftPanel = true;
-						this.$nextTick(() => {
-							this.$forceUpdate();
-						});
-					}
-				}
+				this.payment = false;
 			});
-			// VERSION 2.0.2 - Listen for hide item panel event (after submit/submit & print/save & clear)
 			this.hidePanelHandler = () => {
-				// Hide the left panel
-				this.hideLeftPanel = true;
-				// Also close payment screen if it's open
 				if (this.payment) {
 					this.payment = false;
 				}
-				// Force Vue reactivity update
-				this.$nextTick(() => {
-					this.$forceUpdate();
-				});
 			};
 			this.eventBus.on("hide-item-panel", this.hidePanelHandler);
 		});

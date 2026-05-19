@@ -180,8 +180,8 @@
 					<!-- Column selector button moved outside the table -->
 					<div class="column-selector-container">
 						<div class="search-fields-container">
-							<!-- VERSION 2.0.2 - Scanner input replaces search field -->
-							<v-text-field
+							<!-- Barcode scanner hidden for Masaa Al Khair -->
+							<!-- <v-text-field
 								ref="manualScanInput"
 								v-model="manualScanValue"
 								density="compact"
@@ -206,7 +206,7 @@
 										:title="__('Submit Code')"
 									></v-btn>
 								</template>
-							</v-text-field>
+							</v-text-field> -->
 							<v-autocomplete
 								v-if="enableQuickItemSearch"
 								ref="quickItemSearchInput"
@@ -240,7 +240,7 @@
 								</template>
 							</v-autocomplete>
 							<div
-								v-if="pos_profile && invoiceType === 'Invoice' && !isReturnInvoice"
+								v-if="pos_profile && invoiceType === 'Invoice' && !isReturnInvoice && !fatehPosSettings?.hide_update_stock_button"
 								class="pos-update-stock-inline"
 							>
 								<v-tooltip location="bottom">

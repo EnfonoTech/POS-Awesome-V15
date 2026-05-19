@@ -85,18 +85,6 @@
 			</template>
 		</v-autocomplete>
 			</div>
-			<!-- Home Customer Button -->
-			<v-btn
-				color="primary"
-				size="small"
-				variant="elevated"
-				class="home-customer-btn"
-				@click="new_home_customer"
-				:disabled="loadingCustomers"
-			>
-				<v-icon start>mdi-home</v-icon>
-				{{ __("Home Customer") }}
-			</v-btn>
 		</div>
 
 		<!-- Update customer modal -->

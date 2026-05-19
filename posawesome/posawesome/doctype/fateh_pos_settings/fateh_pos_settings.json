@@ -25,6 +25,8 @@
   "default_customer_for_payments",
   "freeze_stock_during_entry",
   "default_update_stock",
+  "hide_update_stock_button",
+  "hide_delivery_note_page",
   "section_break_warehouse_stock",
   "warehouse_stock_warehouses",
   "section_break_cash_transfer",
@@ -163,6 +165,20 @@
    "label": "Default Update Stock"
   },
   {
+   "default": "0",
+   "description": "When enabled, hides the Update Stock toggle in the POS invoice panel.",
+   "fieldname": "hide_update_stock_button",
+   "fieldtype": "Check",
+   "label": "Hide Update Stock Button"
+  },
+  {
+   "default": "0",
+   "description": "When enabled, removes the Delivery Note page from the navigation menu.",
+   "fieldname": "hide_delivery_note_page",
+   "fieldtype": "Check",
+   "label": "Hide Delivery Note Page"
+  },
+  {
    "fieldname": "section_break_warehouse_stock",
    "fieldtype": "Section Break",
    "label": "Warehouse Stock Display"
@@ -231,7 +247,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-05-03 13:45:00.000000",
+ "modified": "2026-05-19 10:00:00.000000",
  "modified_by": "Administrator",
  "module": "POSAwesome",
  "name": "Fateh POS Settings",

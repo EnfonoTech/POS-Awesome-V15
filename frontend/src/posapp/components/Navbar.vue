@@ -200,12 +200,13 @@ export default {
 			drawer: false,
 			mini: true,
 			item: 0,
-			items: [
+			allNavItems: [
 				{ text: "POS", page: "POS", icon: "mdi-network-pos" },
 				{ text: "Payments", page: "Payments", icon: "mdi-credit-card" },
 				{ text: "Delivery Note", page: "DeliveryNote", icon: "mdi-truck-delivery-outline" },
 				{ text: "Invoice List", page: "InvoiceList", icon: "mdi-file-document-multiple" },
 			],
+			fatehPosSettings: {},
 			company: "FATEH POS",
 			companyImg: posLogo,
 			showAboutDialog: false,
@@ -246,10 +247,17 @@ export default {
 		appBarColor() {
 			return this.isDark ? this.$vuetify.theme.themes.dark.colors.surface : "white";
 		},
+		items() {
+			if (this.fatehPosSettings?.hide_delivery_note_page) {
+				return this.allNavItems.filter((i) => i.page !== "DeliveryNote");
+			}
+			return this.allNavItems;
+		},
 	},
 	mounted() {
 		this.initializeNavbar();
 		this.setupEventListeners();
+		this.loadFatehPosSettings();
 	},
 
 	created() {
@@ -292,6 +300,18 @@ export default {
 						this.$set ? this.$set(this, "companyImg", logo) : (this.companyImg = logo);
 					}
 				}
+			}
+		},
+
+		async loadFatehPosSettings() {
+			try {
+				const res = await frappe.call({
+					method: "frappe.client.get",
+					args: { doctype: "Fateh POS Settings", name: "Fateh POS Settings" },
+				});
+				this.fatehPosSettings = res?.message || {};
+			} catch {
+				this.fatehPosSettings = {};
 			}
 		},
 
