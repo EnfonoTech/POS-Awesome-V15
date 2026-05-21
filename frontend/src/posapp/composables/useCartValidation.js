@@ -58,6 +58,23 @@ export function useCartValidation() {
 				return true;
 			}
 
+			// Pre-check: if displayed stock is 0, refresh from server before any validation
+			// so that stock received after POS loaded is picked up immediately
+			if (item.actual_qty === 0) {
+				const warehouse = posProfile?.warehouse;
+				if (warehouse) {
+					try {
+						const response = await frappe.call({
+							method: "posawesome.posawesome.api.items.get_available_qty",
+							args: { items: JSON.stringify([{ item_code: item.item_code, warehouse }]) },
+						});
+						item.actual_qty = (response.message || [])[0]?.available_qty ?? 0;
+					} catch {
+						// ignore — fall through to validation with 0
+					}
+				}
+			}
+
 			// Step 3: Zero stock validation (if enabled)
 			if (item.actual_qty === 0 && posProfile?.posa_display_items_in_stock) {
 				if (eventBus) {
