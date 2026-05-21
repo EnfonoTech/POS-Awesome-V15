@@ -58,19 +58,26 @@ export function useCartValidation() {
 				return true;
 			}
 
-			// Pre-check: if displayed stock is 0, refresh from server before any validation
-			// so that stock received after POS loaded is picked up immediately
+			// Pre-check: if displayed stock is 0 AND the item genuinely had 0 warehouse
+			// stock (not just fully reserved by the cart), refresh from server so that
+			// stock received after POS loaded is picked up immediately.
+			// _base_actual_qty > 0 means the item had stock that the cart has reserved —
+			// in that case keep the reservation-adjusted value and don't call server.
 			if (item.actual_qty === 0) {
-				const warehouse = posProfile?.warehouse;
-				if (warehouse) {
-					try {
-						const response = await frappe.call({
-							method: "posawesome.posawesome.api.items.get_available_qty",
-							args: { items: JSON.stringify([{ item_code: item.item_code, warehouse }]) },
-						});
-						item.actual_qty = (response.message || [])[0]?.available_qty ?? 0;
-					} catch {
-						// ignore — fall through to validation with 0
+				const baseQty = typeof item._base_actual_qty === "number" ? item._base_actual_qty : null;
+				const fullyReserved = baseQty !== null && baseQty > 0;
+				if (!fullyReserved) {
+					const warehouse = posProfile?.warehouse;
+					if (warehouse) {
+						try {
+							const response = await frappe.call({
+								method: "posawesome.posawesome.api.items.get_available_qty",
+								args: { items: JSON.stringify([{ item_code: item.item_code, warehouse }]) },
+							});
+							item.actual_qty = (response.message || [])[0]?.available_qty ?? 0;
+						} catch {
+							// ignore — fall through to validation with 0
+						}
 					}
 				}
 			}

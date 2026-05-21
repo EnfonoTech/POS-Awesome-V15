@@ -3636,9 +3636,16 @@ export default {
 					if (data.currency) {
 						newItem.currency = data.currency;
 					}
-					// Refresh actual_qty from server so the scan-path stock check uses live stock
+					// Refresh actual_qty from server only when the item genuinely had 0
+					// warehouse stock (not when it's 0 because the cart has reserved all units)
 					if (typeof data.actual_qty === "number") {
-						newItem.actual_qty = data.actual_qty;
+						const baseQty = typeof newItem._base_actual_qty === "number"
+							? newItem._base_actual_qty
+							: (newItem.actual_qty ?? 0);
+						if (baseQty === 0) {
+							newItem.actual_qty = data.actual_qty;
+							newItem._base_actual_qty = data.actual_qty;
+						}
 					}
 
 					console.log("Item detail fetched for barcode scan:", {
