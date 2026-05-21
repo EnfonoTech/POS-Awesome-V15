@@ -168,7 +168,9 @@ export const useItemsStore = defineStore("items", () => {
 		if (limitSearchEnabled.value) {
 			return false;
 		}
-
+		if (posProfile.value?.posa_force_server_items) {
+			return false;
+		}
 		return Boolean(posProfile.value?.posa_local_storage);
 	};
 
@@ -176,7 +178,9 @@ export const useItemsStore = defineStore("items", () => {
 		if (limitSearchEnabled.value) {
 			return false;
 		}
-
+		if (posProfile.value?.posa_force_server_items) {
+			return false;
+		}
 		return Boolean(posProfile.value?.posa_local_storage);
 	};
 

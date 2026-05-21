@@ -13,9 +13,12 @@ from frappe.utils.caching import redis_cache
 
 
 def _resolve_cache_ttl(ttl: Optional[int]) -> int:
-    """Return a numeric TTL value while falling back to the default window."""
+    """Return a numeric TTL value; 1 second when unset (effectively no cache)."""
 
-    return int(ttl) if ttl else 300
+    if ttl is None:
+        return 1
+    resolved = int(ttl)
+    return resolved if resolved > 0 else 1
 
 
 def _cache_wrapper(store: Dict[int, Callable[..., Any]], ttl: Optional[int], fn: Callable[..., Any]):

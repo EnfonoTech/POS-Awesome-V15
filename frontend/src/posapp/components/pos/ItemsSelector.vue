@@ -3636,6 +3636,10 @@ export default {
 					if (data.currency) {
 						newItem.currency = data.currency;
 					}
+					// Refresh actual_qty from server so the scan-path stock check uses live stock
+					if (typeof data.actual_qty === "number") {
+						newItem.actual_qty = data.actual_qty;
+					}
 					
 					console.log("Item detail fetched for barcode scan:", {
 						item_code: newItem.item_code,
