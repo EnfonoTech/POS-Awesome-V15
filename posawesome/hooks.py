@@ -296,6 +296,8 @@ fixtures = [
                     "POS Profile-posa_enable_camera_scanning",
                     "POS Profile-posa_camera_scan_type",
                     "POS Profile-posa_language",
+                    "POS Profile-posa_allow_multi_currency",
+                    "POS Profile-posa_decimal_precision",
                 ),
             ]
         ],
@@ -314,19 +316,6 @@ fixtures = [
                     "POS Profile-update_stock-hidden",
                     "POS Profile-update_stock-read_only",
                 ),
-            ]
-        ],
-    },
-    {
-        "doctype": "Custom Field",
-        "filters": [
-            [
-                "name",
-                "in",
-                [
-                    "POS Profile-posa_allow_multi_currency",
-                    "POS Profile-posa_decimal_precision",
-                ],
             ]
         ],
     },
