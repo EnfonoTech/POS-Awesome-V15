@@ -278,6 +278,7 @@ fixtures = [
                     "POS Profile-posa_display_discount_percentage",
                     "POS Profile-posa_display_discount_amount",
                     "POS Profile-posa_allow_change_posting_date",
+                    "POS Profile-posa_show_customer_balance",
                     "POS Profile-posa_default_card_view",
                     "POS Profile-posa_default_sales_order",
                     "POS Profile-column_break_dqsba",
