@@ -233,6 +233,14 @@
 							>
 								<template #item="{ props, item }">
 									<v-list-item v-bind="props">
+										<template #append>
+											<v-chip
+												v-if="item.raw.tax_exclusive"
+												color="orange"
+												size="x-small"
+												label
+											>{{ __("Tax Excl.") }}</v-chip>
+										</template>
 										<v-list-item-subtitle v-if="item.raw.rate !== undefined && item.raw.rate !== null">
 											{{ __("Rate") }}: {{ formatCurrency(item.raw.rate) }}
 										</v-list-item-subtitle>
@@ -930,7 +938,8 @@ export default {
 				},
 				{ title: __("Discount %"), key: "discount_value", align: "end", required: false },
 				{ title: __("Discount Amount"), key: "discount_amount", align: "end", required: false },
-				{ title: __("Rate"), key: "rate", align: "center", required: true, minWidth: "130px" },
+				{ title: __("Excl. Rate"), key: "rate", align: "center", required: true, minWidth: "130px" },
+				{ title: __("Rate"), key: "incl_rate", align: "center", required: false, minWidth: "110px" },
 				{ title: __("Amount"), key: "amount", align: "center", required: true },
 				{ title: __("Batch No"), key: "batch_no", align: "start", required: false, width: "160px" },
 				{ title: __("Offer?"), key: "posa_is_offer", align: "center", required: false },
@@ -945,6 +954,7 @@ export default {
 						if (col.required) return true;
 						if (col.key === "uom") return true; // Always show UOM column for inline editing
 						if (col.key === "price_list_rate") return true;
+						if (col.key === "incl_rate") return true;
 						if (col.key === "discount_value" && this.pos_profile.posa_display_discount_percentage)
 							return true;
 						if (col.key === "discount_amount" && this.pos_profile.posa_display_discount_amount)
@@ -2117,9 +2127,6 @@ export default {
 			this.refreshBillingOnlyDnQuota();
                         // Clear frozen stock when invoice is cleared
                         this.clearFrozenStock();
-                        // Clear credit sale when invoice is cleared
-                        // It will be set correctly based on the next customer's group
-                        this.eventBus.emit("auto_toggle_credit_sale", false);
                         this.eventBus.emit("focus_item_search");
                 },
                 handleLoadInvoice(data) {
@@ -2432,7 +2439,7 @@ export default {
 						method: "frappe.client.get_list",
 						args: {
 							doctype: "Item",
-							fields: ["name", "item_code", "item_name"],
+							fields: ["name", "item_code", "item_name", "tax_exclusive"],
 							filters: codeFilters,
 							order_by: "item_name asc",
 						},
@@ -2602,6 +2609,7 @@ export default {
 						item_code: item.item_code,
 						item_name: itemLabel,
 						rate: item.rate || null,
+						tax_exclusive: item.tax_exclusive || 0,
 					};
 				});
 			} catch (e) {
@@ -2780,12 +2788,6 @@ export default {
 				// Also emit event so Customer component knows about it
 				this.eventBus.emit("set_customer", profileCustomer);
 				
-				// Clear credit sale when setting POS profile customer (will be set correctly after customer_info loads)
-				// This ensures credit sale is off for non-Online Delivery customers
-				this.$nextTick(() => {
-					this.eventBus.emit("auto_toggle_credit_sale", false);
-				});
-				
 				// Verify customer was set, retry if needed (max 5 retries)
 				this.$nextTick(() => {
 					if (this.customer !== profileCustomer && retryCount < 5) {
@@ -2840,29 +2842,6 @@ export default {
 					this.fetch_customer_details();
 				}
 			},
-		);
-		// Watch customer_info to auto-toggle credit sale for "Online Delivery" customer group
-		this.$watch(
-			() => this.customer_info,
-			(newCustomerInfo, oldCustomerInfo) => {
-				const newGroup = newCustomerInfo?.customer_group;
-				const oldGroup = oldCustomerInfo?.customer_group;
-				
-				// Toggle credit sale based on customer group
-				if (newGroup === "Online Delivery") {
-					// Auto-enable credit sale for Online Delivery customer group
-					this.eventBus.emit("auto_toggle_credit_sale", true);
-				} else if (oldGroup === "Online Delivery" || (newGroup && newGroup !== "Online Delivery")) {
-					// Auto-disable credit sale when:
-					// 1. Switching from Online Delivery to a different customer group
-					// 2. Any other customer group is selected (not Online Delivery)
-					this.eventBus.emit("auto_toggle_credit_sale", false);
-				} else if (!newGroup && oldGroup === "Online Delivery") {
-					// Customer group cleared or customer changed - disable credit sale if it was Online Delivery
-					this.eventBus.emit("auto_toggle_credit_sale", false);
-				}
-			},
-			{ deep: true, immediate: false },
 		);
                 this._shortcutHandlers = this._shortcutHandlers || {};
 

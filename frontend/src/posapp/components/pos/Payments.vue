@@ -2700,16 +2700,6 @@ export default {
 			this.eventBus.on("set_mpesa_payment", (data) => {
 				this.set_mpesa_payment(data);
 			});
-			// Auto-toggle credit sale (e.g., for Online Delivery customer group)
-			this.eventBus.on("auto_toggle_credit_sale", (enable) => {
-				// Apply immediately if invoice_doc exists, otherwise it will be applied when invoice_doc is set
-				if (this.invoice_doc && !this.invoice_doc.is_return) {
-					this.is_credit_sale = enable === true;
-				} else {
-					// Store the desired state to apply when invoice_doc becomes available
-					this._pendingCreditSaleState = enable === true;
-				}
-			});
 			// Clear any stored invoice when parent emits clear_invoice
 			this.eventBus.on("clear_invoice", () => {
 				this.invoice_doc = "";

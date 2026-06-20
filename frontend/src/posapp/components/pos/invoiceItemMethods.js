@@ -2628,6 +2628,7 @@ export default {
 		item.is_stock_item = data.is_stock_item;
 		item.is_fixed_asset = data.is_fixed_asset;
 		item.allow_alternative_item = data.allow_alternative_item;
+		item.tax_exclusive = data.tax_exclusive || 0;
                 item.is_stock_item = data.is_stock_item;
                 item.warehouse = data.warehouse || item.warehouse;
 
@@ -2813,9 +2814,38 @@ export default {
                 item.has_serial_no = data.has_serial_no;
                 item.has_batch_no = data.has_batch_no;
 
+		if (item.tax_exclusive) {
+			item.tax_exclusive_rate = item.price_list_rate || item.rate || 0;
+			const tf = this._getTaxFraction(item);
+			const inclRate = this.flt(item.tax_exclusive_rate * (1 + tf), this.currency_precision);
+			item.rate = inclRate;
+			item.base_rate = inclRate;
+		}
+
 		item.amount = this.flt(item.qty * item.rate, this.currency_precision);
 		item.base_amount = this.flt(item.qty * item.base_rate, this.currency_precision);
 	},
+
+	_getTaxFraction(item) {
+		let fraction = 0;
+		const itemTaxMap = {};
+		if (item?.item_tax_rate) {
+			try { Object.assign(itemTaxMap, JSON.parse(item.item_tax_rate)); } catch (e) {}
+		}
+		// invoice_doc.taxes is empty until first backend save; fall back to POS profile template
+		const taxes = this.invoice_doc?.taxes?.length
+			? this.invoice_doc.taxes
+			: (getTaxTemplate(this.pos_profile?.taxes_and_charges)?.taxes || []);
+		for (const tax of taxes) {
+			if (tax.charge_type !== "On Net Total") continue;
+			const rate = tax.account_head in itemTaxMap
+				? itemTaxMap[tax.account_head]
+				: (tax.rate || 0);
+			fraction += rate / 100;
+		}
+		return fraction;
+	},
+
 	// Fetch customer details (info, price list, etc)
 	async fetch_customer_details() {
 		var vm = this;
@@ -2830,10 +2860,6 @@ export default {
                                 if (cached) {
                                         vm.customer_info = { ...cached };
                                         vm.sync_invoice_customer_details(vm.customer_info);
-                                        // Auto-toggle credit sale for "Online Delivery" customer group
-                                        if (cached.customer_group === "Online Delivery") {
-                                                vm.eventBus.emit("auto_toggle_credit_sale", true);
-                                        }
                                         if (vm.pos_profile.posa_force_price_from_customer_price_list !== false) {
                                                 const defaultPriceList = vm.pos_profile?.selling_price_list || null;
                                                 const resolvedPriceList = cached.customer_price_list || defaultPriceList;
@@ -2849,10 +2875,6 @@ export default {
                                 if (queued) {
                                         vm.customer_info = { ...queued, name: queued.customer_name };
                                         vm.sync_invoice_customer_details(vm.customer_info);
-                                        // Auto-toggle credit sale for "Online Delivery" customer group
-                                        if (queued.customer_group === "Online Delivery") {
-                                                vm.eventBus.emit("auto_toggle_credit_sale", true);
-                                        }
                                         if (vm.pos_profile.posa_force_price_from_customer_price_list !== false) {
                                                 const defaultPriceList = vm.pos_profile?.selling_price_list || null;
                                                 const resolvedPriceList = queued.customer_price_list || defaultPriceList;
@@ -2880,10 +2902,6 @@ export default {
                                         ...message,
                                 };
                                 vm.sync_invoice_customer_details(vm.customer_info);
-                                // Auto-toggle credit sale for "Online Delivery" customer group
-                                if (message.customer_group === "Online Delivery") {
-                                        vm.eventBus.emit("auto_toggle_credit_sale", true);
-                                }
                         }
 			// When force reload is enabled, automatically switch to the
 			// customer's default price list so that item rates are fetched

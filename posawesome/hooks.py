@@ -332,10 +332,4 @@ fixtures = [
             ]
         ],
     },
-    {
-        "doctype": "Customer Group",
-        "filters": [
-            ["name", "in", ["Online Delivery"]]
-        ]
-    },
 ]
