@@ -538,6 +538,8 @@ export function useItemAddition() {
 		// Use price_list_rate if available, otherwise fall back to rate
 		// This ensures we preserve the fetched price from item detail
 		new_item.price_list_rate = item.price_list_rate ?? item.rate ?? 0;
+		new_item.tax_exclusive = item.tax_exclusive || 0;
+		new_item.tax_exclusive_rate = new_item.tax_exclusive ? new_item.price_list_rate : 0;
 
 		// Setup base rates properly for multi-currency
 		const baseCurrency = context.price_list_currency || context.pos_profile.currency;

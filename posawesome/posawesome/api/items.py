@@ -13,7 +13,7 @@ from erpnext.stock.doctype.batch.batch import (
 )
 from erpnext.stock.get_item_details import get_item_details
 from frappe import _, as_json
-from frappe.utils import cstr, flt, get_datetime, nowdate
+from frappe.utils import cint, cstr, flt, get_datetime, nowdate
 from frappe.utils.background_jobs import enqueue
 from frappe.utils.caching import redis_cache
 
@@ -475,6 +475,7 @@ def _build_search_plan(
         "has_serial_no",
         "max_discount",
         "brand",
+        "tax_exclusive",
     ]
     if include_description:
         fields.append("description")
@@ -978,6 +979,7 @@ def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=Non
     res["max_discount"] = max_discount
     res["batch_no_data"] = batch_no_data
     res["serial_no_data"] = serial_no_data
+    res["tax_exclusive"] = cint(frappe.db.get_value("Item", item_code, "tax_exclusive") or 0)
 
     # Add UOMs data directly from item document
     uoms = frappe.get_all(

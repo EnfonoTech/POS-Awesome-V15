@@ -299,4 +299,24 @@ export default {
 			this.update_item_rates();
 		}
 	},
+
+	// When invoice_doc is replaced (taxes now populated), recalculate tax-exclusive item rates
+	invoice_doc: {
+		handler(newDoc) {
+			if (!newDoc?.taxes?.length || !this.items?.length) return;
+			for (const item of this.items) {
+				if (!item.tax_exclusive || !item.tax_exclusive_rate) continue;
+				const tf = this._getTaxFraction(item);
+				if (!tf) continue;
+				const inclRate = this.flt(item.tax_exclusive_rate * (1 + tf), this.currency_precision);
+				if (Math.abs(inclRate - (item.rate || 0)) < 0.001) continue;
+				item.rate = inclRate;
+				item.base_rate = inclRate;
+				// Do NOT touch price_list_rate — it is tracked by the items snapshot watcher
+				// and changing it would trigger unintended offer/expand side-effects
+				item.amount = this.flt(item.qty * inclRate, this.currency_precision);
+				item.base_amount = this.flt(item.qty * inclRate, this.currency_precision);
+			}
+		},
+	},
 };

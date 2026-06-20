@@ -314,7 +314,10 @@
 										</div>
 										<div class="card-item-content">
 											<div class="card-item-header">
-												<h4 class="card-item-name">{{ item.item_name }}</h4>
+												<div class="d-flex align-center flex-wrap gap-1">
+													<h4 class="card-item-name">{{ item.item_name }}</h4>
+													<v-chip v-if="item.tax_exclusive" color="orange" size="x-small" label>{{ __("Tax Excl.") }}</v-chip>
+												</div>
 												<span class="card-item-code">{{ item.item_code }}</span>
 											</div>
 											<div class="card-item-details">
@@ -405,6 +408,12 @@
 								@click:row="click_item_row"
 								@scroll.passive="onListScroll"
 							>
+								<template v-slot:item.item_name="{ item }">
+									<div class="d-flex align-center">
+										<span>{{ item.item_name }}</span>
+										<v-chip v-if="item.tax_exclusive" color="orange" size="x-small" label class="ml-1">{{ __("Tax Excl.") }}</v-chip>
+									</div>
+								</template>
 								<template v-slot:item.rate="{ item }">
 									<div>
 										<div class="text-primary">

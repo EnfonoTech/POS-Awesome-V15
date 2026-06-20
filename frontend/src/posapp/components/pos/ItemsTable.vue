@@ -40,6 +40,9 @@
 					<v-chip v-if="item.name_overridden" color="primary" size="x-small" class="ml-1">
 						{{ __("Edited") }}
 					</v-chip>
+					<v-chip v-if="item.tax_exclusive" color="orange" size="x-small" class="ml-1" label>
+						{{ __("Tax Excl.") }}
+					</v-chip>
 					<v-icon
 						v-if="pos_profile.posa_allow_line_item_name_override && !item.posa_is_replace"
 						size="x-small"
@@ -123,13 +126,26 @@
 				</div>
 			</template>
 
-			<!-- Rate column -->
+			<!-- EXCL. RATE column: editable input for tax-exclusive items; read-only for normal items -->
 			<template v-slot:item.rate="{ item }">
-				<div
-					v-if="pos_profile.posa_allow_user_to_edit_rate && !item.posa_is_replace && !item.posa_offer_applied"
-					class="inline-rate-field"
-					@click.stop
-				>
+				<div v-if="item.tax_exclusive" class="inline-rate-field" @click.stop>
+					<div class="inline-rate-wrapper">
+						<span class="inline-rate-symbol">{{ currencySymbol(displayCurrency) }}</span>
+						<input
+							class="inline-rate-input"
+							type="text"
+							:value="formatCurrency(item.tax_exclusive_rate || 0)"
+							@change="onExclusiveRateChange(item, $event.target.value)"
+							@focus="$event.target.select()"
+						/>
+					</div>
+				</div>
+				<div v-else style="text-align:center; color:#bbb; font-size:1.1em; line-height:1; padding:4px 0;">—</div>
+			</template>
+
+			<!-- RATE column: editable input for normal items; read-only inclusive rate for tax-exclusive -->
+			<template v-slot:item.incl_rate="{ item }">
+				<div v-if="!item.tax_exclusive && !item.posa_is_replace && !item.posa_offer_applied" class="inline-rate-field" @click.stop>
 					<div class="inline-rate-wrapper">
 						<span class="inline-rate-symbol">{{ currencySymbol(displayCurrency) }}</span>
 						<input
@@ -146,8 +162,10 @@
 				</div>
 				<div v-else class="currency-display right-aligned">
 					<span class="currency-symbol">{{ currencySymbol(displayCurrency) }}</span>
-					<span class="amount-value" :class="{ 'negative-number': isNegative(item.rate) }">
-						{{ formatCurrency(item.rate) }}
+					<span class="amount-value" :class="{ 'negative-number': isNegative(item.tax_exclusive ? (item.tax_exclusive_rate || 0) * (1 + taxFraction) : item.rate) }">
+						{{ item.tax_exclusive
+							? formatCurrency((item.tax_exclusive_rate || 0) * (1 + taxFraction))
+							: formatCurrency(item.rate) }}
 					</span>
 				</div>
 			</template>
@@ -158,8 +176,10 @@
 					<span class="currency-symbol">{{ currencySymbol(displayCurrency) }}</span>
 					<span
 						class="amount-value"
-						:class="{ 'negative-number': isNegative(item.qty * item.rate) }"
-						>{{ formatCurrency(item.qty * item.rate) }}</span
+						:class="{ 'negative-number': isNegative(item.tax_exclusive ? item.qty * (item.tax_exclusive_rate || 0) * (1 + taxFraction) : item.qty * item.rate) }"
+						>{{ item.tax_exclusive
+							? formatCurrency(item.qty * (item.tax_exclusive_rate || 0) * (1 + taxFraction))
+							: formatCurrency(item.qty * item.rate) }}</span
 					>
 				</div>
 			</template>
@@ -776,6 +796,7 @@ import _ from "lodash";
 import { logComponentRender } from "../../utils/perf.js";
 import { parseBooleanSetting } from "../../utils/stock.js";
 import { useInvoiceStore } from "../../stores/invoiceStore.js";
+import { getTaxTemplate } from "../../../offline/index.js";
 export default {
 	name: "ItemsTable",
 	setup() {
@@ -841,6 +862,17 @@ export default {
 		},
 		invoice_doc() {
 			return this.invoiceStore.invoiceDoc || {};
+		},
+		taxFraction() {
+			let fraction = 0;
+			const taxes = this.invoice_doc?.taxes?.length
+				? this.invoice_doc.taxes
+				: (getTaxTemplate(this.pos_profile?.taxes_and_charges)?.taxes || []);
+			for (const tax of taxes) {
+				if (tax.charge_type !== "On Net Total") continue;
+				fraction += (tax.rate || 0) / 100;
+			}
+			return fraction;
 		},
 		// Dynamic container styles based on parent
 		containerStyles() {
@@ -1022,6 +1054,16 @@ export default {
 		},
 	},
 	methods: {
+		onExclusiveRateChange(item, rawValue) {
+			const exclusiveRate = parseFloat(String(rawValue).replace(/,/g, "")) || 0;
+			const precision = parseInt(frappe?.defaults?.get_default("currency_precision")) || 2;
+			item.tax_exclusive_rate = exclusiveRate;
+			const inclusiveRate = exclusiveRate * (1 + this.taxFraction);
+			item.rate = parseFloat(inclusiveRate.toFixed(precision));
+			item.base_rate = item.rate;
+			item.price_list_rate = item.rate;
+			item.amount = parseFloat((item.rate * item.qty).toFixed(precision));
+		},
 		// Ensure current batch_no is included in items list for autocomplete
 		getBatchItemsWithCurrent(item) {
 			if (!item) return [];
@@ -2544,6 +2586,44 @@ body[dir="rtl"] .expanded-content .pos-table__qty-display {
 	height: 100%;
 	padding: 0;
 	margin: 0;
+}
+
+.tax-exclusive-rates {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	line-height: 1.3;
+}
+
+.tax-exclusive-rates .rate-row {
+	display: flex;
+	align-items: center;
+	gap: 2px;
+	font-size: 0.82em;
+}
+
+.tax-exclusive-rates .rate-label {
+	font-size: 0.75em;
+	opacity: 0.7;
+	min-width: 26px;
+	text-align: right;
+	margin-right: 2px;
+}
+
+.tax-excl-input {
+	width: 70px;
+	text-align: right;
+	border: 1px solid rgba(0,0,0,0.2);
+	border-radius: 4px;
+	padding: 1px 4px;
+	font-size: 0.85em;
+	background: transparent;
+	outline: none;
+}
+
+.tax-excl-input:focus {
+	border-color: rgb(var(--v-theme-primary));
+	background: white;
 }
 
 .currency-display.right-aligned {
