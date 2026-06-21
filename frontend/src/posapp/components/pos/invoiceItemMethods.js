@@ -3413,7 +3413,18 @@ export default {
                 }
 
                 if (item && item.available_qty !== undefined) {
-                        item.max_qty = flt(item.available_qty / (item.conversion_factor || 1));
+                        // Use the coordinator's base qty rather than available_qty.
+                        // available_qty = base - reserved, and reserved is updated by a Vue
+                        // watcher that fires asynchronously AFTER calc_stock_qty runs. This
+                        // means update_qty_limits always reads the reservation from the
+                        // previous + click, causing max_qty = base - (qty-1). The button
+                        // then disables at qty ≈ base/2 even though stock remains.
+                        // Using base directly avoids the stale-reservation timing bug.
+                        const baseQty =
+                                stockCoordinator.getBase(item.item_code) ??
+                                item._base_actual_qty ??
+                                flt(item.available_qty);
+                        item.max_qty = flt(baseQty / (item.conversion_factor || 1));
 
                         // Set increment disable flag based on stock limits
                         const allowNegative = this.stock_settings?.allow_negative_stock ?? false;
