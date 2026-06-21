@@ -1352,6 +1352,11 @@ export default {
 				new_item.so_detail = item.so_detail;
 			}
 
+			// Tax exclusive fields must be sent so masalkhair_custom doesn't
+			// derive tax_exclusive_rate from rate (which is already tax-inclusive)
+			new_item.tax_exclusive = item.tax_exclusive ? 1 : 0;
+			new_item.tax_exclusive_rate = item.tax_exclusive ? (parseFloat(item.tax_exclusive_rate) || 0) : 0;
+
 			items_list.push(new_item);
 		});
 
@@ -2815,7 +2820,9 @@ export default {
                 item.has_batch_no = data.has_batch_no;
 
 		if (item.tax_exclusive) {
-			item.tax_exclusive_rate = item.price_list_rate || item.rate || 0;
+			if (!item.tax_exclusive_rate) {
+				item.tax_exclusive_rate = item.price_list_rate || item.rate || 0;
+			}
 			const tf = this._getTaxFraction(item);
 			const inclRate = this.flt(item.tax_exclusive_rate * (1 + tf), this.currency_precision);
 			item.rate = inclRate;

@@ -980,6 +980,7 @@ def get_item_detail(item, doc=None, warehouse=None, price_list=None, company=Non
     res["batch_no_data"] = batch_no_data
     res["serial_no_data"] = serial_no_data
     res["tax_exclusive"] = cint(frappe.db.get_value("Item", item_code, "tax_exclusive") or 0)
+    res["tax_exclusive_rate"] = flt(res.get("price_list_rate") or 0, 2) if res.get("tax_exclusive") else 0.0
 
     # Add UOMs data directly from item document
     uoms = frappe.get_all(
