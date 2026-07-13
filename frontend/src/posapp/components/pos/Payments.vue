@@ -2030,11 +2030,16 @@ export default {
 		},
 		// Open print page for invoice
 		load_print_page() {
-			const print_format = this.pos_profile.print_format_for_online || this.pos_profile.print_format;
 			const letter_head = this.pos_profile.letter_head || 0;
 			const doctype = this.pos_profile.create_pos_invoice_instead_of_sales_invoice
 				? "POS Invoice"
 				: "Sales Invoice";
+			const print_format = doctype === "Sales Invoice"
+				? (this.pos_profile.sales_invoice_print_format
+					|| this.fatehPosSettings?.sales_invoice_print_format
+					|| this.pos_profile.print_format_for_online
+					|| this.pos_profile.print_format)
+				: (this.pos_profile.print_format_for_online || this.pos_profile.print_format);
 			const url =
 				frappe.urllib.get_base_url() +
 				"/printview?doctype=" +

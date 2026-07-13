@@ -97,6 +97,7 @@ export default {
 			page: "POS",
 			// POS Profile data
 			posProfile: {},
+			fatehPosSettings: {},
 			pendingInvoices: 0,
 			lastInvoiceId: "",
 
@@ -242,6 +243,13 @@ export default {
 
 			markSourceLoaded("init");
 
+			frappe.call({
+				method: "frappe.client.get",
+				args: { doctype: "Fateh POS Settings", name: "Fateh POS Settings" },
+			}).then((res) => {
+				this.fatehPosSettings = res?.message || {};
+			}).catch(() => {});
+
 			// Fallback: if items/customers don't load within 10 seconds, mark them as loaded
 			setTimeout(() => {
 				if (loadingState.active) {
@@ -351,11 +359,16 @@ export default {
 				return;
 			}
 
-			const print_format = this.posProfile.print_format_for_online || this.posProfile.print_format;
 			const letter_head = this.posProfile.letter_head || 0;
 			const doctype = this.posProfile.create_pos_invoice_instead_of_sales_invoice
 				? "POS Invoice"
 				: "Sales Invoice";
+			const print_format = doctype === "Sales Invoice"
+				? (this.posProfile.sales_invoice_print_format
+					|| this.fatehPosSettings?.sales_invoice_print_format
+					|| this.posProfile.print_format_for_online
+					|| this.posProfile.print_format)
+				: (this.posProfile.print_format_for_online || this.posProfile.print_format);
 			const url =
 				frappe.urllib.get_base_url() +
 				"/printview?doctype=" +
