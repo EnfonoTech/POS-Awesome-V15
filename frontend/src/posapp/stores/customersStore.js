@@ -161,6 +161,7 @@ export const useCustomersStore = defineStore("customers", () => {
 					customer.mobile_no,
 					customer.email_id,
 					customer.tax_id,
+					customer.custom_vat_registration_number,
 				]
 					.filter((value) => value !== null && value !== undefined)
 					.map((value) => String(value).toLowerCase());

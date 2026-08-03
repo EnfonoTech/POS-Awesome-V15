@@ -202,6 +202,7 @@ export async function setCustomerStorage(customers) {
 			email_id: c.email_id,
 			primary_address: c.primary_address,
 			tax_id: c.tax_id,
+			custom_vat_registration_number: c.custom_vat_registration_number,
 		}));
 		const CHUNK_SIZE = 1000;
 		await db.transaction("rw", db.table("customers"), async () => {
@@ -557,6 +558,11 @@ export async function forceClearAllCache() {
 
 	// Delete the IndexedDB database in the background
 	try {
+		// Dexie.delete() only queues the deletion while a connection stays open -
+		// close ours first so the delete actually completes before we reopen.
+		if (db.isOpen()) {
+			db.close();
+		}
 		await Dexie.delete("posawesome_offline");
 		await db.open();
 		initPersistWorker();

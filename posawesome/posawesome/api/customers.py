@@ -83,6 +83,7 @@ def get_customer_names(pos_profile, limit=None, offset=None, start_after=None, m
                 "mobile_no",
                 "email_id",
                 "tax_id",
+                "custom_vat_registration_number",
                 "customer_name",
                 "primary_address",
             ],
@@ -90,6 +91,34 @@ def get_customer_names(pos_profile, limit=None, offset=None, start_after=None, m
             limit_start=None if start_after else offset,
             limit_page_length=limit,
         )
+
+        # mobile_no is fetched from customer_primary_contact only. If no primary
+        # contact is set, fall back to any Contact linked to this customer (via
+        # Dynamic Link) instead of leaving mobile blank.
+        missing_mobile_customers = [c["name"] for c in customers if not c.get("mobile_no")]
+        if missing_mobile_customers:
+            contact_rows = frappe.db.sql(
+                """
+                SELECT dl.link_name AS customer, c.mobile_no, c.phone
+                FROM `tabDynamic Link` dl
+                INNER JOIN `tabContact` c ON c.name = dl.parent
+                WHERE dl.link_doctype = 'Customer'
+                  AND dl.parenttype = 'Contact'
+                  AND dl.link_name IN %(customers)s
+                  AND (COALESCE(c.mobile_no, '') != '' OR COALESCE(c.phone, '') != '')
+                ORDER BY c.modified DESC
+                """,
+                {"customers": missing_mobile_customers},
+                as_dict=True,
+            )
+            contact_mobile_map = {}
+            for row in contact_rows:
+                if row["customer"] not in contact_mobile_map:
+                    contact_mobile_map[row["customer"]] = row.get("mobile_no") or row.get("phone")
+            for c in customers:
+                if not c.get("mobile_no"):
+                    c["mobile_no"] = contact_mobile_map.get(c["name"], "")
+
         return customers
 
     if _pos_profile.get("posa_use_server_cache") and not (limit or offset or start_after or modified_after):
@@ -116,6 +145,25 @@ def get_customer_info(customer):
 
     res["email_id"] = customer.email_id
     res["mobile_no"] = customer.mobile_no
+    if not res["mobile_no"]:
+        # No primary contact set - fall back to any Contact linked to this customer
+        fallback_contact = frappe.db.sql(
+            """
+            SELECT c.mobile_no, c.phone
+            FROM `tabDynamic Link` dl
+            INNER JOIN `tabContact` c ON c.name = dl.parent
+            WHERE dl.link_doctype = 'Customer'
+              AND dl.parenttype = 'Contact'
+              AND dl.link_name = %s
+              AND (COALESCE(c.mobile_no, '') != '' OR COALESCE(c.phone, '') != '')
+            ORDER BY c.modified DESC
+            LIMIT 1
+            """,
+            (customer.name,),
+            as_dict=True,
+        )
+        if fallback_contact:
+            res["mobile_no"] = fallback_contact[0].get("mobile_no") or fallback_contact[0].get("phone")
     res["image"] = customer.image
     res["loyalty_program"] = customer.loyalty_program
     res["customer_price_list"] = customer.default_price_list
@@ -125,6 +173,7 @@ def get_customer_info(customer):
     res["birthday"] = customer.posa_birthday
     res["gender"] = customer.gender
     res["tax_id"] = customer.tax_id
+    res["custom_vat_registration_number"] = customer.custom_vat_registration_number
     res["posa_discount"] = customer.posa_discount
     res["name"] = customer.name
     res["customer_name"] = customer.customer_name
