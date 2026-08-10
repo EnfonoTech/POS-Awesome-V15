@@ -48,7 +48,11 @@ def _apply_item_name_overrides(invoice_doc, overrides=None):
     """Apply custom item names to invoice items."""
     overrides = overrides or {}
     for item in invoice_doc.items:
-        source = overrides.get(item.idx) or {}
+        # Keyed by posa_row_id, not idx: set_missing_values() (called between the capture and
+        # this restore) can reassign child-row idx, silently mismatching this override onto a
+        # DIFFERENT item's row -- confirmed live via a free item's original_item_name field
+        # ending up holding an entirely different item's name after a save+reload.
+        source = overrides.get(item.get("posa_row_id")) or {}
         provided = source.get("item_name") if isinstance(source, dict) else None
         default_name = frappe.get_cached_value("Item", item.item_code, "item_name")
         clean = _sanitize_item_name(provided or item.item_name)
@@ -475,8 +479,10 @@ def update_invoice(data):
         except Exception as e:
             frappe.log_error(f"Failed to create customer {customer_name}: {e}")
 
-    # Preserve provided item names for manual overrides
-    overrides = {d.idx: {"item_name": d.item_name} for d in invoice_doc.items}
+    # Preserve provided item names for manual overrides. Keyed by posa_row_id (a stable,
+    # frontend-generated id) rather than idx -- idx can be reassigned by set_missing_values()
+    # below, between this capture and the later restore passes.
+    overrides = {d.get("posa_row_id"): {"item_name": d.item_name} for d in invoice_doc.items if d.get("posa_row_id")}
     locked_items = {}
     # For returns, update_stock must match the original invoice. ERPNext throws
     # "'Update Stock' can not be checked because items are not delivered via X"
@@ -500,16 +506,41 @@ def update_invoice(data):
                     frappe.throw(_("Return reason is mandatory for Sales Invoice returns. Please provide a return reason."))
                 # For POS Invoice, use default from settings
                 invoice_doc.custom_return_reason = get_default_return_reason()
-        
-        for d in invoice_doc.items:
-            if d.get("locked_price"):
-                locked_items[d.idx] = {
-                    "rate": d.rate,
-                    "price_list_rate": d.price_list_rate,
-                    "discount_percentage": d.discount_percentage,
-                    "discount_amount": d.discount_amount,
-                    "is_free_item": d.get("is_free_item"),
-                }
+
+    # Snapshot rates for any row a POSAwesome offer already discounted (posa_offer_applied) or
+    # gave away free (is_free_item), plus locked_price rows on returns -- set_missing_values()
+    # below is a standard ERPNext/Frappe call that can recompute an item's rate from its price
+    # list when nothing tells it the current rate is intentional (ignore_pricing_rule=1 only
+    # blocks Pricing Rule re-application, not this). Previously this snapshot only ran for
+    # returns with locked_price set, so a normal sale with a combo-given free item (rate
+    # correctly 0 client-side) got silently reset back to the catalog price the moment "Pay"
+    # triggered this same save+reload round trip -- confirmed live via a free item showing
+    # rate=0 right up until Pay, then 46 (its price_list_rate) immediately after.
+    for d in invoice_doc.items:
+        if d.get("posa_row_id") and (
+            d.get("locked_price") or d.get("is_free_item") or d.get("posa_offer_applied")
+        ):
+            # A genuinely free row (is_free_item) must carry discount_percentage=100
+            # regardless of what the frontend happened to send: ERPNext's own tax/total
+            # calculator (calculate_item_values() in erpnext/controllers/taxes_and_totals.py)
+            # re-runs on every save() (via AccountsController.validate()), completely
+            # independent of ignore_pricing_rule, and ONLY ever treats
+            # discount_percentage == 100 as "this row is free, leave rate at 0" --
+            # rate already being 0 does not protect it. Forcing it here makes every
+            # subsequent recalculation (including save()'s own) keep rate at 0 on its own.
+            discount_percentage = 100 if d.get("is_free_item") else d.discount_percentage
+            locked_items[d.get("posa_row_id")] = {
+                "rate": d.rate,
+                "base_rate": d.base_rate,
+                "price_list_rate": d.price_list_rate,
+                "base_price_list_rate": d.base_price_list_rate,
+                "discount_percentage": discount_percentage,
+                "discount_amount": d.discount_amount,
+                "base_discount_amount": d.get("base_discount_amount"),
+                "amount": d.amount,
+                "base_amount": d.base_amount,
+                "is_free_item": d.get("is_free_item"),
+            }
 
     invoice_doc.ignore_pricing_rule = 1
     invoice_doc.flags.ignore_pricing_rule = True
@@ -525,7 +556,7 @@ def update_invoice(data):
 
     if locked_items:
         for item in invoice_doc.items:
-            locked = locked_items.get(item.idx)
+            locked = locked_items.get(item.get("posa_row_id"))
             if locked:
                 item.update(locked)
         invoice_doc.calculate_taxes_and_totals()

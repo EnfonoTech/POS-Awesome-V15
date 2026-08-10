@@ -2134,6 +2134,14 @@ export default {
                 },
                 handleSetOffers(data) {
                         this.posOffers = data;
+                        // Re-evaluate against the fresh templates immediately (mirrors
+                        // handleUpdateInvoiceCoupons below) -- otherwise a realtime-triggered
+                        // refetch (see Pos.vue's POS Offer list_update subscription) just sits in
+                        // this.posOffers unused until the next unrelated cart edit happens to
+                        // trigger handelOffers, so a desk-side offer edit (e.g. valid_upto, or
+                        // which item is given free) wouldn't reach an already-applied offer
+                        // until the cashier touched the cart or refreshed the page.
+                        this.handelOffers();
                 },
                 handleUpdateInvoiceOffers(data) {
                         this.updateInvoiceOffers(data);

@@ -26,6 +26,12 @@
   "valid_upto",
   "coupon_based",
   "auto",
+  "combo_items_section",
+  "combo_items",
+  "combo_totals_section",
+  "combo_total_amount",
+  "column_break_combo_total",
+  "combo_price_after_discount",
   "quantity_and_amount_section",
   "min_qty",
   "max_qty",
@@ -79,7 +85,7 @@
    "in_list_view": 1,
    "in_standard_filter": 1,
    "label": "Qualifying Transaction / Item",
-   "options": "\nItem Code\nItem Group\nBrand\nTransaction",
+   "options": "\nItem Code\nItem Group\nBrand\nTransaction\nItem Combination",
    "reqd": 1
   },
   {
@@ -248,6 +254,40 @@
    "fieldname": "given_qty",
    "fieldtype": "Float",
    "label": "Given Quantity"
+  },
+  {
+   "fieldname": "combo_items_section",
+   "fieldtype": "Section Break",
+   "label": "Combo Items"
+  },
+  {
+   "fieldname": "combo_items",
+   "fieldtype": "Table",
+   "label": "Combo Items",
+   "options": "POS Offer Combo Item"
+  },
+  {
+   "fieldname": "combo_totals_section",
+   "fieldtype": "Section Break",
+   "label": "Combo Totals"
+  },
+  {
+   "fieldname": "combo_total_amount",
+   "fieldtype": "Currency",
+   "label": "Combo Total (reference)",
+   "read_only": 1,
+   "description": "Sum of each item's reference rate × required qty -- helps sanity-check the offer while creating it. Uses Item.standard_rate, not a specific price list."
+  },
+  {
+   "fieldname": "column_break_combo_total",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "combo_price_after_discount",
+   "fieldtype": "Currency",
+   "label": "Price After Offer (reference)",
+   "read_only": 1,
+   "description": "Combo Total after applying this offer's discount -- reference only."
   },
   {
    "fieldname": "quantity_and_amount_section",

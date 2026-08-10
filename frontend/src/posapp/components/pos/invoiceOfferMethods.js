@@ -235,12 +235,35 @@ export default {
 					break;
 				case "Transaction":
 					return true;
+				case "Item Combination": {
+					const comboItems = this.parseComboItems(offer.combo_items);
+					if (comboItems.some((combo) => combo.item_code === meta.item_code)) {
+						return true;
+					}
+					break;
+				}
 				default:
 					break;
 			}
 		}
 
 		return false;
+	},
+
+	parseComboItems(comboItems) {
+		if (Array.isArray(comboItems)) {
+			return comboItems;
+		}
+		if (typeof comboItems === "string" && comboItems) {
+			try {
+				const parsed = JSON.parse(comboItems);
+				return Array.isArray(parsed) ? parsed : [];
+			} catch (error) {
+				console.warn("Failed to parse combo items", error);
+				return [];
+			}
+		}
+		return [];
 	},
 
 	async buildOfferEvaluationContext(allItems, offers) {
@@ -252,7 +275,9 @@ export default {
 			transactionBucket: { items: [], qty: 0, amount: 0 },
 		};
 
-		const needItemCode = offers.some((offer) => offer.apply_on === "Item Code");
+		const needItemCode = offers.some(
+			(offer) => offer.apply_on === "Item Code" || offer.apply_on === "Item Combination",
+		);
 		const needGroup = offers.some((offer) => offer.apply_on === "Item Group");
 		const needBrand = offers.some((offer) => offer.apply_on === "Brand");
 		const needTransaction = offers.some((offer) => offer.apply_on === "Transaction");
@@ -268,7 +293,14 @@ export default {
 			}
 
 			const qty = item.stock_qty || 0;
-			const rate = item.original_price_list_rate ?? item.price_list_rate ?? 0;
+			// `qty` here is stock_qty (uom-normalized), so `rate` must be a per-stock-unit
+			// price to keep `amount = qty * rate` correct -- original_price_list_rate already
+			// is (it's snapshotted as price_list_rate / conversion_factor, see ApplyOnCombo/
+			// toggleOffer), but price_list_rate itself is scaled to the row's CURRENT sold
+			// uom (calcUom multiplies it by conversion_factor), so it must be divided back
+			// down before use, or a row sold as "1 Box" (conversion_factor 3) would price
+			// its bucket contribution 3x too high before any offer snapshot exists yet.
+			const rate = item.original_price_list_rate ?? flt(item.price_list_rate || 0) / (flt(item.conversion_factor) || 1);
 			const amount = qty * rate;
 
 			if (needItemCode && !item.posa_is_offer && item.item_code) {
@@ -317,7 +349,8 @@ export default {
 				}
 				bucket.items.push(item);
 				bucket.qty += item.stock_qty || 0;
-				const rate = item.original_price_list_rate ?? item.price_list_rate ?? 0;
+				// per-stock-unit rate -- see the comment on this same expression in buildOfferEvaluationContext
+			const rate = item.original_price_list_rate ?? flt(item.price_list_rate || 0) / (flt(item.conversion_factor) || 1);
 				bucket.amount += (item.stock_qty || 0) * rate;
 			}
 		}
@@ -341,6 +374,9 @@ export default {
 		}
 		if (offer.apply_on === "Transaction") {
 			return this.getTransactionOffer({ ...offer }, context);
+		}
+		if (offer.apply_on === "Item Combination") {
+			return this.getComboOffer({ ...offer }, context);
 		}
 		return null;
 	},
@@ -477,7 +513,8 @@ export default {
 				return;
 			}
 			const qty = item.stock_qty || 0;
-			const rate = item.original_price_list_rate ?? item.price_list_rate ?? 0;
+			// per-stock-unit rate -- see the comment on this same expression in buildOfferEvaluationContext
+			const rate = item.original_price_list_rate ?? flt(item.price_list_rate || 0) / (flt(item.conversion_factor) || 1);
 			totalQty += qty;
 			totalAmount += qty * rate;
 			items.push(item.posa_row_id);
@@ -526,7 +563,8 @@ export default {
 				return;
 			}
 			const qty = item.stock_qty || 0;
-			const rate = item.original_price_list_rate ?? item.price_list_rate ?? 0;
+			// per-stock-unit rate -- see the comment on this same expression in buildOfferEvaluationContext
+			const rate = item.original_price_list_rate ?? flt(item.price_list_rate || 0) / (flt(item.conversion_factor) || 1);
 			totalQty += qty;
 			totalAmount += qty * rate;
 			items.push(item.posa_row_id);
@@ -580,7 +618,8 @@ export default {
 				return;
 			}
 			const qty = item.stock_qty || 0;
-			const rate = item.original_price_list_rate ?? item.price_list_rate ?? 0;
+			// per-stock-unit rate -- see the comment on this same expression in buildOfferEvaluationContext
+			const rate = item.original_price_list_rate ?? flt(item.price_list_rate || 0) / (flt(item.conversion_factor) || 1);
 			totalQty += qty;
 			totalAmount += qty * rate;
 			items.push(item.posa_row_id);
@@ -618,6 +657,147 @@ export default {
 		}
 
 		offer.items = bucket.items.map((item) => item.posa_row_id);
+		return offer;
+	},
+
+	getComboOffer(offer, context = {}) {
+		if (!offer || offer.apply_on !== "Item Combination") {
+			return null;
+		}
+
+		if (!this.checkOfferCoupon(offer)) {
+			return null;
+		}
+
+		const comboItems = this.parseComboItems(offer.combo_items);
+		if (comboItems.length < 2) {
+			return null;
+		}
+
+		// First pass: gather each combo item's full cart quantity/amount/rows and work out
+		// how many complete sets the combo as a whole can support (limited by whichever
+		// item is scarcest).
+		const perItemData = [];
+		let instances = Infinity;
+
+		for (const combo of comboItems) {
+			const bucket = context.itemCodeBuckets ? context.itemCodeBuckets.get(combo.item_code) : null;
+			if (!bucket) {
+				return null;
+			}
+
+			const rows = [];
+			let qty = 0;
+			let amount = 0;
+
+			bucket.items.forEach((item) => {
+				if (!item || item.posa_is_offer) {
+					return;
+				}
+				// Exclude rows already claimed by a DIFFERENT Item Price offer -- but rows
+				// this SAME combo offer already discounted must stay counted, or the very act
+				// of applying it flips item.posa_offer_applied to 1 and makes the next
+				// evaluation pass exclude its own rows, un-qualify, get removed, and
+				// immediately re-qualify/re-apply from scratch -- an endless apply/remove
+				// oscillation that (since nothing about the cart changed) keeps landing on the
+				// same rate and looks to the user like a permanently frozen one.
+				//
+				// A first attempt at this check compared item.posa_offers (a list of row_ids)
+				// against `offer.row_id` -- but `offer` here is evaluateOffer's shallow copy of
+				// this.posOffers' RAW template, which never has a row_id at all (that's a
+				// frontend-only id PosOffers.vue invents later, once an offer is first tracked;
+				// confirmed via the backend get_offers() source, which has no such field). That
+				// made the comparison always false, i.e. always "someone else's", i.e. always
+				// excluded -- worse than the original bug.
+				//
+				// Fixed to check the opposite direction and default the other way: only exclude
+				// when this.posa_offers (Invoice-level bookkeeping, keyed by row_id -> offer
+				// name) POSITIVELY shows a DIFFERENT offer's name against one of this item's
+				// claimed row_ids. If that lookup can't find anything yet -- e.g. this.posa_offers
+				// hasn't caught up with a just-applied discount, the exact race that caused the
+				// oscillation -- there is nothing to prove a competing claim, so default to NOT
+				// excluding rather than assuming the worst.
+				if (offer.offer === "Item Price" && item.posa_offer_applied) {
+					let claimedByDifferentOffer = false;
+					try {
+						const parsed = item.posa_offers ? JSON.parse(item.posa_offers) : [];
+						if (Array.isArray(parsed)) {
+							claimedByDifferentOffer = parsed.some((row_id) => {
+								const tracked = (this.posa_offers || []).find((el) => el.row_id === row_id);
+								return !!(tracked && tracked.offer_name && tracked.offer_name !== offer.name);
+							});
+						}
+					} catch (error) {
+						claimedByDifferentOffer = false;
+					}
+					if (claimedByDifferentOffer) {
+						return;
+					}
+				}
+				const itemQty = item.stock_qty || 0;
+				// per-stock-unit rate -- see the comment on this same expression in buildOfferEvaluationContext
+			const rate = item.original_price_list_rate ?? flt(item.price_list_rate || 0) / (flt(item.conversion_factor) || 1);
+				const itemAmount = itemQty * rate;
+				qty += itemQty;
+				amount += itemAmount;
+				rows.push({ row_id: item.posa_row_id, qty: item.qty || 0, amount: itemAmount });
+			});
+
+			// combo.qty is defined in the combo item's own uom (e.g. "1 Box"), while `qty`
+			// summed above is in stock_qty terms (bucket.qty aggregates item.stock_qty).
+			// Convert the requirement into the same stock-uom terms via the item's
+			// conversion_factor for that uom (attached server-side by _attach_combo_items)
+			// before comparing -- otherwise "1 Box" (== 3 Nos) would incorrectly require
+			// only 1 loose Nos to qualify.
+			const requiredQty = (flt(combo.qty) || 1) * (flt(combo.conversion_factor) || 1);
+			if (qty < requiredQty || !amount) {
+				return null;
+			}
+
+			// How many complete combo sets can this item support on its own -- the
+			// combo as a whole can only qualify for as many sets as its scarcest item.
+			instances = Math.min(instances, Math.floor(qty / requiredQty));
+
+			perItemData.push({ item_code: combo.item_code, requiredQty, qty, amount, rows });
+		}
+
+		if (!(instances >= 1)) {
+			return null;
+		}
+
+		// Second pass: the amount actually "used" by the qualifying sets (required qty x
+		// instances, at this item's own average rate) -- NOT its full cart amount. This is
+		// what the discount gets split across between DIFFERENT combo items, so buying more
+		// of item A than the current instances need doesn't change item B's share at all.
+		// Any leftover quantity of an item beyond what instances need still shares in ITS
+		// OWN item's discount below (divided across item.qty), just without rippling into
+		// other items' rates.
+		const breakdown = [];
+		let totalAmount = 0;
+
+		for (const data of perItemData) {
+			const avgRate = data.amount / data.qty;
+			const usedAmount = data.requiredQty * instances * avgRate;
+			breakdown.push({ item_code: data.item_code, amount: data.amount, usedAmount, rows: data.rows });
+			totalAmount += usedAmount;
+		}
+
+		if (!totalAmount) {
+			return null;
+		}
+
+		offer.items = breakdown.flatMap((entry) => entry.rows.map((row) => row.row_id));
+		offer.combo_breakdown = breakdown;
+		offer.combo_total_amount = totalAmount;
+		offer.combo_instances = instances;
+
+		// Give Product: scale the given quantity by how many complete sets qualify
+		// (buy enough for 2 sets, get 2x the free item) rather than always giving
+		// exactly one regardless of how many sets are in the cart.
+		if (offer.offer === "Give Product") {
+			offer.given_qty = this.flt(flt(offer.given_qty) * instances, this.currency_precision);
+		}
+
 		return offer;
 	},
 
@@ -800,8 +980,38 @@ export default {
                                                         if (idx2 > -1) col.splice(idx2, 1);
                                                 }
                                         });
+                                } else if (existOffer.offer === "Give Product" && offer.apply_on === "Item Combination") {
+                                        // Combo Give Product never sets replace_item/replace_cheapest_item, so
+                                        // neither branch above ever runs for it -- handle its own quantity
+                                        // top-up/down here instead: the number of qualifying combo sets (and
+                                        // therefore offer.given_qty, scaled in getComboOffer) can change on any
+                                        // later evaluation pass as the cart changes.
+                                        const givenItem = this.getItemFromRowID(existOffer.give_item_row_id);
+                                        const desiredQty = flt(offer.given_qty);
+                                        if (givenItem && desiredQty > 0 && flt(givenItem.qty) !== desiredQty) {
+                                                givenItem.qty = desiredQty;
+                                                givenItem.stock_qty = desiredQty;
+                                                givenItem.amount = this.flt(
+                                                        givenItem.qty * givenItem.rate,
+                                                        this.currency_precision,
+                                                );
+                                                givenItem.base_amount = this.flt(
+                                                        givenItem.qty * givenItem.base_rate,
+                                                        this.currency_precision,
+                                                );
+                                        }
+                                        // Same reasoning as the other reuse path in _applyNewOfferBody: this
+                                        // qty top-up never fetches item detail, so a row stuck with no real
+                                        // price_list_rate would otherwise never get another chance.
+                                        if (givenItem && !givenItem.price_list_rate) {
+                                                this.update_item_detail(givenItem, true);
+                                        }
                                 } else if (existOffer.offer === "Item Price") {
-					this.ApplyOnPrice(offer);
+					if (offer.apply_on === "Item Combination") {
+						this.ApplyOnCombo(offer);
+					} else {
+						this.ApplyOnPrice(offer);
+					}
 				} else if (existOffer.offer === "Grand Total") {
 					this.ApplyOnTotal(offer);
 				}
@@ -843,8 +1053,24 @@ export default {
 
 	applyNewOffer(offer) {
 		this.isApplyingOffer = true;
+		try {
+			this._applyNewOfferBody(offer);
+		} finally {
+			// isApplyingOffer gates scheduleOfferRefresh entirely (see its guard at the top
+			// of this file) -- if anything in _applyNewOfferBody throws, that guard would
+			// otherwise stay stuck true forever, silently disabling ALL future offer
+			// re-evaluation for the rest of the session with no visible error.
+			this.isApplyingOffer = false;
+		}
+	},
+
+	_applyNewOfferBody(offer) {
 		if (offer.offer === "Item Price") {
-			this.ApplyOnPrice(offer);
+			if (offer.apply_on === "Item Combination") {
+				this.ApplyOnCombo(offer);
+			} else {
+				this.ApplyOnPrice(offer);
+			}
 		}
                 if (offer.offer === "Give Product") {
                         let itemsRowID = [];
@@ -863,19 +1089,16 @@ export default {
                         if (offer.apply_on == "Item Code" && offer.apply_type == "Item Code" && offer.replace_item) {
                                 const item = this.ApplyOnGiveProduct(offer, offer.item);
                                 if (!item) {
-                                        this.isApplyingOffer = false;
                                         return;
                                 }
                                 const replaceRowId = Array.isArray(itemsRowID) ? itemsRowID[0] : null;
                                 if (!replaceRowId) {
-                                        this.isApplyingOffer = false;
                                         return;
                                 }
                                 item.posa_is_replace = replaceRowId;
                                 const combined = [...this.items, ...this.packed_items];
                                 const baseItem = combined.find((el) => el && el.posa_row_id == item.posa_is_replace);
                                 if (!baseItem) {
-                                        this.isApplyingOffer = false;
                                         return;
                                 }
                                 const diffQty = baseItem.qty - offer.given_qty;
@@ -906,7 +1129,6 @@ export default {
                                 const baseItem = itemsList.find((el) => el && el.item_code == offer.give_item);
                                 const item = this.ApplyOnGiveProduct(offer, offer.give_item);
                                 if (!item || !baseItem) {
-                                        this.isApplyingOffer = false;
                                         return;
                                 }
                                 item.posa_is_offer = 0;
@@ -924,13 +1146,49 @@ export default {
 				this.items.unshift(item);
 				offer.give_item_row_id = item.posa_row_id;
                         } else {
-                                const item = this.ApplyOnGiveProduct(offer);
-                                if (item) {
-                                        this.items.unshift(item);
-                                        offer.give_item_row_id = item.posa_row_id;
+                                // Reuse an already-given free item for this offer if one is sitting in
+                                // the cart, rather than unconditionally creating another one. This
+                                // matters when an invoice is saved and reloaded (e.g. "Apply Offers"):
+                                // items are restored before posa_offers tracking is, so offer
+                                // re-evaluation can briefly see this offer as "not yet applied" even
+                                // though its free item is already present -- without this check that
+                                // race adds a duplicate free item every time.
+                                const combined = [...this.items, ...this.packed_items];
+                                const existingGiven = combined.find(
+                                        (el) => el && el.posa_is_offer && !el.posa_is_replace && el.item_code === offer.give_item,
+                                );
+                                if (existingGiven) {
+                                        offer.give_item_row_id = existingGiven.posa_row_id;
+                                        const desiredQty = flt(offer.given_qty);
+                                        if (desiredQty > 0 && flt(existingGiven.qty) !== desiredQty) {
+                                                existingGiven.qty = desiredQty;
+                                                existingGiven.stock_qty = desiredQty;
+                                                existingGiven.amount = this.flt(
+                                                        existingGiven.qty * existingGiven.rate,
+                                                        this.currency_precision,
+                                                );
+                                                existingGiven.base_amount = this.flt(
+                                                        existingGiven.qty * existingGiven.base_rate,
+                                                        this.currency_precision,
+                                                );
+                                        }
+                                        // This reuse path never fetches item detail at all -- only
+                                        // ApplyOnGiveProduct's fresh-creation path does. If this row's
+                                        // price_list_rate never got a real value (e.g. it was created
+                                        // once, the async detail fetch never landed a valid price for
+                                        // some reason, and every later evaluation pass just keeps
+                                        // reusing this same stuck row), nothing else will ever retry it.
+                                        if (!existingGiven.price_list_rate) {
+                                                this.update_item_detail(existingGiven, true);
+                                        }
                                 } else {
-                                        this.isApplyingOffer = false;
-                                        return;
+                                        const item = this.ApplyOnGiveProduct(offer);
+                                        if (item) {
+                                                this.items.unshift(item);
+                                                offer.give_item_row_id = item.posa_row_id;
+                                        } else {
+                                                return;
+                                        }
                                 }
                         }
                 }
@@ -958,7 +1216,6 @@ export default {
 		};
 		this.posa_offers.push(newOffer);
 		this.addOfferToItems(newOffer);
-		this.isApplyingOffer = false;
 	},
 
         notifyOfferItemUnavailable(itemCode = "") {
@@ -1081,26 +1338,33 @@ export default {
 
 		new_item.is_free_item = is_free ? 1 : 0;
 
-		// Set price list rate based on currency similar to invoice logic
+		// A genuinely free row MUST carry discount_percentage=100, regardless of which
+		// discount_type produced it (a "Rate"=0 free item would otherwise be left at 0 here).
+		// ERPNext's own tax/total calculator (calculate_item_values() in
+		// taxes_and_totals.py) -- which runs again on every save() regardless of
+		// ignore_pricing_rule -- only ever treats discount_percentage === 100 as "this row is
+		// free, leave rate at 0"; rate already being 0 is not itself protective. Without this,
+		// a rate=0 row with discount_percentage=0 gets its rate silently recomputed from
+		// price_list_rate the moment the invoice is saved.
 		if (is_free) {
-			new_item.base_price_list_rate = 0;
-			new_item.price_list_rate = 0;
+			new_item.discount_percentage = 100;
+		}
+
+		// Set price list rate based on currency similar to invoice logic. Always show the
+		// item's real reference price here, even when it's being given away free -- rate/
+		// base_rate (already 0 for the free case, set above) is what actually reflects the
+		// free price; price_list_rate showing the true value lets the cashier/receipt see
+		// what's being given away, instead of looking like the item is simply priced at 0.
+		new_item.price_list_rate = item.price_list_rate ?? item.rate ?? 0;
+		const baseCurrency = this.price_list_currency || this.pos_profile.currency;
+		if (this.selected_currency !== baseCurrency) {
+			new_item.base_price_list_rate = this.flt(
+				item.base_price_list_rate !== undefined ? item.base_price_list_rate : item.rate / this.exchange_rate,
+				this.currency_precision,
+			);
 		} else {
-			// Use the item's price list rate if available
-			new_item.price_list_rate = item.price_list_rate ?? item.rate ?? 0;
-			// Determine base price list rate just like invoice items
-			const baseCurrency = this.price_list_currency || this.pos_profile.currency;
-			if (this.selected_currency !== baseCurrency) {
-				new_item.base_price_list_rate = this.flt(
-					item.base_price_list_rate !== undefined
-						? item.base_price_list_rate
-						: item.rate / this.exchange_rate,
-					this.currency_precision,
-				);
-			} else {
-				new_item.base_price_list_rate =
-					item.base_price_list_rate !== undefined ? item.base_price_list_rate : item.rate;
-			}
+			new_item.base_price_list_rate =
+				item.base_price_list_rate !== undefined ? item.base_price_list_rate : item.rate;
 		}
 
 		new_item.posa_row_id = this.makeid(20);
@@ -1110,7 +1374,13 @@ export default {
 			this.expanded.push(new_item.posa_row_id);
 		}
 
-		this.update_item_detail(new_item);
+		// Force-bypass the item detail cache (keyed by item_code+warehouse, 5s TTL): this is a
+		// brand-new free-item row and must get authoritative live pricing, not risk reusing a
+		// stale cached entry left over from an earlier, unrelated lookup of the same item_code
+		// (e.g. from catalog browsing before customer/pricing context was fully set) -- which
+		// left price_list_rate stuck at a wrong value until the cache happened to expire on its
+		// own (matching "only updates after save or clicking the item").
+		this.update_item_detail(new_item, true);
 		return new_item;
 	},
 
@@ -1321,6 +1591,157 @@ export default {
 				});
 			}
 		});
+	},
+
+	ApplyOnCombo(offer) {
+		if (!offer || !Array.isArray(offer.combo_breakdown) || !offer.combo_total_amount) return;
+
+		const totalAmount = flt(offer.combo_total_amount);
+		const instances = flt(offer.combo_instances) || 1;
+		const totalDiscount = Math.min(flt(offer.discount_amount) * instances, totalAmount);
+		if (!totalDiscount) return;
+
+		const MAX_PRICE_WAIT_RETRIES = 6;
+		this._comboPriceRetryCounts = this._comboPriceRetryCounts || {};
+
+		const combined = [...this.items, ...this.packed_items];
+		const pendingRetryRowIds = [];
+
+		offer.combo_breakdown.forEach((entry) => {
+			if (!entry.amount || !Array.isArray(entry.rows) || !entry.rows.length) return;
+
+			// Cross-item split uses usedAmount (this item's contribution to the qualifying
+			// sets only), not its full cart amount -- see getComboOffer. Row-level splitting
+			// below still uses the full amounts, since that's just dividing THIS item's own
+			// share fairly across its own rows/leftover quantity, not affecting other items.
+			const entryDiscount = this.flt(
+				(totalDiscount * entry.usedAmount) / totalAmount,
+				this.currency_precision,
+			);
+
+			entry.rows.forEach((row) => {
+				if (!row.amount) return;
+
+				const item = combined.find((el) => el && el.posa_row_id === row.row_id);
+				if (!item || !item.qty) return;
+
+				const rowShare = this.flt((entryDiscount * row.amount) / entry.amount, this.currency_precision);
+				if (!rowShare) return;
+
+				const conversion_factor = flt(item.conversion_factor || 1);
+
+				// Has THIS combo offer already snapshotted this row's pre-discount rates?
+				// Used below only to decide whether to (re-)write the original_* restore
+				// snapshot -- NOT to derive this pass's base_price (see next comment).
+				let rowOfferIds = [];
+				try {
+					const parsed = item.posa_offers ? JSON.parse(item.posa_offers) : [];
+					if (Array.isArray(parsed)) rowOfferIds = parsed;
+				} catch (error) {
+					rowOfferIds = [];
+				}
+				const alreadySnapshotted =
+					rowOfferIds.includes(offer.row_id) && flt(item.base_discount_amount) > 0;
+
+				// Base price (pre-discount) for this row: item.base_price_list_rate is safe to
+				// read directly on every pass, including repeat ones -- this function always
+				// writes it back as the FULL reference price a few lines down
+				// (`item.base_price_list_rate = base_price;`), never the discounted value, so
+				// there's no compounding risk. A dedicated original_base_price_list_rate
+				// snapshot used to gate this instead, but that field isn't persisted: after a
+				// save + reload it's always undefined even though alreadySnapshotted is
+				// (correctly) true, since base_discount_amount/posa_offers ARE persisted --
+				// forcing every row through the retry-then-fallback path below on EVERY pass
+				// for the rest of the session (alreadySnapshotted never goes false again to
+				// let a real snapshot happen), which reads to the user as the rate being
+				// permanently frozen rather than just delayed.
+				let base_price = this.flt(
+					(item.base_price_list_rate / conversion_factor) * conversion_factor,
+					this.currency_precision,
+				);
+
+				// The item's price may not have finished loading yet (item detail is
+				// fetched asynchronously right after it's added to the cart). Discounting
+				// against a zero/invalid price would produce a negative rate, so give it a
+				// few short retries once its real price is available...
+				if (!(base_price > 0)) {
+					const attempts = (this._comboPriceRetryCounts[row.row_id] || 0) + 1;
+					this._comboPriceRetryCounts[row.row_id] = attempts;
+
+					if (attempts <= MAX_PRICE_WAIT_RETRIES) {
+						pendingRetryRowIds.push(row.row_id);
+						return;
+					}
+
+					// ...but never retry forever: after a few attempts, fall back to the
+					// item's display price (price_list_rate is populated synchronously when
+					// the item is added, unlike base_price_list_rate) so the combo still
+					// applies instead of retrying indefinitely.
+					console.warn(
+						"Combo offer: base_price_list_rate never became available, falling back to price_list_rate",
+						{ item_code: item.item_code, row_id: row.row_id },
+					);
+					base_price = this.flt(item.original_price_list_rate ?? item.price_list_rate ?? 0, this.currency_precision);
+					if (!(base_price > 0)) return;
+				}
+
+				delete this._comboPriceRetryCounts[row.row_id];
+
+				// Only now that base_price is confirmed valid do we snapshot it -- writing
+				// it earlier (before the retry/fallback check above) would risk permanently
+				// freezing the snapshot at an invalid 0 the first time this row is touched,
+				// forcing every future pass back through the retry/fallback path forever.
+				if (!alreadySnapshotted) {
+					item.original_base_rate = item.base_rate / conversion_factor;
+					item.original_base_price_list_rate = this.flt(base_price / conversion_factor, this.currency_precision);
+					item.original_rate = item.rate / conversion_factor;
+					item.original_price_list_rate = item.price_list_rate / conversion_factor;
+				}
+
+				const perUnitDiscount = this.flt(rowShare / item.qty, this.currency_precision);
+
+				item.base_discount_amount = perUnitDiscount;
+				item.base_rate = this.flt(base_price - perUnitDiscount, this.currency_precision);
+				item.base_price_list_rate = base_price;
+
+				const baseCurrency = this.price_list_currency || this.pos_profile.currency;
+				if (this.selected_currency !== baseCurrency) {
+					item.rate = this.flt(item.base_rate * this.exchange_rate, this.currency_precision);
+					item.price_list_rate = this.flt(base_price * this.exchange_rate, this.currency_precision);
+					item.discount_amount = this.flt(perUnitDiscount * this.exchange_rate, this.currency_precision);
+				} else {
+					item.rate = item.base_rate;
+					item.price_list_rate = base_price;
+					item.discount_amount = perUnitDiscount;
+				}
+
+				item.discount_percentage = base_price
+					? this.flt((perUnitDiscount / base_price) * 100, this.currency_precision)
+					: 0;
+
+				item.amount = this.flt(item.qty * item.rate, this.currency_precision);
+				item.base_amount = this.flt(item.qty * item.base_rate, this.currency_precision);
+
+				item.posa_offer_applied = 1;
+			});
+		});
+
+		if (pendingRetryRowIds.length) {
+			// Exclude skipped rows from offer.items so addOfferToItems() (called by the
+			// caller right after this) doesn't mark them posa_offer_applied before they've
+			// actually been discounted -- that would block the retry from ever picking them up.
+			if (Array.isArray(offer.items)) {
+				offer.items = offer.items.filter((rowId) => !pendingRetryRowIds.includes(rowId));
+			}
+
+			setTimeout(() => {
+				if (typeof this.scheduleOfferRefresh === "function") {
+					this.scheduleOfferRefresh(pendingRetryRowIds);
+				}
+			}, 300);
+		}
+
+		this.$forceUpdate();
 	},
 
 	ApplyOnTotal(offer) {

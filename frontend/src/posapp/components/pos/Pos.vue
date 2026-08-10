@@ -12,6 +12,7 @@
 		<MinimalSalesOrderInvoiceDialog></MinimalSalesOrderInvoiceDialog>
 		<Returns></Returns>
 		<NewAddress></NewAddress>
+		<NewOfferPopup></NewOfferPopup>
 		<MpesaPayments></MpesaPayments>
 		<Variants></Variants>
 		<OpeningDialog v-if="dialog" :dialog="dialog"></OpeningDialog>
@@ -61,6 +62,7 @@ import Invoice from "./Invoice.vue";
 import OpeningDialog from "./OpeningDialog.vue";
 import Payments from "./Payments.vue";
 import PosOffers from "./PosOffers.vue";
+import NewOfferPopup from "./NewOfferPopup.vue";
 import PosCoupons from "./PosCoupons.vue";
 import Drafts from "./Drafts.vue";
 import SalesOrders from "./SalesOrders.vue";
@@ -126,6 +128,7 @@ export default {
 
 		Returns,
 		PosOffers,
+		NewOfferPopup,
 		PosCoupons,
 		NewAddress,
 		Variants,
@@ -251,6 +254,36 @@ export default {
 				});
 			};
 			this.eventBus.on("hide-item-panel", this.hidePanelHandler);
+
+			// Live-refresh the offers list whenever a POS Offer is edited from the desk --
+			// otherwise a shift left open all day never sees the change until the cashier
+			// closes/reopens the shift or hard-refreshes the browser. `notify_update()`
+			// already broadcasts a "list_update" for every doc save, for every doctype
+			// (frappe/model/document.py), so no backend change is needed here.
+			//
+			// This alone isn't reliable enough to depend on though: the "list_update" room
+			// requires "POS Offer" read permission (silently, with no client-visible error
+			// on failure -- see frappe/realtime.py's can_subscribe_doctype), and in dev-server
+			// mode the socket connects directly to a raw port (frappe.boot.socketio_port,
+			// typically 9000) rather than through whatever reverse proxy fronts the main site
+			// -- e.g. a single-port ngrok tunnel exposing only the main site would never carry
+			// this connection at all, and it would fail with no visible error either. So this
+			// is a best-effort fast path; the interval below is what actually guarantees the
+			// offers list can't go stale for more than a few seconds regardless of realtime
+			// reachability.
+			frappe.realtime.doctype_subscribe("POS Offer");
+			this._posOfferListUpdateHandler = (data) => {
+				if (data && data.doctype === "POS Offer" && this.pos_profile && this.pos_profile.name) {
+					this.get_offers(this.pos_profile.name, this.pos_profile);
+				}
+			};
+			frappe.realtime.on("list_update", this._posOfferListUpdateHandler);
+
+			this._posOfferPollHandle = setInterval(() => {
+				if (this.pos_profile && this.pos_profile.name) {
+					this.get_offers(this.pos_profile.name, this.pos_profile);
+				}
+			}, 15000);
 		});
 	},
 	beforeUnmount() {
@@ -267,6 +300,13 @@ export default {
 		this.eventBus.off("close_payments");
 		if (this.hidePanelHandler) {
 			this.eventBus.off("hide-item-panel", this.hidePanelHandler);
+		}
+		frappe.realtime.doctype_unsubscribe("POS Offer");
+		if (this._posOfferListUpdateHandler) {
+			frappe.realtime.off("list_update", this._posOfferListUpdateHandler);
+		}
+		if (this._posOfferPollHandle) {
+			clearInterval(this._posOfferPollHandle);
 		}
 	},
 	// In the created() or mounted() lifecycle hook

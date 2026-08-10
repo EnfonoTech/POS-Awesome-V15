@@ -29,6 +29,7 @@
 			@update:expanded="handleExpandedUpdate"
 			:search="itemSearch"
 			:custom-filter="customItemFilter"
+			:row-props="getRowProps"
 		>
 			<!-- Item name column -->
 			<template v-slot:item.item_name="{ item }">
@@ -1003,6 +1004,11 @@ export default {
 		},
 	},
 	methods: {
+		// Shade free (Give Product offer) rows so the cashier can tell at a glance
+		// which line the customer actually added vs. which one the offer gave away.
+		getRowProps({ item }) {
+			return { class: item && item.is_free_item ? "pos-free-item-row" : "" };
+		},
 		// Ensure current batch_no is included in items list for autocomplete
 		getBatchItemsWithCurrent(item) {
 			if (!item) return [];
@@ -2943,6 +2949,14 @@ body[dir="rtl"] .amount-value.right-aligned {
 /* Ensure expanded rows don't create unwanted spacing */
 .pos-table :deep(tr.v-data-table__expanded) {
 	border: none;
+}
+
+/* Free (Give Product offer) item rows -- same gift-shaded tint used for "Give Product"
+   offers in NewOfferPopup.vue, so a cashier can tell at a glance which row the customer
+   actually added vs. which one an offer gave away for free. */
+.pos-table :deep(tr.pos-free-item-row),
+.pos-table :deep(tr.pos-free-item-row:hover) {
+	background-color: var(--pos-secondary-container, #e0f7fa) !important;
 }
 
 /* Clean slate for table structure */

@@ -790,10 +790,9 @@ export default {
 					this.items.forEach((it) => {
 						const ci = map[it.item_code];
 						if (ci) {
-							const force =
-								this.pos_profile?.posa_force_price_from_customer_price_list !== false;
+							// Never overwrite with a 0 -- see update_items_details() for why.
 							const price = ci.price_list_rate ?? ci.rate ?? 0;
-							if (force || price) {
+							if (price) {
 								it.rate = price;
 								it.price_list_rate = price;
 							}
@@ -1359,9 +1358,9 @@ export default {
 							saveItemUOMs(item.item_code, det.item_uoms);
 						}
 						if (det.rate !== undefined) {
-							const force = vm.pos_profile?.posa_force_price_from_customer_price_list !== false;
+							// Never overwrite with a 0 -- see update_items_details() for why.
 							const price = det.price_list_rate ?? det.rate ?? 0;
-							if (force || price) {
+							if (price) {
 								upd.rate = price;
 								upd.price_list_rate = price;
 							}
@@ -1400,9 +1399,9 @@ export default {
 							saveItemUOMs(item.item_code, updItem.item_uoms);
 						}
 						if (updItem.rate !== undefined) {
-							const force = vm.pos_profile?.posa_force_price_from_customer_price_list !== false;
+							// Never overwrite with a 0 -- see update_items_details() for why.
 							const price = updItem.price_list_rate ?? updItem.rate ?? 0;
-							if (force || price) {
+							if (price) {
 								upd.rate = price;
 								upd.price_list_rate = price;
 							}
@@ -2557,9 +2556,20 @@ export default {
 						saveItemUOMs(item.item_code, det.item_uoms);
 					}
 					if (det.rate !== undefined) {
-						const force = vm.pos_profile?.posa_force_price_from_customer_price_list !== false;
 						const price = det.price_list_rate ?? det.rate ?? 0;
-						if (force || price) {
+						// Never overwrite with a 0: this mutates the catalog item shared directly
+						// with Invoice.vue's allItems (same array/object references, passed
+						// through via the set_all_items eventBus emission, no clone) -- and
+						// ApplyOnGiveProduct reads a combo's free-item price straight from this
+						// same shared entry. A real catalog reference price is never legitimately
+						// 0 for a priced item, so a 0 here means this particular fetch/cache
+						// lookup didn't have a usable price yet, not that the item is actually
+						// free -- writing it through anyway (previously done unconditionally
+						// whenever posa_force_price_from_customer_price_list wasn't explicitly
+						// set to false, which is the default) could silently zero out this shared
+						// entry's price_list_rate on this component's own 30-second refresh
+						// cycle, well after a combo's free item had already been correctly priced.
+						if (price) {
 							item.rate = price;
 							item.price_list_rate = price;
 						}

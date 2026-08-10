@@ -1280,11 +1280,27 @@ export default {
 
 			// Handle currency conversion for rates and amounts
 			const baseCurrency = this.price_list_currency || this.pos_profile.currency;
-			
-			// Ensure rate is set - use price_list_rate as fallback if rate is 0 or missing
-			const itemRate = item.rate && item.rate > 0 ? item.rate : (item.price_list_rate || 0);
+
+			// Ensure rate is set - use price_list_rate as fallback if rate is missing (i.e. not
+			// yet loaded from the backend). A genuinely free offer item (is_free_item, e.g. a
+			// Give Product combo reward) legitimately has rate=0 -- `item.rate && item.rate > 0`
+			// can't tell "0 because free" apart from "0 because still loading" and was
+			// substituting price_list_rate for BOTH, silently un-discounting the free item the
+			// moment the invoice got saved. is_free_item is set precisely for this distinction
+			// (see ApplyOnGiveProduct), so check it first and trust a free item's own 0 rate.
+			const hasLoadedRate = item.rate !== undefined && item.rate !== null && item.rate !== "";
+			const itemRate = item.is_free_item
+				? flt(item.rate)
+				: hasLoadedRate && item.rate > 0
+					? item.rate
+					: item.price_list_rate || 0;
 			const itemPriceListRate = item.price_list_rate || itemRate;
-			const itemBaseRate = item.base_rate && item.base_rate > 0 ? item.base_rate : (item.base_price_list_rate || itemRate);
+			const hasLoadedBaseRate = item.base_rate !== undefined && item.base_rate !== null && item.base_rate !== "";
+			const itemBaseRate = item.is_free_item
+				? flt(item.base_rate)
+				: hasLoadedBaseRate && item.base_rate > 0
+					? item.base_rate
+					: item.base_price_list_rate || itemRate;
 			const itemBasePriceListRate = item.base_price_list_rate || itemBaseRate;
 			
 			if (this.selected_currency !== baseCurrency) {
@@ -2492,6 +2508,25 @@ export default {
 			return;
 		}
 
+		// Re-resolve to the reactive reference actually stored in this.items/packed_items
+		// before mutating anything below. Vue 3 only tracks/triggers dependencies through its
+		// reactive Proxy -- writing directly to a plain object that happens to be the SAME
+		// underlying reference as a reactive array's element does NOT go through that proxy's
+		// set trap, so no re-render is ever scheduled, even though the value itself is correct
+		// if read back later. This bites callers (e.g. ApplyOnGiveProduct) that create a new
+		// row, kick off this update on that raw object BEFORE it's inserted into this.items,
+		// then return -- by the time this async function resumes after its `await`, the
+		// caller's synchronous unshift has already run, so the row IS in the array, but `item`
+		// here is still the pre-insertion raw reference. $forceUpdate() on this component
+		// doesn't help either: it doesn't cascade into child components like the items table
+		// that actually render each row.
+		if (item.posa_row_id) {
+			const reactiveItem = this.getItemFromRowID(item.posa_row_id);
+			if (reactiveItem) {
+				item = reactiveItem;
+			}
+		}
+
 		if (item._manual_rate_set && !force_update) {
 			return;
 		}
@@ -2619,7 +2654,18 @@ export default {
 		item.locked_price = data.locked_price;
 		item.description = data.description;
 		item.item_tax_template = data.item_tax_template;
-		item.discount_percentage = data.discount_percentage;
+		// Never overwrite an offer-set discount_percentage with the generic item/customer
+		// pricing lookup's own value (typically 0) -- ERPNext's core tax calculator
+		// (taxes_and_totals.py calculate_item_values()) treats discount_percentage == 100 as
+		// the ONLY signal that a row is genuinely free and must keep rate=0 through every
+		// recalculation (including the one save() itself triggers); rate==0 alone does not
+		// protect it. Resetting this back to 0 here silently undid a Give Product 100%-off
+		// item's free status the moment its async detail fetch resolved, with no visible
+		// change to rate itself -- the item just stopped being recognized as free and got its
+		// rate recomputed from price_list_rate on save.
+		if (!item.is_free_item && !item.posa_offer_applied) {
+			item.discount_percentage = data.discount_percentage;
+		}
 		item.warehouse = data.warehouse || item.warehouse;
 		item.has_batch_no = data.has_batch_no;
 		item.has_serial_no = data.has_serial_no;
@@ -2759,14 +2805,36 @@ export default {
 					}
 				}
 			} else {
+				// price_list_rate must keep showing the item's TRUE reference price here,
+				// not the discounted rate -- using item.base_rate corrupted it down to the
+				// discounted value (0 for a fully-free Give Product item) every time this
+				// item's detail gets (re-)fetched, even from cache. Prefer the reference
+				// price already snapshotted when an Item Price offer discounted this exact
+				// row; a freshly-given/free item won't have that (it's a brand new row), so
+				// fall back to this detail response's own price_list_rate, which reflects
+				// the item's real catalog price regardless of any discount.
 				const baseCurrency = this.price_list_currency || this.pos_profile.currency;
+				// `||`, not `??`: a genuine reference/catalog price is never legitimately 0, so
+				// treat a 0 here the same as missing and fall through to the next candidate --
+				// unlike `rate`/`discount_percentage` elsewhere, where 0 is a meaningful "this
+				// row is free" value that must NOT be treated as a placeholder. Falls all the
+				// way back to the item's own current price_list_rate (already set synchronously
+				// by ApplyOnGiveProduct from the catalog) rather than risking a hard 0 if this
+				// specific detail-fetch response happens to come back with price_list_rate: 0
+				// for a reason unrelated to the offer (e.g. a transient pricing-context gap).
+				const referencePrice =
+					item.original_base_price_list_rate ||
+					data.price_list_rate ||
+					item.base_price_list_rate ||
+					item.price_list_rate ||
+					0;
 				if (this.selected_currency !== baseCurrency) {
 					item.price_list_rate = this.flt(
-						item.base_rate * this.exchange_rate,
+						referencePrice * this.exchange_rate,
 						this.currency_precision,
 					);
 				} else {
-					item.price_list_rate = item.base_rate;
+					item.price_list_rate = referencePrice;
 				}
 			}
 

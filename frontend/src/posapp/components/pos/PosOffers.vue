@@ -104,6 +104,7 @@ export default {
 		loading: false,
 		pos_profile: "",
 		pos_offers: [],
+		notifiedOfferNames: [],
 		allItems: [],
 		groupItemCache: {},
 		discount_percentage_offer_name: null,
@@ -192,13 +193,34 @@ export default {
 				const offer = offers.find((offer) => offer.name === pos_offer.name);
 				if (!offer) {
 					toRemove.push(pos_offer.row_id);
+					// The offer genuinely stopped qualifying (e.g. qty dropped below the combo
+					// threshold) -- clear its "already notified" flag right away. A previous
+					// version delayed this by 2s to absorb transient churn, but that delay
+					// itself was the bug: a cashier who corrected a qty back up within that
+					// window (e.g. down then up again) would re-qualify while still marked
+					// "already notified," so the confirmation popup silently never re-fired.
+					this.notifiedOfferNames = this.notifiedOfferNames.filter((n) => n !== pos_offer.name);
 				}
 			});
 			this.removeOffers(toRemove);
+			const newlyNeedingConfirmation = [];
 			offers.forEach((offer) => {
 				const pos_offer = this.pos_offers.find((pos_offer) => offer.name === pos_offer.name);
 				if (pos_offer) {
 					pos_offer.items = offer.items;
+					// Combo offers recompute these on every evaluation pass as cart quantities
+					// change (see getComboOffer/ApplyOnCombo) -- without refreshing them here
+					// too, this tracked copy stays frozen at whatever it was the first time the
+					// offer qualified, and ApplyOnCombo ends up combining a fresh per-unit qty
+					// with a stale total/breakdown, producing a wrong rate.
+					if (offer.apply_on === "Item Combination") {
+						pos_offer.combo_breakdown = offer.combo_breakdown;
+						pos_offer.combo_total_amount = offer.combo_total_amount;
+						pos_offer.combo_instances = offer.combo_instances;
+						if (pos_offer.offer === "Give Product") {
+							pos_offer.given_qty = offer.given_qty;
+						}
+					}
 					if (pos_offer.offer === "Grand Total" && !this.discount_percentage_offer_name) {
 						pos_offer.offer_applied = !!pos_offer.auto;
 					}
@@ -245,8 +267,18 @@ export default {
 						title: __("New Offer Available"),
 						color: "warning",
 					});
+					// Notify at most once per qualifying span -- cleared the moment the offer
+					// actually drops out of pos_offers (see the removal loop above), so a
+					// genuine re-qualification later always pops the confirmation again.
+					if (!newOffer.offer_applied && !this.notifiedOfferNames.includes(newOffer.name)) {
+						newlyNeedingConfirmation.push(newOffer);
+						this.notifiedOfferNames.push(newOffer.name);
+					}
 				}
 			});
+			if (newlyNeedingConfirmation.length) {
+				this.eventBus.emit("offers_need_confirmation", newlyNeedingConfirmation);
+			}
 		},
 		removeOffers(offers_id_list) {
 			this.pos_offers = this.pos_offers.filter((offer) => !offers_id_list.includes(offer.row_id));
@@ -340,6 +372,15 @@ export default {
 		});
 		this.eventBus.on("set_all_items", (data) => {
 			this.allItems = data;
+		});
+		this.eventBus.on("clear_invoice", () => {
+			this.notifiedOfferNames = [];
+		});
+		this.eventBus.on("apply_offer_from_popup", (offerName) => {
+			const entry = this.pos_offers.find((el) => el.name === offerName);
+			if (entry && !entry.offer_applied) {
+				this.applyOffer(entry);
+			}
 		});
 	},
 };

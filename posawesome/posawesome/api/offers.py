@@ -70,9 +70,126 @@ def get_offers(profile):
         or []
     )
 
+    _attach_combo_items(data)
+
     promotional_scheme_offers = _get_promotional_scheme_offers(pos_profile) or []
 
     return data + promotional_scheme_offers
+
+
+def _attach_combo_items(offers):
+    combo_offer_names = [d.name for d in offers if d.get("apply_on") == "Item Combination"]
+    if not combo_offer_names:
+        return
+
+    combo_rows = frappe.get_all(
+        "POS Offer Combo Item",
+        filters={"parent": ["in", combo_offer_names]},
+        fields=["parent", "item_code", "qty", "uom"],
+        order_by="parent, idx",
+    )
+
+    item_codes = list({row.item_code for row in combo_rows if row.item_code})
+    stock_uoms = {
+        item.item_code: item.stock_uom
+        for item in (
+            frappe.get_all(
+                "Item",
+                filters={"item_code": ["in", item_codes]},
+                fields=["item_code", "stock_uom"],
+            )
+            if item_codes
+            else []
+        )
+    }
+
+    combo_map = {}
+    for row in combo_rows:
+        stock_uom = stock_uoms.get(row.item_code)
+        # Combo eligibility (getComboOffer) compares required qty against the cart's
+        # stock_qty -- an offer defined as "1 Box" must be converted to stock-uom terms
+        # (e.g. 3 Nos) using the item's own UOM Conversion Detail, exactly like the rest
+        # of the app resolves uom conversions (see get_item_detail/calcUom).
+        uom = row.uom or stock_uom
+        combo_map.setdefault(row.parent, []).append(
+            {
+                "item_code": row.item_code,
+                "qty": flt(row.qty) or 1,
+                "uom": uom,
+                "conversion_factor": _get_uom_conversion_factor(row.item_code, uom, stock_uom),
+            }
+        )
+
+    for d in offers:
+        if d.get("apply_on") == "Item Combination":
+            d["combo_items"] = combo_map.get(d.name, [])
+
+
+def _get_uom_conversion_factor(item_code, uom, stock_uom):
+    if not uom or uom == stock_uom:
+        return 1.0
+    return (
+        flt(
+            frappe.db.get_value(
+                "UOM Conversion Detail", {"parent": item_code, "uom": uom}, "conversion_factor"
+            )
+        )
+        or 1.0
+    )
+
+
+@frappe.whitelist()
+def get_combo_item_reference_rate(item_code, uom=None, pos_profile=None):
+    """Resolve a reference rate for a POS Offer combo item row.
+
+    Prefers the POS Profile's selling price list, falls back to the system default
+    selling price list, then to Item.standard_rate -- scaling by the chosen uom's
+    conversion factor against the item's stock uom whenever no uom-specific Item
+    Price row exists, since standard_rate/most Item Price rows are stock-uom rates.
+    """
+    if not item_code:
+        return None
+
+    item = frappe.db.get_value("Item", item_code, ["stock_uom", "standard_rate"], as_dict=True)
+    if not item:
+        return None
+
+    stock_uom = item.stock_uom
+    uom = uom or stock_uom
+    conversion_factor = _get_uom_conversion_factor(item_code, uom, stock_uom)
+
+    price_list = None
+    if pos_profile:
+        price_list = frappe.db.get_value("POS Profile", pos_profile, "selling_price_list")
+    if not price_list:
+        price_list = frappe.db.get_single_value("Selling Settings", "selling_price_list")
+
+    rate = None
+    if price_list:
+        rate = frappe.db.get_value(
+            "Item Price",
+            {"item_code": item_code, "price_list": price_list, "uom": uom, "selling": 1},
+            "price_list_rate",
+        )
+        if not rate:
+            stock_rate = frappe.db.get_value(
+                "Item Price",
+                {"item_code": item_code, "price_list": price_list, "uom": stock_uom, "selling": 1},
+                "price_list_rate",
+            )
+            if stock_rate:
+                rate = flt(stock_rate) * conversion_factor
+
+    if not rate:
+        rate = flt(item.standard_rate) * conversion_factor
+
+    return {
+        "rate": flt(rate),
+        "uom": uom,
+        "stock_uom": stock_uom,
+        "conversion_factor": conversion_factor,
+        "price_list": price_list,
+    }
 
 
 @frappe.whitelist()
