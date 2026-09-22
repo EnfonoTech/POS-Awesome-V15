@@ -96,6 +96,10 @@ export default {
                 const customersStore = useCustomersStore();
                 customersStore.setCustomerInfo(this.customer_info || {});
                 this.sync_invoice_customer_details(this.customer_info);
+                // The new customer's group may exclude (or re-admit) an offer, so re-evaluate
+                // against the cached offer list -- this both drops offers already applied to the
+                // cart and picks up ones the previous customer was excluded from.
+                this.handelOffers();
         },
 	// Watch for expanded row change and update item detail
 	expanded(data_value) {

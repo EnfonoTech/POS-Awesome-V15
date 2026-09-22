@@ -18,6 +18,7 @@
   "company",
   "pos_profile",
   "warehouse",
+  "excluded_customer_groups",
   "column_break_8",
   "item",
   "item_group",
@@ -111,6 +112,12 @@
    "label": "Warehouse",
    "options": "Warehouse",
    "search_index": 1
+  },
+  {
+   "fieldname": "excluded_customer_groups",
+   "fieldtype": "Table MultiSelect",
+   "label": "Exclude Customer Groups",
+   "options": "POS Offer Customer Group"
   },
   {
    "fieldname": "column_break_8",
@@ -348,7 +355,7 @@
   }
  ],
  "index_web_pages_for_search": 1,
- "modified": "2021-07-25 17:09:55.634113",
+ "modified": "2026-09-22 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "POSAwesome",
  "name": "POS Offer",

@@ -71,10 +71,50 @@ def get_offers(profile):
     )
 
     _attach_combo_items(data)
+    _attach_excluded_customer_groups(data)
 
     promotional_scheme_offers = _get_promotional_scheme_offers(pos_profile) or []
 
     return data + promotional_scheme_offers
+
+
+def _attach_excluded_customer_groups(offers):
+    """Attach each offer's excluded customer groups, expanded to include descendants.
+
+    Offers are fetched once per POS session and cached client-side, long before (and
+    independently of) whichever customer the cashier picks, so this can't be a server-side
+    filter -- the client decides per customer. Customer Group is a tree, so excluding a parent
+    has to exclude everything under it; expanding the descendants here keeps that check a plain
+    membership test on the client instead of shipping the tree.
+    """
+
+    if not offers:
+        return
+
+    rows = frappe.get_all(
+        "POS Offer Customer Group",
+        filters={"parent": ["in", [d.name for d in offers]], "parenttype": "POS Offer"},
+        fields=["parent", "customer_group"],
+    )
+
+    groups_by_offer = {}
+    expanded_cache = {}
+    for row in rows:
+        if not row.customer_group:
+            continue
+        expanded = expanded_cache.get(row.customer_group)
+        if expanded is None:
+            try:
+                expanded = [row.customer_group] + (
+                    frappe.db.get_descendants("Customer Group", row.customer_group) or []
+                )
+            except Exception:
+                expanded = [row.customer_group]
+            expanded_cache[row.customer_group] = expanded
+        groups_by_offer.setdefault(row.parent, set()).update(expanded)
+
+    for offer in offers:
+        offer["excluded_customer_groups"] = sorted(groups_by_offer.get(offer.name, []))
 
 
 def _attach_combo_items(offers):

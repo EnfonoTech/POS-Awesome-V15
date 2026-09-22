@@ -405,7 +405,11 @@ export default {
 			if (newCustomer === oldCustomer) {
 				return;
 			}
-			this.offers = [];
+			// This used to clear `this.offers`, a property this component doesn't have -- a dead
+			// assignment, so nothing reacted to a customer change at all. The offer list itself is
+			// re-evaluated invoice-side (the new customer's group can exclude an offer); all this
+			// needs to do is forget what was already prompted, so the new customer gets asked.
+			this.notifiedOfferRows = {};
 		},
 	},
 

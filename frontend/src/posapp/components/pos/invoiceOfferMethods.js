@@ -108,9 +108,30 @@ export default {
 		return applied;
 	},
 
+	// Is this offer available to the customer currently on the invoice?
+	//
+	// get_offers() is fetched once per POS session, before any customer is chosen, so the
+	// exclusion can only be resolved here. The group list arrives already expanded down the
+	// Customer Group tree. An unknown group (customer details still loading) allows the offer:
+	// the customer_info watcher re-runs this the moment it lands, so a wrongly-shown offer is
+	// withdrawn a beat later, whereas wrongly hiding one would look like the offer is broken.
+	isOfferAllowedForCustomer(offer) {
+		const excluded = offer && offer.excluded_customer_groups;
+		if (!Array.isArray(excluded) || !excluded.length) {
+			return true;
+		}
+		const customerGroup = this.customer_info && this.customer_info.customer_group;
+		if (!customerGroup) {
+			return true;
+		}
+		return !excluded.includes(customerGroup);
+	},
+
 	async handelOffers(changedRowIds = [], removedRows = {}) {
 		try {
-			const sourceOffers = Array.isArray(this.posOffers) ? this.posOffers : [];
+			const sourceOffers = (Array.isArray(this.posOffers) ? this.posOffers : []).filter((offer) =>
+				this.isOfferAllowedForCustomer(offer),
+			);
 			if (!sourceOffers.length) {
 				this.updatePosOffers([]);
 				this._cachedOfferResults = new Map();
