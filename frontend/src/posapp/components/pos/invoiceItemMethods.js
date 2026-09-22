@@ -324,6 +324,13 @@ export default {
 
 	// Load an invoice (or return invoice) from data, set all fields accordingly
 	async load_invoice(data = {}, options = {}) {
+		// Reloading empties the cart and repopulates it (clear_invoice below), which makes every
+		// offer momentarily stop qualifying and then qualify again. To the offer popup that looks
+		// like a brand new offer, so it re-asked every time the invoice round-tripped through the
+		// server -- most visibly on Pay, which reloads from the backend before opening payments.
+		// Suppress prompting (not evaluation) for the duration; PosOffers still records the rows
+		// as prompted, so nothing pops the moment this is released either.
+		this.eventBus.emit("suppress_offer_prompts", true);
 		this.clear_invoice();
 		if (data.is_return) {
 			this.invoiceType = "Return";
@@ -498,6 +505,13 @@ export default {
 			this.eventBus.emit("set_pos_coupons", data.posa_coupons);
 		}
 
+		// Release only once the restored cart has been re-evaluated, so the drop-out and the
+		// re-qualification both land while prompting is still suppressed.
+		this.$nextTick(() => {
+			Promise.resolve(this.handelOffers()).finally(() => {
+				this.eventBus.emit("suppress_offer_prompts", false);
+			});
+		});
 	},
 
 	// Save and clear the current invoice (draft logic)

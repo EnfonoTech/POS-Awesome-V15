@@ -105,6 +105,7 @@ export default {
 		pos_profile: "",
 		pos_offers: [],
 		notifiedOfferRows: {},
+		promptsSuppressed: false,
 		allItems: [],
 		groupItemCache: {},
 		discount_percentage_offer_name: null,
@@ -241,7 +242,9 @@ export default {
 					// itself was the bug: a cashier who corrected a qty back up within that
 					// window (e.g. down then up again) would re-qualify while still marked
 					// "already notified," so the confirmation popup silently never re-fired.
-					delete this.notifiedOfferRows[pos_offer.name];
+					if (!this.promptsSuppressed) {
+						delete this.notifiedOfferRows[pos_offer.name];
+					}
 				}
 			});
 			this.removeOffers(toRemove);
@@ -280,7 +283,11 @@ export default {
 						!pos_offer.offer_declined &&
 						this.hasUnpromptedRows(offer)
 					) {
-						newlyNeedingConfirmation.push(pos_offer);
+						// Record the rows either way: if prompting is suppressed (invoice reload)
+						// and we skipped recording, the release would immediately pop everything.
+						if (!this.promptsSuppressed) {
+							newlyNeedingConfirmation.push(pos_offer);
+						}
 						this.markOfferPrompted(offer);
 					}
 				} else {
@@ -322,7 +329,9 @@ export default {
 					// offer actually drops out of pos_offers (see the removal loop above), so a
 					// genuine re-qualification later always pops the confirmation again.
 					if (!newOffer.offer_applied && this.hasUnpromptedRows(newOffer)) {
-						newlyNeedingConfirmation.push(newOffer);
+						if (!this.promptsSuppressed) {
+							newlyNeedingConfirmation.push(newOffer);
+						}
 						this.markOfferPrompted(newOffer);
 					}
 				}
@@ -405,11 +414,13 @@ export default {
 			if (newCustomer === oldCustomer) {
 				return;
 			}
-			// This used to clear `this.offers`, a property this component doesn't have -- a dead
-			// assignment, so nothing reacted to a customer change at all. The offer list itself is
-			// re-evaluated invoice-side (the new customer's group can exclude an offer); all this
-			// needs to do is forget what was already prompted, so the new customer gets asked.
-			this.notifiedOfferRows = {};
+			// Nothing to do here. This used to clear `this.offers`, a property this component
+			// doesn't have -- a dead assignment. The offer list is re-evaluated invoice-side (the
+			// new customer's group can exclude an offer), and an offer that becomes newly eligible
+			// arrives as a removal followed by a fresh entry, which prompts on its own. Wiping
+			// notifiedOfferRows here instead re-prompted for offers the cashier had already
+			// answered, every time the customer was reassigned -- including the POS profile's
+			// default customer being restored after payment.
 		},
 	},
 
@@ -430,6 +441,9 @@ export default {
 		});
 		this.eventBus.on("clear_invoice", () => {
 			this.notifiedOfferRows = {};
+		});
+		this.eventBus.on("suppress_offer_prompts", (value) => {
+			this.promptsSuppressed = !!value;
 		});
 		this.eventBus.on("apply_offer_from_popup", (offerName) => {
 			const entry = this.pos_offers.find((el) => el.name === offerName);
