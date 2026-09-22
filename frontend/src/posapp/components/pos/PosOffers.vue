@@ -104,7 +104,7 @@ export default {
 		loading: false,
 		pos_profile: "",
 		pos_offers: [],
-		notifiedOfferNames: [],
+		notifiedOfferRows: {},
 		allItems: [],
 		groupItemCache: {},
 		discount_percentage_offer_name: null,
@@ -172,11 +172,53 @@ export default {
 		},
 		applyOffer(item) {
 			item.offer_applied = true;
+			item.offer_declined = false;
 			this.forceUpdateItem();
 		},
 		removeOffer(item) {
 			item.offer_applied = false;
+			// Taking an applied offer back off is a deliberate rejection, unlike "Not Now" on the
+			// popup -- don't keep re-prompting for it every time another matching item is scanned.
+			item.offer_declined = true;
 			this.forceUpdateItem();
+		},
+		offerRowIds(offer) {
+			const raw = offer && offer.items;
+			if (Array.isArray(raw)) {
+				return raw.filter(Boolean);
+			}
+			if (typeof raw === "string" && raw) {
+				try {
+					const parsed = JSON.parse(raw);
+					return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+				} catch {
+					return [];
+				}
+			}
+			return [];
+		},
+		// Has this offer picked up a cart row it has never prompted about?
+		//
+		// An Item Group / Brand offer ENTERS pos_offers once, on the first matching item, and from
+		// then on just accumulates rows in offer.items as more matching items are scanned. Gating
+		// the popup on the offer being new therefore asked once and never again: after a "Not Now"
+		// every later item in the group stayed silently undiscounted, with the offer sitting
+		// unapplied in the Offers tab. Track the rows already prompted for instead.
+		hasUnpromptedRows(offer) {
+			const prompted = this.notifiedOfferRows[offer.name];
+			if (!prompted) {
+				return true;
+			}
+			return this.offerRowIds(offer).some((rowId) => !prompted.includes(rowId));
+		},
+		markOfferPrompted(offer) {
+			const prompted = this.notifiedOfferRows[offer.name] || [];
+			this.offerRowIds(offer).forEach((rowId) => {
+				if (!prompted.includes(rowId)) {
+					prompted.push(rowId);
+				}
+			});
+			this.notifiedOfferRows[offer.name] = prompted;
 		},
 		makeid(length) {
 			let result = "";
@@ -194,12 +236,12 @@ export default {
 				if (!offer) {
 					toRemove.push(pos_offer.row_id);
 					// The offer genuinely stopped qualifying (e.g. qty dropped below the combo
-					// threshold) -- clear its "already notified" flag right away. A previous
-					// version delayed this by 2s to absorb transient churn, but that delay
+					// threshold) -- forget the rows it had already prompted about right away. A
+					// previous version delayed this by 2s to absorb transient churn, but that delay
 					// itself was the bug: a cashier who corrected a qty back up within that
 					// window (e.g. down then up again) would re-qualify while still marked
 					// "already notified," so the confirmation popup silently never re-fired.
-					this.notifiedOfferNames = this.notifiedOfferNames.filter((n) => n !== pos_offer.name);
+					delete this.notifiedOfferRows[pos_offer.name];
 				}
 			});
 			this.removeOffers(toRemove);
@@ -231,6 +273,15 @@ export default {
 					) {
 						pos_offer.give_item = offer.give_item;
 						pos_offer.apply_item_code = offer.apply_item_code;
+					}
+					// Still unapplied and it just matched another item -> ask again for that item.
+					if (
+						!pos_offer.offer_applied &&
+						!pos_offer.offer_declined &&
+						this.hasUnpromptedRows(offer)
+					) {
+						newlyNeedingConfirmation.push(pos_offer);
+						this.markOfferPrompted(offer);
 					}
 				} else {
 					const newOffer = { ...offer };
@@ -267,12 +318,12 @@ export default {
 						title: __("New Offer Available"),
 						color: "warning",
 					});
-					// Notify at most once per qualifying span -- cleared the moment the offer
-					// actually drops out of pos_offers (see the removal loop above), so a
+					// Notify once per qualifying row -- the whole record is cleared the moment the
+					// offer actually drops out of pos_offers (see the removal loop above), so a
 					// genuine re-qualification later always pops the confirmation again.
-					if (!newOffer.offer_applied && !this.notifiedOfferNames.includes(newOffer.name)) {
+					if (!newOffer.offer_applied && this.hasUnpromptedRows(newOffer)) {
 						newlyNeedingConfirmation.push(newOffer);
-						this.notifiedOfferNames.push(newOffer.name);
+						this.markOfferPrompted(newOffer);
 					}
 				}
 			});
@@ -374,7 +425,7 @@ export default {
 			this.allItems = data;
 		});
 		this.eventBus.on("clear_invoice", () => {
-			this.notifiedOfferNames = [];
+			this.notifiedOfferRows = {};
 		});
 		this.eventBus.on("apply_offer_from_popup", (offerName) => {
 			const entry = this.pos_offers.find((el) => el.name === offerName);

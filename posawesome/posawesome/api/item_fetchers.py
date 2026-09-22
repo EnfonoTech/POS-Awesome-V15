@@ -88,7 +88,7 @@ def _fetch_item_prices(
                                     AND item_code IN %(item_codes)s
                                     AND currency = %(currency)s
                                     AND selling = 1
-                                    AND valid_from <= %(today)s
+                                    AND (valid_from IS NULL OR valid_from <= %(today)s)
                                     AND IFNULL(customer, '') IN ('', %(customer)s)
                                     AND valid_upto >= %(today)s
                             UNION ALL
@@ -106,7 +106,7 @@ def _fetch_item_prices(
                                     AND item_code IN %(item_codes)s
                                     AND currency = %(currency)s
                                     AND selling = 1
-                                    AND valid_from <= %(today)s
+                                    AND (valid_from IS NULL OR valid_from <= %(today)s)
                                     AND IFNULL(customer, '') IN ('', %(customer)s)
                                     AND (valid_upto IS NULL OR valid_upto = '')
                     ) ip
@@ -306,8 +306,11 @@ def _select_price(
     if "None" in price_rows:
         return price_rows["None"]
 
-    # fall back to first available rate
-    return next(iter(price_rows.values()), frappe._dict())
+    # No row for this uom, the stock uom, or a uom-agnostic price. Returning whatever other uom
+    # happened to be first priced a "Nos" line at the "Box" rate with no conversion factor applied
+    # -- a wrong number, not a fallback. Hand back nothing; callers keep the rate they already have
+    # (both update_items_details and _applyPriceListRate ignore a zero/missing price).
+    return frappe._dict()
 
 
 def _ensure_stock_uom(uoms: List[Dict[str, Any]], stock_uom: Optional[str]) -> List[Dict[str, Any]]:

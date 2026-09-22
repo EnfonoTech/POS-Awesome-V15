@@ -1012,6 +1012,11 @@ export default {
 					} else {
 						this.ApplyOnPrice(offer);
 					}
+					// Both drop rows whose price hasn't loaded yet from offer.items, but the copy
+					// tracked on existOffer was stringified further up, before that happened. Refresh
+					// it here or addOfferToItems() below flags those rows posa_offer_applied anyway,
+					// which is exactly what the deferral is meant to prevent.
+					existOffer.items = JSON.stringify(offer.items);
 				} else if (existOffer.offer === "Grand Total") {
 					this.ApplyOnTotal(offer);
 				}
@@ -1387,6 +1392,13 @@ export default {
 	ApplyOnPrice(offer) {
 		if (!offer) return;
 
+		// Same hazard ApplyOnCombo guards against: a row's real price is fetched asynchronously
+		// right after it lands in the cart, so an auto-applied offer can get here first.
+		const MAX_PRICE_WAIT_RETRIES = 6;
+		this._itemPriceOfferRetryCounts = this._itemPriceOfferRetryCounts || {};
+		const deferredRowIds = [];
+		const retryRowIds = [];
+
 		const combined = [...this.items, ...this.packed_items];
 		combined.forEach((item) => {
 			// Check if offer.items exists and is valid
@@ -1398,28 +1410,61 @@ export default {
 				if (!Array.isArray(item_offers)) return;
 
 				if (!item_offers.includes(offer.row_id)) {
-					// Store original rates only if this is the first offer being applied
+					const conversion_factor = flt(item.conversion_factor || 1);
+
+					// Discounting a row whose price hasn't arrived yet snapshots a 0 reference and
+					// sets rate 0 -- and posa_offer_applied then makes every other repricing path
+					// (update_item_detail included) skip the row, so it stays at 0 for the rest of
+					// the sale. That's the "auto apply gives rate 0" case. Wait for the price
+					// instead, then let the next pass apply the offer properly.
+					// `||`, not `??`, on the snapshot: a real reference price is never legitimately
+					// 0, so a 0 there means a garbage snapshot rather than a free item, and the
+					// live price is the better answer. price_list_rate is the second fallback
+					// because getNewItem can leave base_price_list_rate at 0 while price_list_rate
+					// is populated (it only copies base_* when the source item carries it).
+					const referencePrice = flt(
+						item.original_base_price_list_rate ||
+							flt(item.base_price_list_rate || item.price_list_rate || 0) / conversion_factor,
+					);
+					if (!(referencePrice > 0)) {
+						const attempts = (this._itemPriceOfferRetryCounts[item.posa_row_id] || 0) + 1;
+						this._itemPriceOfferRetryCounts[item.posa_row_id] = attempts;
+						deferredRowIds.push(item.posa_row_id);
+						if (attempts <= MAX_PRICE_WAIT_RETRIES) {
+							retryRowIds.push(item.posa_row_id);
+						} else {
+							// Never poll forever: an item with no price in this price list at all
+							// just stays undiscounted instead of being latched at 0.
+							console.warn("Item Price offer: no price available for row, skipping", {
+								item_code: item.item_code,
+								row_id: item.posa_row_id,
+							});
+						}
+						return;
+					}
+					delete this._itemPriceOfferRetryCounts[item.posa_row_id];
+
+					// Store original rates only if this is the first offer being applied.
+					// Every field falls back the same way referencePrice does -- snapshotting a 0
+					// here is what used to freeze the row at rate 0 for the rest of the sale, and
+					// it's also what RemoveOnPrice restores from.
 					if (!item.posa_offer_applied) {
 						// Store original prices normalized to conversion factor 1
-						const cf = flt(item.conversion_factor || 1);
-						item.original_base_rate = item.base_rate / cf;
-						item.original_base_price_list_rate = item.base_price_list_rate / cf;
-						item.original_rate = item.rate / cf;
-						item.original_price_list_rate = item.price_list_rate / cf;
+						const cf = conversion_factor;
+						item.original_base_price_list_rate = referencePrice;
+						item.original_base_rate = flt(item.base_rate || item.rate || 0) / cf || referencePrice;
+						item.original_price_list_rate =
+							flt(item.price_list_rate || item.base_price_list_rate || 0) / cf || referencePrice;
+						item.original_rate =
+							flt(item.rate || item.base_rate || 0) / cf || item.original_price_list_rate;
 					}
 
-					const conversion_factor = flt(item.conversion_factor || 1);
+					// One reference price for both discount types, already validated above.
+					const base_price = this.flt(referencePrice * conversion_factor, this.currency_precision);
 
 					if (offer.discount_type === "Rate") {
 						// offer.rate is always in base currency (e.g. PKR)
 						const base_offer_rate = flt(offer.rate * conversion_factor);
-
-						// Determine original base price for reference
-						const base_price = this.flt(
-							(item.original_base_price_list_rate ??
-								item.base_price_list_rate / conversion_factor) * conversion_factor,
-							this.currency_precision,
-						);
 
 						// Set base rates and keep original price list rate
 						item.base_rate = base_offer_rate;
@@ -1466,12 +1511,6 @@ export default {
 						item.discount_percentage = offer.discount_percentage;
 
 						// Calculate discount in base currency first
-						// Use normalized price * current conversion factor
-						const base_price = this.flt(
-							(item.original_base_price_list_rate ??
-								item.base_price_list_rate / conversion_factor) * conversion_factor,
-							this.currency_precision,
-						);
 						const base_discount = this.flt(
 							(base_price * offer.discount_percentage) / 100,
 							this.currency_precision,
@@ -1513,6 +1552,23 @@ export default {
 				}
 			}
 		});
+
+		if (deferredRowIds.length) {
+			// Keep deferred rows out of offer.items so addOfferToItems() -- which both callers run
+			// straight after this -- doesn't flag them posa_offer_applied before they've actually
+			// been discounted, which would gate them out of the retry for good.
+			if (Array.isArray(offer.items)) {
+				offer.items = offer.items.filter((rowId) => !deferredRowIds.includes(rowId));
+			}
+
+			if (retryRowIds.length) {
+				setTimeout(() => {
+					if (typeof this.scheduleOfferRefresh === "function") {
+						this.scheduleOfferRefresh(retryRowIds);
+					}
+				}, 300);
+			}
+		}
 	},
 
 	RemoveOnPrice(offer) {

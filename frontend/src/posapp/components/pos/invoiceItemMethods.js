@@ -16,6 +16,7 @@ import { useBatchSerial } from "../../composables/useBatchSerial.js";
 import { useDiscounts } from "../../composables/useDiscounts.js";
 import { useItemAddition } from "../../composables/useItemAddition.js";
 import { useStockUtils } from "../../composables/useStockUtils.js";
+import { reapplyItemPriceOffer } from "../../composables/offerRates.js";
 import stockCoordinator from "../../utils/stockCoordinator.js";
 
 const ITEM_DETAIL_CACHE_TTL = 5000;
@@ -3094,7 +3095,15 @@ export default {
 
 		const rate = Number.isFinite(Number(newRate)) ? Number(newRate) : 0;
 		const resolvedCurrency = priceCurrency || this.selected_currency;
-		const manualOverride = item._manual_rate_set === true;
+		// A row that an Item Price offer has discounted must not take the raw price-list rate:
+		// this runs for every cart row on any customer / price-list change (POS Profile
+		// posa_force_price_from_customer_price_list), and writing the undiscounted rate here left
+		// the row at full price while posa_offer_applied stayed 1 -- so the Offers tab still said
+		// "Applied", and every other repricing path skips offer rows, meaning nothing ever put the
+		// discount back. The reference price below is still refreshed; the discount is re-derived
+		// from it afterwards.
+		const offerApplied = !!item.posa_offer_applied;
+		const manualOverride = item._manual_rate_set === true || offerApplied;
 		const companyCurrency = this.pos_profile?.currency;
 
 		if (!item.original_currency) {
@@ -3146,6 +3155,15 @@ export default {
 					item.rate = rate;
 				}
 			}
+		}
+
+		// Now that base_price_list_rate holds the new reference price, re-derive the offer's
+		// discounted rate from it. If the offer can't be resolved (e.g. a combo, which ApplyOnCombo
+		// owns) the row simply keeps the rate it already had rather than being un-discounted.
+		if (offerApplied) {
+			// Pass the just-refreshed reference explicitly: the helper's default is the row's own
+			// original_* snapshot, which is still the OLD price list's figure at this point.
+			reapplyItemPriceOffer(item, this, { basePrice: item.base_price_list_rate });
 		}
 
 		if (typeof item.qty === "number" && typeof item.rate === "number") {

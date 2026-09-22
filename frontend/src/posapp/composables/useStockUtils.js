@@ -1,4 +1,5 @@
 import { isOffline } from "../../offline/index.js";
+import { reapplyItemPriceOffer } from "./offerRates.js";
 
 /* global __, frappe */
 
@@ -37,9 +38,6 @@ export function useStockUtils() {
 		// Update conversion factor
 		item.conversion_factor = new_uom.conversion_factor;
 
-		// Calculate the ratio of new to old conversion factor
-		const conversion_ratio = item.conversion_factor / old_conversion_factor;
-
 		// Try to fetch rate for this UOM from price list
 		const priceList = context.get_price_list ? context.get_price_list() : null;
 		let uomRate = null;
@@ -72,45 +70,18 @@ export function useStockUtils() {
                         item._manual_rate_set = true;
 
 			// default rates based on fetched UOM price
-			let base_price = uomRate;
-			let base_rate = uomRate;
-			let base_discount = 0;
+			const base_price = uomRate;
+			const base_rate = uomRate;
+			const base_discount = 0;
 
-			// Reapply offer if present
-			if (item.posa_offer_applied) {
-				const offer =
-					context.posOffers && Array.isArray(context.posOffers)
-						? context.posOffers.find((o) => {
-								if (!o || !o.items) return false;
-								const items = typeof o.items === "string" ? JSON.parse(o.items) : o.items;
-								return Array.isArray(items) && items.includes(item.posa_row_id);
-							})
-						: null;
-
-				if (offer) {
-					if (offer.discount_type === "Rate") {
-						base_rate = context.flt(
-							offer.rate * item.conversion_factor,
-							context.currency_precision,
-						);
-						base_price = base_rate;
-						item.discount_percentage = 0;
-					} else if (offer.discount_type === "Discount Percentage") {
-						item.discount_percentage = offer.discount_percentage;
-						base_discount = context.flt(
-							(uomRate * offer.discount_percentage) / 100,
-							context.currency_precision,
-						);
-						base_rate = context.flt(uomRate - base_discount, context.currency_precision);
-					} else if (offer.discount_type === "Discount Amount") {
-						item.discount_percentage = 0;
-						base_discount = context.flt(
-							offer.discount_amount * item.conversion_factor,
-							context.currency_precision,
-						);
-						base_rate = context.flt(uomRate - base_discount, context.currency_precision);
-					}
-				}
+			// Reapply offer if present. uomRate is this uom's own undiscounted price, so the
+			// offer has to be re-derived from it -- and the row's reference snapshot has to move
+			// with it, which is why this goes through the shared helper rather than only
+			// adjusting rate/base_rate here. It writes every rate field itself when it succeeds.
+			if (item.posa_offer_applied && reapplyItemPriceOffer(item, context, { basePrice: uomRate })) {
+				if (context.calc_stock_qty) context.calc_stock_qty(item, item.qty);
+				if (context.forceUpdate) context.forceUpdate();
+				return;
 			}
 
 			item.base_price_list_rate = base_price;
@@ -161,109 +132,13 @@ export function useStockUtils() {
 
 		// Update rates based on new conversion factor
 		if (item.posa_offer_applied) {
-			// For items with offer, recalculate from original offer rate
-			const offer =
-				context.posOffers && Array.isArray(context.posOffers)
-					? context.posOffers.find((o) => {
-							if (!o || !o.items) return false;
-							const items = typeof o.items === "string" ? JSON.parse(o.items) : o.items;
-							return Array.isArray(items) && items.includes(item.posa_row_id);
-						})
-					: null;
-
-			if (offer && offer.discount_type === "Rate") {
-				// Apply offer rate with new conversion factor
-				const converted_rate = context.flt(offer.rate * item.conversion_factor);
-
-				// Determine original base price for reference
-				const base_price = context.flt(
-					(item.original_base_price_list_rate ??
-						item.base_price_list_rate / old_conversion_factor) * item.conversion_factor,
-					context.currency_precision,
-				);
-
-				// Set base rates and maintain original price list rate
-				item.base_rate = converted_rate;
-				item.base_price_list_rate = base_price;
-
-				// Convert to selected currency
-				const baseCurrency = context.price_list_currency || context.pos_profile.currency;
-				if (context.selected_currency !== baseCurrency) {
-					item.rate = context.flt(
-						converted_rate / context.exchange_rate,
-						context.currency_precision,
-					);
-					item.price_list_rate = context.flt(
-						base_price / context.exchange_rate,
-						context.currency_precision,
-					);
-					item.discount_amount = context.flt(
-						(base_price - converted_rate) / context.exchange_rate,
-						context.currency_precision,
-					);
-				} else {
-					item.rate = converted_rate;
-					item.price_list_rate = base_price;
-					item.discount_amount = context.flt(
-						base_price - converted_rate,
-						context.currency_precision,
-					);
-				}
-
-				item.base_discount_amount = context.flt(
-					base_price - converted_rate,
-					context.currency_precision,
-				);
-				item.discount_percentage = base_price
-					? context.flt((item.base_discount_amount / base_price) * 100, context.currency_precision)
-					: 0;
-			} else if (offer && offer.discount_type === "Discount Percentage") {
-				// For percentage discount, recalculate from original price but with new conversion factor
-				let updated_base_price;
-				if (item.original_base_price_list_rate) {
-					updated_base_price = context.flt(
-						item.original_base_price_list_rate * item.conversion_factor,
-						context.currency_precision,
-					);
-				} else {
-					updated_base_price = context.flt(
-						item.base_price_list_rate * conversion_ratio,
-						context.currency_precision,
-					);
-				}
-
-				// Store updated base price
-				item.base_price_list_rate = updated_base_price;
-
-				// Recalculate discount based on percentage
-				const base_discount = context.flt(
-					(updated_base_price * offer.discount_percentage) / 100,
-					context.currency_precision,
-				);
-				item.base_discount_amount = base_discount;
-				item.base_rate = context.flt(updated_base_price - base_discount, context.currency_precision);
-
-				// Convert to selected currency if needed
-				const baseCurrency = context.price_list_currency || context.pos_profile.currency;
-				if (context.selected_currency !== baseCurrency) {
-					item.price_list_rate = context.flt(
-						updated_base_price / context.exchange_rate,
-						context.currency_precision,
-					);
-					item.discount_amount = context.flt(
-						base_discount / context.exchange_rate,
-						context.currency_precision,
-					);
-					item.rate = context.flt(
-						item.base_rate / context.exchange_rate,
-						context.currency_precision,
-					);
-				} else {
-					item.price_list_rate = updated_base_price;
-					item.discount_amount = base_discount;
-					item.rate = item.base_rate;
-				}
-			}
+			// Re-derive the offer against the row's reference price scaled to the NEW conversion
+			// factor. reapplyItemPriceOffer resolves the offer through the row's posa_offers ->
+			// the invoice's posa_offers -> the template; the lookup that used to sit here searched
+			// context.posOffers for an entry whose `items` held this row, which can never match
+			// (templates carry no `items` field), so the discount was silently dropped on every
+			// uom change while the row stayed flagged as having an offer applied.
+			reapplyItemPriceOffer(item, context);
 		} else {
 			// For regular items, use standard conversion
 			if (item.batch_price) {
