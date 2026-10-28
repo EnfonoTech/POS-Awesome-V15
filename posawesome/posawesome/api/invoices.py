@@ -436,6 +436,9 @@ def update_invoice(data):
 
     if data.get("name"):
         invoice_doc = frappe.get_doc(doctype, data.get("name"))
+        # The client's copy of `modified` can be stale when saves overlap on a slow
+        # server; keep the value just loaded so save() doesn't raise TimestampMismatch.
+        data.pop("modified", None)
         invoice_doc.update(data)
     else:
         invoice_doc = frappe.get_doc(data)
@@ -690,6 +693,8 @@ def submit_invoice(invoice, data):
         
         invoice_without_advances = invoice.copy()
         invoice_without_advances.pop("advances", None)
+        # Stale client `modified` would trip the timestamp check on save()
+        invoice_without_advances.pop("modified", None)
         
         # Ensure customer fields are consistent before update
         invoice_without_advances["customer"] = db_customer

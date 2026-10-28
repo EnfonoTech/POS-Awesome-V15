@@ -1473,13 +1473,21 @@ export default {
 					? "posawesome.posawesome.api.quotations.update_quotation"
 					: "posawesome.posawesome.api.invoices.update_invoice";
 
-		try {
-			const response = await frappe.call({
+		// Run saves one at a time: on a slow server an overlapping save would
+		// otherwise race the previous one and hit "Document has been modified".
+		const previous = this._updateInvoiceQueue || Promise.resolve();
+		const run = previous.catch(() => {}).then(() =>
+			frappe.call({
 				method,
 				args: {
 					data: doc,
 				},
-			});
+			}),
+		);
+		this._updateInvoiceQueue = run;
+
+		try {
+			const response = await run;
 
 			const message = response?.message;
 			if (message) {
