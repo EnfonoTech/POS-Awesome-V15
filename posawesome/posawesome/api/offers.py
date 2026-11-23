@@ -4,10 +4,12 @@
 
 from __future__ import unicode_literals
 import json
+import time
 
 import frappe
-from frappe.utils import cstr, flt, nowdate
+from frappe.utils import cstr, flt, get_system_timezone, now_datetime, nowdate
 from posawesome.posawesome.doctype.pos_coupon.pos_coupon import check_coupon_code
+from posawesome.posawesome.doctype.pos_offer.pos_offer import get_offer_window_strings
 from posawesome.posawesome.doctype.delivery_charges.delivery_charges import (
     get_applicable_delivery_charges as _get_applicable_delivery_charges,
 )
@@ -38,11 +40,23 @@ def get_active_gift_coupons(customer, company):
 
 
 @frappe.whitelist()
+def get_server_time():
+    """The till's clock for time-bound POS Offers (see frontend serverClock.js).
+
+    Offer start/end times are site (company) time, and the till may run on a PC in another
+    country or with a wrong clock -- so it syncs to the server instead of trusting the PC.
+    epoch_ms is plain UTC, independent of the server's OS time zone.
+    """
+    return {"epoch_ms": int(time.time() * 1000), "time_zone": get_system_timezone()}
+
+
+@frappe.whitelist()
 def get_offers(profile):
     pos_profile = frappe.get_doc("POS Profile", profile)
     company = pos_profile.company
     warehouse = pos_profile.warehouse
-    date = nowdate()
+    now = now_datetime()
+    date = now.strftime("%Y-%m-%d")
 
     values = {
         "company": company,
@@ -50,7 +64,12 @@ def get_offers(profile):
         "warehouse": warehouse,
         "valid_from": date,
         "valid_upto": date,
+        "now_time": now.strftime("%H:%M:%S"),
     }
+    # Offers are filtered by DATE here, plus "not already ended today" -- an offer that starts
+    # later today (valid_from_time) is still sent, so the till already holds it and switches it
+    # on by itself at the start time (see isOfferActiveNow in invoiceOfferMethods.js), even if
+    # the 15s refetch happens to fail right then. The till re-checks both ends every few seconds.
     data = (
         frappe.db.sql(
             """
@@ -62,7 +81,9 @@ def get_offers(profile):
         (pos_profile is NULL OR pos_profile  = '' OR  pos_profile = %(pos_profile)s) AND
         (warehouse is NULL OR warehouse  = '' OR  warehouse = %(warehouse)s) AND
         (valid_from is NULL OR valid_from  = '' OR  valid_from <= %(valid_from)s) AND
-        (valid_upto is NULL OR valid_upto  = '' OR  valid_upto >= %(valid_upto)s)
+        (valid_upto is NULL OR valid_upto  = '' OR  valid_upto >= %(valid_upto)s) AND
+        (valid_upto is NULL OR valid_upto > %(valid_upto)s OR IFNULL(time_bound, 0) = 0 OR
+            valid_upto_time is NULL OR valid_upto_time >= %(now_time)s)
     """,
             values=values,
             as_dict=1,
@@ -70,12 +91,25 @@ def get_offers(profile):
         or []
     )
 
+    _attach_validity_window(data)
     _attach_combo_items(data)
     _attach_excluded_customer_groups(data)
 
     promotional_scheme_offers = _get_promotional_scheme_offers(pos_profile) or []
+    _attach_validity_window(promotional_scheme_offers)
 
     return data + promotional_scheme_offers
+
+
+def _attach_validity_window(offers):
+    """Give the till each offer's exact start/end as 'YYYY-MM-DD HH:MM:SS' in site time.
+
+    The raw Time columns come out of MariaDB as timedeltas (serialised like '9:00:00'), and a
+    date-only end means end-of-day -- resolving that here keeps the client check a plain string
+    comparison against frappe.datetime.system_datetime().
+    """
+    for offer in offers or []:
+        offer["valid_from_datetime"], offer["valid_upto_datetime"] = get_offer_window_strings(offer)
 
 
 def _attach_excluded_customer_groups(offers):

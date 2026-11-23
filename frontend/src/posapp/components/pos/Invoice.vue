@@ -506,6 +506,7 @@ import invoiceItemMethods from "./invoiceItemMethods";
 import invoiceComputed from "./invoiceComputed";
 import invoiceWatchers from "./invoiceWatchers";
 import offerMethods from "./invoiceOfferMethods";
+import { syncServerClock } from "../../composables/serverClock.js";
 import shortcutMethods from "./invoiceShortcuts";
 import { useInvoiceStore } from "../../stores/invoiceStore.js";
 import { useCustomersStore } from "../../stores/customersStore.js";
@@ -2112,6 +2113,9 @@ export default {
                 },
                 handleClearInvoice() {
                         this.clear_invoice();
+                        // Submitted / cleared straight from the payment screen: the next
+                        // invoice must use real time again.
+                        this.unfreezeOfferClock();
 			this.invoice_update_stock = this.getDefaultUpdateStock();
 			this.eventBus.emit("pos_invoice_update_stock", this.invoice_update_stock);
 			this.refreshBillingOnlyDnQuota();
@@ -2133,6 +2137,12 @@ export default {
                         await this.load_sales_order_to_invoice(data);
                 },
                 handleSetOffers(data) {
+                        // Payment screen open: hold the fresh list until it closes (see
+                        // freezeOfferClock) so the price being paid can't change under the customer.
+                        if (this._offerFreeze) {
+                                this._offerFreeze.pendingOffers = data;
+                                return;
+                        }
                         this.posOffers = data;
                         // Re-evaluate against the fresh templates immediately (mirrors
                         // handleUpdateInvoiceCoupons below) -- otherwise a realtime-triggered
@@ -2195,6 +2205,11 @@ export default {
                 },
                 handleShowPayment(data) {
                         this.paymentVisible = data === "true";
+                        if (data === "true") {
+                                this.freezeOfferClock();
+                        } else {
+                                this.unfreezeOfferClock();
+                        }
                         // When closing payments, reset customer to POS profile customer
                         if (data === "false" && this.pos_profile && this.pos_profile.customer) {
                                 this.customer = this.pos_profile.customer;
@@ -2707,6 +2722,13 @@ export default {
 
                 this.stockUnsubscribe = stockCoordinator.subscribe(this.handleStockCoordinatorUpdate);
 
+                // Time-bound POS Offers (valid_from_time / valid_upto_time): switch them on/off
+                // at their start/end time on the open cart, independent of network refetches.
+                // The clock is the server's (company time), re-synced every minute.
+                syncServerClock();
+                this._serverClockTimer = setInterval(() => syncServerClock(), 60000);
+                this._timedOfferTimer = setInterval(() => this.refreshTimedOffers(), 5000);
+
                 // Fallback: Check if POS profile exists in storage but hasn't been registered yet
                 // This ensures initialization happens even if register_pos_profile event was missed
                 this.ensurePosProfileInitialized();
@@ -2757,6 +2779,14 @@ export default {
                 this._busHandlers = {};
                 if (typeof this.cancelScheduledOfferRefresh === "function") {
                         this.cancelScheduledOfferRefresh();
+                }
+                if (this._timedOfferTimer) {
+                        clearInterval(this._timedOfferTimer);
+                        this._timedOfferTimer = null;
+                }
+                if (this._serverClockTimer) {
+                        clearInterval(this._serverClockTimer);
+                        this._serverClockTimer = null;
                 }
                 if (this._suppressClosePaymentsTimer) {
                         clearTimeout(this._suppressClosePaymentsTimer);

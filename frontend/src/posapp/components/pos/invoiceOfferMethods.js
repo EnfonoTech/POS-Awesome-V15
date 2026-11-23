@@ -1,6 +1,7 @@
 import { silentPrint } from "../../plugins/print.js";
 import { isOffline } from "../../../offline/index.js";
 import { formatUtils } from "../../format.js";
+import { serverNowString } from "../../composables/serverClock.js";
 /* global __, frappe, flt */
 
 export default {
@@ -127,10 +128,117 @@ export default {
 		return !excluded.includes(customerGroup);
 	},
 
+	// Current site (company, system time zone) time as "YYYY-MM-DD HH:mm:ss" -- the same format
+	// the server uses for valid_from_datetime / valid_upto_datetime (see _attach_validity_window
+	// in api/offers.py), so the window check is a plain string comparison.
+	//
+	// 1. While the payment screen is open: the moment it opened (see freezeOfferClock).
+	// 2. Normally: the server's clock (serverClock.js), so a PC abroad or with a wrong clock
+	//    can't start/end an offer at the wrong time.
+	// 3. Only if the server was never reached this session: the PC clock converted to site time.
+	offerClockNow() {
+		if (this._offerFreeze) {
+			return this._offerFreeze.clock;
+		}
+		const server = serverNowString();
+		if (server) {
+			return server;
+		}
+		try {
+			if (frappe.datetime && typeof frappe.datetime.system_datetime === "function") {
+				return frappe.datetime.system_datetime();
+			}
+			const tz = (frappe.boot && frappe.boot.time_zone && frappe.boot.time_zone.system) ||
+				(frappe.sys_defaults && frappe.sys_defaults.time_zone);
+			if (tz && window.moment && typeof window.moment.tz === "function") {
+				return window.moment.tz(tz).format("YYYY-MM-DD HH:mm:ss");
+			}
+		} catch (error) {
+			console.warn("Offer clock fallback to local time:", error);
+		}
+		return window.moment ? window.moment().format("YYYY-MM-DD HH:mm:ss") : "";
+	},
+
+	// Is this offer inside its valid_from -> valid_upto window right now?
+	//
+	// get_offers() deliberately sends offers that start later TODAY, and the till only refetches
+	// every 15s (and keeps a cached copy offline), so the start/end time is enforced here.
+	// Offers without the computed window (old cache) fall back to "active", same as before.
+	isOfferActiveNow(offer, now = null) {
+		if (!offer) {
+			return false;
+		}
+		const start = offer.valid_from_datetime;
+		const end = offer.valid_upto_datetime;
+		if (!start && !end) {
+			return true;
+		}
+		const current = now || this.offerClockNow();
+		if (!current) {
+			return true;
+		}
+		if (start && current < start) {
+			return false;
+		}
+		if (end && current > end) {
+			return false;
+		}
+		return true;
+	},
+
+	// Names of the offers that are currently OUTSIDE their window. Only changes when an offer
+	// crosses its start or end time (or the offer list itself changes).
+	timedOfferSignature(now = null) {
+		const current = now || this.offerClockNow();
+		return (Array.isArray(this.posOffers) ? this.posOffers : [])
+			.filter((offer) => !this.isOfferActiveNow(offer, current))
+			.map((offer) => offer.name)
+			.sort()
+			.join("|");
+	},
+
+	// Ticked every few seconds from Invoice.vue: when an offer has just switched on or off,
+	// re-run the offer engine so it is applied / taken off the open cart without waiting for a
+	// cart edit or the next successful refetch.
+	refreshTimedOffers() {
+		if (this.isApplyingOffer || this._offerFreeze) {
+			return;
+		}
+		if (this.timedOfferSignature() !== this._timedOfferSignature) {
+			this.scheduleOfferRefresh();
+		}
+	},
+
+	// Payment screen opened: the customer pays the price they were shown. Offers neither start
+	// nor end on this invoice while paying -- the offer clock stops at this moment, and offer
+	// list refreshes from the server (15s poll / desk edits) are held back until it closes.
+	freezeOfferClock() {
+		if (this._offerFreeze) {
+			return;
+		}
+		this._offerFreeze = { clock: this.offerClockNow(), pendingOffers: null };
+	},
+
+	// Back to the cart (or invoice submitted/cleared): apply whatever was held back and
+	// re-evaluate at the real time, so an offer that ended while paying comes off now.
+	unfreezeOfferClock() {
+		const freeze = this._offerFreeze;
+		if (!freeze) {
+			return;
+		}
+		this._offerFreeze = null;
+		if (freeze.pendingOffers) {
+			this.posOffers = freeze.pendingOffers;
+		}
+		this.scheduleOfferRefresh();
+	},
+
 	async handelOffers(changedRowIds = [], removedRows = {}) {
 		try {
-			const sourceOffers = (Array.isArray(this.posOffers) ? this.posOffers : []).filter((offer) =>
-				this.isOfferAllowedForCustomer(offer),
+			const now = this.offerClockNow();
+			this._timedOfferSignature = this.timedOfferSignature(now);
+			const sourceOffers = (Array.isArray(this.posOffers) ? this.posOffers : []).filter(
+				(offer) => this.isOfferAllowedForCustomer(offer) && this.isOfferActiveNow(offer, now),
 			);
 			if (!sourceOffers.length) {
 				this.updatePosOffers([]);
