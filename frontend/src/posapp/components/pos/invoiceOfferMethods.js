@@ -159,31 +159,51 @@ export default {
 		return window.moment ? window.moment().format("YYYY-MM-DD HH:mm:ss") : "";
 	},
 
-	// Is this offer inside its valid_from -> valid_upto window right now?
+	// Is this offer inside its validity right now? Mirrors is_offer_active_at in pos_offer.py.
 	//
-	// get_offers() deliberately sends offers that start later TODAY, and the till only refetches
-	// every 15s (and keeps a cached copy offline), so the start/end time is enforced here.
-	// Offers without the computed window (old cache) fall back to "active", same as before.
+	// offer.validity = { mode, from_date, upto_date, start, end } (see _attach_validity_window in
+	// api/offers.py); start/end are null unless the offer is Time Bound.
+	//   "Start to End": one window, from_date+start -> upto_date+end (today 09:00 -> tomorrow 12:00)
+	//   "Every Day":    start -> end on each day from_date..upto_date (09:00-12:00 daily); an end
+	//                   before the start is an overnight window owned by the day it starts on.
+	// get_offers() filters by date only and the till refetches every 15s (and keeps a cached copy
+	// offline), so the times are enforced here. No validity (old cache) means active.
 	isOfferActiveNow(offer, now = null) {
 		if (!offer) {
 			return false;
 		}
-		const start = offer.valid_from_datetime;
-		const end = offer.valid_upto_datetime;
-		if (!start && !end) {
+		const v = offer.validity;
+		if (!v) {
 			return true;
 		}
 		const current = now || this.offerClockNow();
 		if (!current) {
 			return true;
 		}
-		if (start && current < start) {
-			return false;
+		const day = current.slice(0, 10);
+		const time = current.slice(11, 19);
+		const inRange = (d) => (!v.from_date || d >= v.from_date) && (!v.upto_date || d <= v.upto_date);
+
+		if (v.mode !== "Every Day" || (!v.start && !v.end)) {
+			const first = v.from_date ? `${v.from_date} ${v.start || "00:00:00"}` : null;
+			const last = v.upto_date ? `${v.upto_date} ${v.end || "23:59:59"}` : null;
+			return (!first || current >= first) && (!last || current <= last);
 		}
-		if (end && current > end) {
-			return false;
+
+		const start = v.start || "00:00:00";
+		const end = v.end || "23:59:59";
+		if (start <= end) {
+			return inRange(day) && time >= start && time <= end;
 		}
-		return true;
+		if (time >= start) {
+			return inRange(day);
+		}
+		if (time <= end) {
+			const prev = new Date(`${day}T00:00:00Z`);
+			prev.setUTCDate(prev.getUTCDate() - 1);
+			return inRange(prev.toISOString().slice(0, 10));
+		}
+		return false;
 	},
 
 	// Names of the offers that are currently OUTSIDE their window. Only changes when an offer

@@ -26,6 +26,7 @@
   "valid_from",
   "valid_upto",
   "time_bound",
+  "time_mode",
   "valid_from_time",
   "valid_upto_time",
   "coupon_based",
@@ -189,16 +190,24 @@
    "label": "Time Bound"
   },
   {
+   "default": "Start to End",
+   "depends_on": "eval:doc.time_bound",
+   "fieldname": "time_mode",
+   "fieldtype": "Select",
+   "label": "Time Mode",
+   "options": "Start to End\nEvery Day"
+  },
+  {
    "depends_on": "eval:doc.time_bound",
    "fieldname": "valid_from_time",
    "fieldtype": "Time",
-   "label": "Valid From Time"
+   "label": "Start Time"
   },
   {
-   "depends_on": "eval:doc.time_bound && doc.valid_upto",
+   "depends_on": "eval:doc.time_bound && (doc.time_mode == 'Every Day' || doc.valid_upto)",
    "fieldname": "valid_upto_time",
    "fieldtype": "Time",
-   "label": "Valid Upto Time"
+   "label": "End Time"
   },
   {
    "fieldname": "apply_for_section",
@@ -376,7 +385,7 @@
   }
  ],
  "index_web_pages_for_search": 1,
- "modified": "2026-11-23 12:30:00.000000",
+ "modified": "2026-11-23 15:30:00.000000",
  "modified_by": "Administrator",
  "module": "POSAwesome",
  "name": "POS Offer",

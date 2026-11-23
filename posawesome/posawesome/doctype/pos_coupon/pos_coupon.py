@@ -6,7 +6,7 @@ import frappe
 from frappe import _
 from frappe.model.document import Document
 from frappe.utils import strip
-from frappe.utils import getdate, today
+from frappe.utils import format_time, getdate, today
 from posawesome.posawesome.doctype.pos_offer.pos_offer import get_offer_validity_status
 
 
@@ -98,14 +98,20 @@ def check_coupon_code(coupon_code, customer=None, company=None):
     if pos_offer.disable:
         res["msg"] = _("Sorry, this coupon code is no longer valid")
         return res
-    # Uses the offer's full window, so a time-bound offer (e.g. 09:00 -> 12:00 next day)
-    # refuses its coupon outside those hours too, not just outside those dates.
+    # Uses the offer's full validity, so a time-bound offer (today 09:00 -> tomorrow 12:00, or
+    # 09:00-12:00 every day) refuses its coupon outside those times too, not just those dates.
     offer_status = get_offer_validity_status(pos_offer)
     if offer_status == "Not Started":
         res["msg"] = _("Sorry, this coupon code's validity has not started")
         return res
     if offer_status == "Expired":
         res["msg"] = _("Sorry, this coupon code's validity has expired")
+        return res
+    if offer_status == "Outside Hours":
+        res["msg"] = _("Sorry, this coupon code is only valid between {0} and {1}").format(
+            format_time(pos_offer.valid_from_time or "00:00:00"),
+            format_time(pos_offer.valid_upto_time or "23:59:59"),
+        )
         return res
 
     if customer and coupon.coupon_type == "Gift Card":
