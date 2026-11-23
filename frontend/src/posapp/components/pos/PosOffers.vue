@@ -248,6 +248,20 @@ export default {
 				}
 			});
 			this.removeOffers(toRemove);
+			// Only one Grand Total (invoice-level) offer can hold the discount. Who holds it is
+			// normally discount_percentage_offer_name, but that lags: the invoice only clears it
+			// after it processes THIS update. So when one offer drops out and another qualifies in
+			// the same pass -- e.g. a time-bound offer ends at 12:00 as the next one starts -- the
+			// gone offer still looked like the holder, and the new one was shown as "Offer
+			// Available / Apply" instead of auto-applying. Look at the offers still in the list.
+			const grandTotalHolder = () => {
+				const named = this.discount_percentage_offer_name;
+				if (named && this.pos_offers.some((el) => el.name === named)) {
+					return named;
+				}
+				const applied = this.pos_offers.find((el) => el.offer === "Grand Total" && el.offer_applied);
+				return applied ? applied.name : null;
+			};
 			const newlyNeedingConfirmation = [];
 			offers.forEach((offer) => {
 				const pos_offer = this.pos_offers.find((pos_offer) => offer.name === pos_offer.name);
@@ -266,7 +280,7 @@ export default {
 							pos_offer.given_qty = offer.given_qty;
 						}
 					}
-					if (pos_offer.offer === "Grand Total" && !this.discount_percentage_offer_name) {
+					if (pos_offer.offer === "Grand Total" && !grandTotalHolder()) {
 						pos_offer.offer_applied = !!pos_offer.auto;
 					}
 					if (
@@ -308,7 +322,7 @@ export default {
 							!offer.replace_item
 						) {
 							newOffer.offer_applied = false;
-						} else if (offer.offer === "Grand Total" && this.discount_percentage_offer_name) {
+						} else if (offer.offer === "Grand Total" && grandTotalHolder()) {
 							newOffer.offer_applied = false;
 						} else {
 							newOffer.offer_applied = !!offer.auto;

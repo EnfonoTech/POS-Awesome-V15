@@ -162,7 +162,7 @@ export default {
 	// Is this offer inside its validity right now? Mirrors is_offer_active_at in pos_offer.py.
 	//
 	// offer.validity = { mode, from_date, upto_date, start, end } (see _attach_validity_window in
-	// api/offers.py); start/end are null unless the offer is Time Bound.
+	// api/offers.py); start is null unless the offer is Time Bound, end is null for "end of day".
 	//   "Start to End": one window, from_date+start -> upto_date+end (today 09:00 -> tomorrow 12:00)
 	//   "Every Day":    start -> end on each day from_date..upto_date (09:00-12:00 daily); an end
 	//                   before the start is an overnight window owned by the day it starts on.
@@ -184,21 +184,24 @@ export default {
 		const time = current.slice(11, 19);
 		const inRange = (d) => (!v.from_date || d >= v.from_date) && (!v.upto_date || d <= v.upto_date);
 
+		// End times are EXCLUSIVE (09:00-12:00 is off at 12:00:00) so back-to-back offers never
+		// overlap; no end time = end of the day, written "24:00:00", which still sorts correctly
+		// as a string ("2026-11-24 23:59:59" < "2026-11-24 24:00:00" < "2026-11-25 00:00:00").
 		if (v.mode !== "Every Day" || (!v.start && !v.end)) {
 			const first = v.from_date ? `${v.from_date} ${v.start || "00:00:00"}` : null;
-			const last = v.upto_date ? `${v.upto_date} ${v.end || "23:59:59"}` : null;
-			return (!first || current >= first) && (!last || current <= last);
+			const last = v.upto_date ? `${v.upto_date} ${v.end || "24:00:00"}` : null;
+			return (!first || current >= first) && (!last || current < last);
 		}
 
 		const start = v.start || "00:00:00";
-		const end = v.end || "23:59:59";
-		if (start <= end) {
-			return inRange(day) && time >= start && time <= end;
+		const end = v.end || null;
+		if (end === null || end > start) {
+			return inRange(day) && time >= start && (end === null || time < end);
 		}
 		if (time >= start) {
 			return inRange(day);
 		}
-		if (time <= end) {
+		if (time < end) {
 			const prev = new Date(`${day}T00:00:00Z`);
 			prev.setUTCDate(prev.getUTCDate() - 1);
 			return inRange(prev.toISOString().slice(0, 10));

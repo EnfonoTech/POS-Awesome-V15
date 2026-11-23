@@ -12,7 +12,6 @@ from frappe.model.document import Document
 from frappe.utils import add_days, flt, format_datetime, get_time, getdate, now_datetime
 
 DAY_START = datetime.time(0, 0, 0)
-DAY_END = datetime.time(23, 59, 59)
 
 # Time Mode (only when "Time Bound" is ticked):
 #   START_TO_END -- one continuous window: Valid From + Start Time -> Valid Upto + End Time
@@ -21,6 +20,9 @@ DAY_END = datetime.time(23, 59, 59)
 #                   End Time on each of them (e.g. 1st-10th, 09:00-12:00 daily). An End Time
 #                   earlier than the Start Time is an overnight window (22:00-02:00) that belongs
 #                   to the day it starts on.
+# The End Time is EXCLUSIVE (09:00-12:00 is off at 12:00:00 sharp) so back-to-back offers
+# (09:00-12:00 then 12:00-15:00) never overlap: the next one takes over the same second.
+# No End Time means the end of that day (midnight).
 START_TO_END = "Start to End"
 EVERY_DAY = "Every Day"
 
@@ -28,9 +30,10 @@ EVERY_DAY = "Every Day"
 def get_offer_validity(offer):
     """The offer's validity as plain parts: (mode, from_date, upto_date, start_time, end_time).
 
-    start_time/end_time are None when the offer is not time bound -- the times are ignored then
-    because Frappe stamps the current time into every empty Time field of a new document
-    (create_new.py / create_new.js), so their mere presence means nothing.
+    start_time is None when the offer is not time bound -- the times are ignored then because
+    Frappe stamps the current time into every empty Time field of a new document
+    (create_new.py / create_new.js), so their mere presence means nothing. end_time None means
+    the end of the day.
     """
     from_date = getdate(offer.get("valid_from")) if offer.get("valid_from") else None
     upto_date = getdate(offer.get("valid_upto")) if offer.get("valid_upto") else None
@@ -38,8 +41,15 @@ def get_offer_validity(offer):
     if not offer.get("time_bound"):
         return START_TO_END, from_date, upto_date, None, None
     start = get_time(offer.get("valid_from_time")) if offer.get("valid_from_time") else DAY_START
-    end = get_time(offer.get("valid_upto_time")) if offer.get("valid_upto_time") else DAY_END
+    end = get_time(offer.get("valid_upto_time")) if offer.get("valid_upto_time") else None
     return mode, from_date, upto_date, start, end
+
+
+def _end_moment(day, end):
+    """Exclusive end: `end` on `day`, or the following midnight when there is no end time."""
+    if end is None:
+        return datetime.datetime.combine(getdate(add_days(day, 1)), DAY_START)
+    return datetime.datetime.combine(getdate(day), end)
 
 
 def get_offer_validity_payload(offer):
@@ -54,16 +64,21 @@ def get_offer_validity_payload(offer):
     }
 
 
+def _is_overnight(start, end):
+    return start is not None and end is not None and end < start
+
+
 def _first_and_last_moment(offer):
-    """(first, last) datetime the offer can ever be active; either side None when open."""
+    """(first, end) of everything the offer can ever be active for: first inclusive, end
+    exclusive; either side None when open."""
     mode, from_date, upto_date, start, end = get_offer_validity(offer)
     first = datetime.datetime.combine(from_date, start or DAY_START) if from_date else None
     last = None
     if upto_date:
         last_day = upto_date
-        if mode == EVERY_DAY and start is not None and end < start:
+        if mode == EVERY_DAY and _is_overnight(start, end):
             last_day = add_days(upto_date, 1)
-        last = datetime.datetime.combine(getdate(last_day), end or DAY_END)
+        last = _end_moment(last_day, end)
     return first, last
 
 
@@ -73,19 +88,19 @@ def is_offer_active_at(offer, now=None):
 
     if mode != EVERY_DAY or start is None:
         first, last = _first_and_last_moment(offer)
-        return (not first or now >= first) and (not last or now <= last)
+        return (not first or now >= first) and (not last or now < last)
 
     today, time = now.date(), now.time()
 
     def in_range(day):
         return (not from_date or day >= from_date) and (not upto_date or day <= upto_date)
 
-    if start <= end:
-        return in_range(today) and start <= time <= end
+    if not _is_overnight(start, end):
+        return in_range(today) and time >= start and (end is None or time < end)
     # overnight window: the part after midnight belongs to yesterday's window
     if time >= start:
         return in_range(today)
-    if time <= end:
+    if time < end:
         return in_range(add_days(today, -1))
     return False
 
@@ -99,7 +114,7 @@ def get_offer_validity_status(offer, now=None):
     first, last = _first_and_last_moment(offer)
     if first and now < first:
         return "Not Started"
-    if last and now > last:
+    if last and now >= last:
         return "Expired"
     return "Outside Hours"
 
